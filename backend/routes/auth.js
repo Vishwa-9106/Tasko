@@ -1,9 +1,45 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../uploads/profiles');
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Create unique filename with timestamp
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `profile-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Check if file is an image
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
+    }
+  }
+});
 
 // JWT Secret (in production, use environment variable)
 const JWT_SECRET = process.env.JWT_SECRET || 'cookie-app-secret-key-2024';
@@ -275,6 +311,45 @@ router.put('/profile', auth, async (req, res) => {
 // @access  Private
 router.post('/logout', auth, (req, res) => {
   res.json({ message: 'Logout successful' });
+});
+
+// @route   POST /api/auth/upload-profile-photo
+// @desc    Upload profile photo
+// @access  Private
+router.post('/upload-profile-photo', auth, upload.single('profilePhoto'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // Create the URL for the uploaded file
+    const profileImageUrl = `/uploads/profiles/${req.file.filename}`;
+
+    // Update user's profile image in database
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { profileImage: profileImageUrl },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log('Profile photo uploaded successfully:', profileImageUrl);
+
+    res.json({
+      message: 'Profile photo uploaded successfully',
+      profileImageUrl: profileImageUrl
+    });
+
+  } catch (error) {
+    console.error('Profile photo upload error:', error);
+    res.status(500).json({
+      message: 'Error uploading profile photo',
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;

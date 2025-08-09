@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 const dotenv = require('dotenv');
 
 // Load environment variables
@@ -12,6 +13,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // MongoDB connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://vishwadhanapal9126:Vishwa9126@cookie.2gnualo.mongodb.net/?retryWrites=true&w=majority&appName=cookie';
 
@@ -19,17 +23,8 @@ mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(async () => {
+.then(() => {
   console.log('✅ Connected to MongoDB successfully');
-  
-  // Drop the problematic geospatial index if it exists
-  try {
-    const User = require('./models/User');
-    await User.collection.dropIndex({ email: 1, userType: 1, location: '2dsphere', services: 1, isActive: 1 });
-    console.log('✅ Dropped old geospatial index successfully');
-  } catch (error) {
-    console.log('ℹ️  Geospatial index may not exist or already dropped');
-  }
 })
 .catch((error) => {
   console.error('❌ MongoDB connection error:', error);
