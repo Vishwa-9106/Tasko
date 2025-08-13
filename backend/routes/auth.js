@@ -91,7 +91,7 @@ router.post('/register', async (req, res) => {
       password,
       phone,
       userType,
-      location: location || {},
+      location: location || '',
     };
 
     // Add worker-specific fields if userType is worker
