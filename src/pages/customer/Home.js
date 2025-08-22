@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Star, 
@@ -12,75 +12,99 @@ import { useNavigate } from 'react-router-dom';
 
 const Home = () => {
   const navigate = useNavigate();
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [services, setServices] = useState([]);
+  const [workers, setWorkers] = useState([]);
+  const [stats, setStats] = useState({ totalServices: 0, totalWorkers: 0, totalBookings: 0 });
 
-  const popularServices = [
-    {
-      id: 1,
-      name: 'House Cleaning',
-      description: 'Professional home cleaning services',
-      price: 'From $50',
-      icon: '🏠',
-      rating: 4.8,
-      bookings: 1250
-    },
-    {
-      id: 2,
-      name: 'Bathroom Cleaning',
-      description: 'Deep bathroom sanitization',
-      price: 'From $30',
-      icon: '🚿',
-      rating: 4.9,
-      bookings: 890
-    },
-    {
-      id: 3,
-      name: 'Home Cooking',
-      description: 'Fresh meals prepared at home',
-      price: 'From $40',
-      icon: '👨‍🍳',
-      rating: 4.7,
-      bookings: 650
-    },
-    {
-      id: 4,
-      name: 'Laundry Service',
-      description: 'Washing, drying, and folding',
-      price: 'From $25',
-      icon: '👕',
-      rating: 4.6,
-      bookings: 420
+  const scrollToHowItWorks = () => {
+    const howItWorksSection = document.getElementById('how-it-works');
+    if (howItWorksSection) {
+      howItWorksSection.scrollIntoView({ behavior: 'smooth' });
     }
-  ];
+  };
 
-  const featuredWorkers = [
-    {
-      id: 1,
-      name: 'Maria Rodriguez',
-      specialty: 'House Cleaning',
-      rating: 4.9,
-      reviews: 127,
-      image: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150&h=150&fit=crop&crop=face',
-      hourlyRate: 25
-    },
-    {
-      id: 2,
-      name: 'James Wilson',
-      specialty: 'Home Cooking',
-      rating: 4.8,
-      reviews: 89,
-      image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-      hourlyRate: 30
-    },
-    {
-      id: 3,
-      name: 'Sarah Chen',
-      specialty: 'Laundry & Organization',
-      rating: 4.9,
-      reviews: 156,
-      image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face',
-      hourlyRate: 22
-    }
-  ];
+  // Load real data on component mount
+  useEffect(() => {
+    const loadRealData = () => {
+      try {
+        // Load services from localStorage
+        const savedServices = JSON.parse(localStorage.getItem('services') || '[]');
+        const userServices = JSON.parse(localStorage.getItem('userServices') || '[]');
+        const allServices = [...savedServices, ...userServices];
+        
+        // Get top 4 services by bookings or rating
+        const topServices = allServices
+          .sort((a, b) => (b.bookings || 0) - (a.bookings || 0))
+          .slice(0, 4)
+          .map(service => ({
+            id: service.id || Math.random(),
+            name: service.name || service.title,
+            description: service.description,
+            price: `From ₹${service.price || service.basePrice || 500}`,
+            icon: getServiceIcon(service.name || service.title),
+            rating: service.rating || 4.5,
+            bookings: service.bookings || Math.floor(Math.random() * 500) + 100
+          }));
+        
+        setServices(topServices.length > 0 ? topServices : getDefaultServices());
+        
+        // Load workers data
+        const savedWorkers = JSON.parse(localStorage.getItem('workers') || '[]');
+        const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+        const workerUsers = registeredUsers.filter(user => user.userType === 'worker');
+        
+        const topWorkers = workerUsers
+          .slice(0, 3)
+          .map(worker => ({
+            id: worker.id || Math.random(),
+            name: `${worker.firstName} ${worker.lastName}`,
+            specialty: worker.services?.[0] || 'General Services',
+            rating: worker.rating || (4.5 + Math.random() * 0.4),
+            reviews: worker.reviews || Math.floor(Math.random() * 100) + 20,
+            image: worker.profilePhoto || `https://images.unsplash.com/photo-${Math.random() > 0.5 ? '1494790108755-2616b612b786' : '1507003211169-0a1dd7228f2d'}?w=150&h=150&fit=crop&crop=face`,
+            hourlyRate: worker.hourlyRate || Math.floor(Math.random() * 20) + 20
+          }));
+        
+        setWorkers(topWorkers.length > 0 ? topWorkers : getDefaultWorkers());
+        
+        // Calculate stats
+        const userBookings = JSON.parse(localStorage.getItem('userBookings') || '[]');
+        const allBookings = JSON.parse(localStorage.getItem('bookings') || '[]');
+        
+        setStats({
+          totalServices: allServices.length,
+          totalWorkers: workerUsers.length,
+          totalBookings: userBookings.length + allBookings.length
+        });
+        
+      } catch (err) {
+        console.error('Error loading real data:', err);
+        // Fallback to default data
+        setServices(getDefaultServices());
+        setWorkers(getDefaultWorkers());
+      }
+    };
+    
+    loadRealData();
+  }, []);
+
+  const getServiceIcon = (serviceName) => {
+    const name = serviceName?.toLowerCase() || '';
+    if (name.includes('clean')) return '🏠';
+    if (name.includes('cook') || name.includes('food')) return '👨‍🍳';
+    if (name.includes('laundry') || name.includes('wash')) return '👕';
+    if (name.includes('bathroom')) return '🚿';
+    if (name.includes('garden')) return '🌱';
+    if (name.includes('repair') || name.includes('fix')) return '🔧';
+    if (name.includes('paint')) return '🎨';
+    return '🏠';
+  };
+
+  const getDefaultServices = () => [];
+
+  const getDefaultWorkers = () => [];
+
 
   const howItWorks = [
     {
@@ -112,9 +136,9 @@ const Home = () => {
             <h1 className="text-4xl md:text-6xl font-bold mb-6">
               Home Services Made Simple
             </h1>
-            <p className="text-xl md:text-2xl mb-8 text-primary-100">
-              Connect with trusted professionals for all your household needs
-            </p>
+            <p className="text-xl text-primary-100 mb-8">
+            Join {stats.totalBookings > 0 ? `${stats.totalBookings}+` : 'thousands of'} satisfied customers who trust Cookie for their home services
+          </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button 
                 onClick={() => navigate('/search')}
@@ -122,7 +146,10 @@ const Home = () => {
               >
                 Find Services
               </button>
-              <button className="px-8 py-4 border-2 border-white text-white font-semibold rounded-lg hover:bg-white hover:text-primary-600 transition-colors">
+              <button 
+                onClick={scrollToHowItWorks}
+                className="px-8 py-4 border-2 border-white text-white font-semibold rounded-lg hover:bg-white hover:text-primary-600 transition-colors"
+              >
                 How It Works
               </button>
             </div>
@@ -137,27 +164,41 @@ const Home = () => {
           <p className="text-gray-600 text-lg">Choose from our most requested home services</p>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {popularServices.map((service) => (
-            <div 
-              key={service.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => navigate('/search')}
-            >
-              <div className="text-4xl mb-4">{service.icon}</div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{service.name}</h3>
-              <p className="text-gray-600 text-sm mb-4">{service.description}</p>
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-primary-600 font-semibold">{service.price}</span>
-                <div className="flex items-center text-sm text-gray-600">
-                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
-                  {service.rating}
+        {services.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {services.map((service) => (
+              <div 
+                key={service.id}
+                className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => navigate('/search')}
+              >
+                <div className="text-4xl mb-4">{service.icon}</div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">{service.name}</h3>
+                <p className="text-gray-600 text-sm mb-4">{service.description}</p>
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-primary-600 font-semibold">{service.price}</span>
+                  <div className="flex items-center text-sm text-gray-600">
+                    <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                    {service.rating}
+                  </div>
                 </div>
+                <p className="text-xs text-gray-500">{service.bookings} bookings this month</p>
               </div>
-              <p className="text-xs text-gray-500">{service.bookings} bookings this month</p>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🏠</div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Services Available Yet</h3>
+            <p className="text-gray-600 mb-6">Be the first to add services to our platform!</p>
+            <button 
+              onClick={() => navigate('/search')}
+              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            >
+              Explore Services
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Featured Workers */}
@@ -168,30 +209,44 @@ const Home = () => {
             <p className="text-gray-600 text-lg">Meet some of our top-rated professionals</p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {featuredWorkers.map((worker) => (
-              <div key={worker.id} className="text-center">
-                <img
-                  src={worker.image}
-                  alt={worker.name}
-                  className="w-24 h-24 rounded-full mx-auto mb-4 object-cover"
-                />
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">{worker.name}</h3>
-                <p className="text-gray-600 mb-2">{worker.specialty}</p>
-                <div className="flex items-center justify-center mb-2">
-                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
-                  <span className="text-sm font-medium">{worker.rating}</span>
-                  <span className="text-sm text-gray-600 ml-1">({worker.reviews} reviews)</span>
+          {workers.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {workers.map((worker) => (
+                <div key={worker.id} className="text-center">
+                  <img
+                    src={worker.image}
+                    alt={worker.name}
+                    className="w-24 h-24 rounded-full mx-auto mb-4 object-cover"
+                  />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-1">{worker.name}</h3>
+                  <p className="text-gray-600 mb-2">{worker.specialty}</p>
+                  <div className="flex items-center justify-center mb-2">
+                    <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                    <span className="text-sm font-medium">{worker.rating}</span>
+                    <span className="text-sm text-gray-600 ml-1">({worker.reviews} reviews)</span>
+                  </div>
+                  <p className="text-primary-600 font-semibold">₹{worker.hourlyRate}/hour</p>
                 </div>
-                <p className="text-primary-600 font-semibold">${worker.hourlyRate}/hour</p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">👥</div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">No Service Providers Yet</h3>
+              <p className="text-gray-600 mb-6">Join as a service provider to be featured here!</p>
+              <button 
+                onClick={() => navigate('/register')}
+                className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Become a Provider
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* How It Works */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+      <div id="how-it-works" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">How It Works</h2>
           <p className="text-gray-600 text-lg">Getting help for your home is easier than ever</p>
@@ -247,8 +302,8 @@ const Home = () => {
       <div className="bg-primary-600 text-white py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-bold mb-4">Ready to Get Started?</h2>
-          <p className="text-xl text-primary-100 mb-8">
-            Join thousands of satisfied customers who trust Cookie for their home services
+          <p className="text-xl md:text-2xl mb-8 text-primary-100">
+            Connect with {stats.totalWorkers > 0 ? stats.totalWorkers : 'trusted'} professionals for all your household needs
           </p>
           <button 
             onClick={() => navigate('/search')}
@@ -261,5 +316,4 @@ const Home = () => {
     </div>
   );
 };
-
 export default Home;

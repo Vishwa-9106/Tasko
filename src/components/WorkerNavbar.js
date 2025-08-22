@@ -21,11 +21,11 @@ const WorkerNavbar = () => {
   };
 
   const navItems = [
-    { to: '/dashboard', icon: Home, label: 'Dashboard' },
-    { to: '/profile', icon: User, label: 'Profile' },
-    { to: '/services', icon: Briefcase, label: 'Services' },
-    { to: '/bookings', icon: Calendar, label: 'Bookings' },
-    { to: '/earnings', icon: DollarSign, label: 'Earnings' }
+    { to: '/worker/dashboard', icon: Home, label: 'Dashboard' },
+    { to: '/worker/profile', icon: User, label: 'Profile' },
+    { to: '/worker/services', icon: Briefcase, label: 'Services' },
+    { to: '/worker/bookings', icon: Calendar, label: 'Bookings' },
+    { to: '/worker/earnings', icon: DollarSign, label: 'Earnings' }
   ];
 
   return (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, 
   Bell,
@@ -13,14 +13,14 @@ const Profile = () => {
   const [activeTab, setActiveTab] = useState('personal');
   
   const [profile, setProfile] = useState({
-    name: 'John Smith',
-    email: 'john.smith@email.com',
-    phone: '+1 (555) 123-4567',
-    address: '123 Main St, New York, NY 10001',
-    bio: 'Regular customer who values quality home services and punctuality.',
-    joinDate: '2023-06-15',
-    totalBookings: 12,
-    totalSpent: 850
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    bio: '',
+    joinDate: '',
+    totalBookings: 0,
+    totalSpent: 0
   });
 
   const [notifications, setNotifications] = useState({
@@ -31,26 +31,73 @@ const Profile = () => {
     newsletter: false
   });
 
-  const [paymentMethods] = useState([
-    {
-      id: 1,
-      type: 'card',
-      last4: '4242',
-      brand: 'Visa',
-      isDefault: true
-    },
-    {
-      id: 2,
-      type: 'card',
-      last4: '8888',
-      brand: 'Mastercard',
-      isDefault: false
-    }
-  ]);
+  const [paymentMethods, setPaymentMethods] = useState([]);
 
-  const handleSave = () => {
-    // Handle profile save
-    setIsEditing(false);
+  // Load user profile data on component mount
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const userBookings = JSON.parse(localStorage.getItem('userBookings') || '[]');
+        
+        if (user) {
+          // Calculate stats from bookings
+          const completedBookings = userBookings.filter(booking => booking.status === 'completed');
+          const totalSpent = completedBookings.reduce((sum, booking) => sum + (booking.price || 0), 0);
+          
+          setProfile({
+            name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+            email: user.email || '',
+            phone: user.phone || '',
+            address: user.location || '',
+            bio: user.bio || '',
+            joinDate: user.createdAt || new Date().toISOString(),
+            totalBookings: userBookings.length,
+            totalSpent: totalSpent
+          });
+        }
+        
+        // Load saved payment methods from localStorage
+        const savedPaymentMethods = JSON.parse(localStorage.getItem('userPaymentMethods') || '[]');
+        setPaymentMethods(savedPaymentMethods);
+        
+        // Load notification preferences
+        const savedNotifications = JSON.parse(localStorage.getItem('userNotifications') || '{}');
+        if (Object.keys(savedNotifications).length > 0) {
+          setNotifications(savedNotifications);
+        }
+      } catch (err) {
+        console.error('Profile load error:', err);
+      }
+    };
+    
+    loadProfile();
+  }, []);
+
+  const handleSave = async () => {
+    try {
+      // Update user data in localStorage
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      const [firstName, ...lastNameParts] = profile.name.split(' ');
+      const lastName = lastNameParts.join(' ');
+      
+      const updatedUser = {
+        ...currentUser,
+        firstName: firstName || '',
+        lastName: lastName || '',
+        email: profile.email,
+        phone: profile.phone,
+        location: profile.address,
+        bio: profile.bio
+      };
+      
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      localStorage.setItem('userNotifications', JSON.stringify(notifications));
+      
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Profile save error:', err);
+    }
   };
 
   const handleNotificationChange = (key) => {
@@ -145,7 +192,7 @@ const Profile = () => {
           <p className="text-sm text-gray-600">Total Bookings</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-bold text-primary-600">${profile.totalSpent}</p>
+          <p className="text-2xl font-bold text-primary-600">₹{profile.totalSpent}</p>
           <p className="text-sm text-gray-600">Total Spent</p>
         </div>
         <div className="text-center">
@@ -205,35 +252,46 @@ const Profile = () => {
       </div>
       
       <div className="space-y-4">
-        {paymentMethods.map((method) => (
-          <div key={method.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-            <div className="flex items-center">
-              <div className="w-12 h-8 bg-gray-100 rounded flex items-center justify-center mr-4">
-                <CreditCard className="h-5 w-5 text-gray-600" />
-              </div>
-              <div>
-                <p className="font-medium text-gray-900">
-                  {method.brand} •••• {method.last4}
-                </p>
-                {method.isDefault && (
-                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
-                    Default
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex space-x-2">
-              {!method.isDefault && (
-                <button className="text-sm text-primary-600 hover:text-primary-700">
-                  Set as Default
-                </button>
-              )}
-              <button className="text-sm text-red-600 hover:text-red-700">
-                Remove
-              </button>
-            </div>
+        {paymentMethods.length === 0 ? (
+          <div className="text-center py-8">
+            <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No payment methods</h3>
+            <p className="text-gray-600 mb-4">Add a payment method to make bookings easier</p>
+            <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
+              Add Your First Card
+            </button>
           </div>
-        ))}
+        ) : (
+          paymentMethods.map((method) => (
+            <div key={method.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+              <div className="flex items-center">
+                <div className="w-12 h-8 bg-gray-100 rounded flex items-center justify-center mr-4">
+                  <CreditCard className="h-5 w-5 text-gray-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900">
+                    {method.brand} •••• {method.last4}
+                  </p>
+                  {method.isDefault && (
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                      Default
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex space-x-2">
+                {!method.isDefault && (
+                  <button className="text-sm text-primary-600 hover:text-primary-700">
+                    Set as Default
+                  </button>
+                )}
+                <button className="text-sm text-red-600 hover:text-red-700">
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

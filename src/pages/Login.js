@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Cookie, Mail, Lock, Eye, EyeOff, User, Briefcase } from 'lucide-react';
+import { authAPI } from '../services/api';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -11,6 +12,7 @@ const Login = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleChange = (e) => {
     setFormData({
@@ -22,25 +24,36 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // Call backend API
+      const response = await authAPI.login({
+        ...formData,
+        userType
+      });
       
-      // Store user type and auth status
-      localStorage.setItem('userType', userType);
+      // Store authentication data
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('userType', response.user.userType);
       localStorage.setItem('isAuthenticated', 'true');
+      localStorage.setItem('user', JSON.stringify(response.user));
       
       // Redirect based on user type
-      if (userType === 'worker') {
-        navigate('/dashboard');
+      if (response.user.userType === 'worker') {
+        navigate('/worker/dashboard');
       } else {
-        navigate('/');
+        navigate('/customer/home');
       }
       
       // Trigger a page reload to update the app state
       window.location.reload();
-    }, 1500);
+      
+    } catch (err) {
+      setError(err.message || 'Login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -95,6 +108,11 @@ const Login = () => {
           </div>
 
           <form className="space-y-6" onSubmit={handleSubmit}>
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email Address
@@ -187,42 +205,6 @@ const Login = () => {
               </button>
             </div>
 
-            {/* Demo Credentials */}
-            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h4 className="text-sm font-medium text-blue-900 mb-2">Demo Credentials</h4>
-              <div className="space-y-2 text-xs text-blue-800">
-                <div>
-                  <strong>Customer Demo:</strong>
-                  <br />Email: customer@demo.com | Password: demo123
-                </div>
-                <div>
-                  <strong>Worker Demo:</strong>
-                  <br />Email: worker@demo.com | Password: demo123
-                </div>
-              </div>
-              <div className="mt-3 flex space-x-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserType('customer');
-                    setFormData({ email: 'customer@demo.com', password: 'demo123' });
-                  }}
-                  className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                >
-                  Use Customer Demo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserType('worker');
-                    setFormData({ email: 'worker@demo.com', password: 'demo123' });
-                  }}
-                  className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                >
-                  Use Worker Demo
-                </button>
-              </div>
-            </div>
 
             <div className="text-center">
               <p className="text-sm text-gray-600">
@@ -235,14 +217,6 @@ const Login = () => {
           </form>
         </div>
 
-        {/* Demo Credentials */}
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-yellow-800 mb-2">Demo Credentials</h3>
-          <p className="text-xs text-yellow-700">
-            Email: worker@cookie.com<br />
-            Password: password123
-          </p>
-        </div>
       </div>
     </div>
   );

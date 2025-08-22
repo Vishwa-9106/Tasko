@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Calendar, 
   Clock, 
@@ -11,75 +11,50 @@ import {
   AlertCircle,
   Filter
 } from 'lucide-react';
+import { authAPI, bookingsAPI } from '../../services/api';
 
 const Bookings = () => {
   const [activeTab, setActiveTab] = useState('all');
-  const [bookings] = useState([
-    {
-      id: 1,
-      service: 'House Cleaning',
-      customer: {
-        name: 'Sarah Johnson',
-        phone: '+1 (555) 123-4567',
-        email: 'sarah.j@email.com',
-        address: '123 Main St, New York, NY'
-      },
-      date: '2024-01-15',
-      time: '10:00 AM',
-      duration: 3,
-      amount: 80,
-      status: 'confirmed',
-      notes: 'Please focus on kitchen and bathrooms'
-    },
-    {
-      id: 2,
-      service: 'Bathroom Deep Clean',
-      customer: {
-        name: 'Mike Chen',
-        phone: '+1 (555) 987-6543',
-        email: 'mike.chen@email.com',
-        address: '456 Oak Ave, New York, NY'
-      },
-      date: '2024-01-16',
-      time: '2:00 PM',
-      duration: 1.5,
-      amount: 45,
-      status: 'pending',
-      notes: 'Two bathrooms need cleaning'
-    },
-    {
-      id: 3,
-      service: 'Home Cooking',
-      customer: {
-        name: 'Emma Davis',
-        phone: '+1 (555) 456-7890',
-        email: 'emma.davis@email.com',
-        address: '789 Pine St, New York, NY'
-      },
-      date: '2024-01-17',
-      time: '6:00 PM',
-      duration: 2,
-      amount: 60,
-      status: 'confirmed',
-      notes: 'Vegetarian meal for 4 people'
-    },
-    {
-      id: 4,
-      service: 'House Cleaning',
-      customer: {
-        name: 'Robert Wilson',
-        phone: '+1 (555) 321-0987',
-        email: 'robert.w@email.com',
-        address: '321 Elm St, New York, NY'
-      },
-      date: '2024-01-12',
-      time: '9:00 AM',
-      duration: 3,
-      amount: 80,
-      status: 'completed',
-      notes: 'Regular weekly cleaning'
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Load bookings on component mount
+  useEffect(() => {
+    loadBookings();
+  }, []);
+
+  const loadBookings = async () => {
+    try {
+      setLoading(true);
+      // Load from localStorage for now (backend API routes not implemented yet)
+      const savedBookings = JSON.parse(localStorage.getItem('userBookings') || '[]');
+      setBookings(savedBookings);
+    } catch (err) {
+      console.error('Bookings load error:', err);
+      setError('Failed to load bookings');
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
+
+  const updateBookingStatus = async (bookingId, newStatus) => {
+    try {
+      const updatedBookings = bookings.map(booking => 
+        booking._id === bookingId || booking.id === bookingId 
+          ? { ...booking, status: newStatus } 
+          : booking
+      );
+      setBookings(updatedBookings);
+      localStorage.setItem('userBookings', JSON.stringify(updatedBookings));
+      
+      // TODO: Update backend when API is ready
+      // await authAPI.updateBookingStatus(bookingId, newStatus);
+    } catch (err) {
+      console.error('Failed to update booking status:', err);
+      setError('Failed to update booking status');
+    }
+  };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -170,7 +145,7 @@ const Bookings = () => {
             {booking.time} ({booking.duration}h)
           </div>
           <div className="text-sm text-gray-600">
-            <span className="font-medium">Amount:</span> ${booking.amount}
+            <span className="font-medium">Amount:</span> ₹{booking.amount}
           </div>
         </div>
       </div>
@@ -186,17 +161,26 @@ const Bookings = () => {
       <div className="flex space-x-3 pt-4 border-t border-gray-200">
         {booking.status === 'pending' && (
           <>
-            <button className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
+            <button 
+              onClick={() => updateBookingStatus(booking._id || booking.id, 'confirmed')}
+              className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors"
+            >
               Accept
             </button>
-            <button className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors">
+            <button 
+              onClick={() => updateBookingStatus(booking._id || booking.id, 'cancelled')}
+              className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
+            >
               Decline
             </button>
           </>
         )}
         {booking.status === 'confirmed' && (
           <>
-            <button className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+            <button 
+              onClick={() => updateBookingStatus(booking._id || booking.id, 'completed')}
+              className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+            >
               Mark Complete
             </button>
             <button className="flex-1 bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 transition-colors">
@@ -213,8 +197,23 @@ const Bookings = () => {
     </div>
   );
 
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <span className="ml-2">Loading bookings...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
+      {error && (
+        <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <p className="text-sm text-yellow-600">{error}</p>
+        </div>
+      )}
+      
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Filter, 
@@ -17,7 +17,9 @@ const SearchWorkers = () => {
   const [selectedService, setSelectedService] = useState('');
   const [sortBy, setSortBy] = useState('rating');
   const [showFilters, setShowFilters] = useState(false);
-  const [favorites, setFavorites] = useState([2, 5]);
+  const [favorites, setFavorites] = useState([]);
+  const [workers, setWorkers] = useState([]);
+  const [services, setServices] = useState([]);
 
   const [filters, setFilters] = useState({
     priceRange: [0, 100],
@@ -26,7 +28,127 @@ const SearchWorkers = () => {
     distance: 10
   });
 
-  const services = [
+  // Load real data on component mount
+  useEffect(() => {
+    const loadRealData = () => {
+      try {
+        // Debug: Log all localStorage keys to see what data exists
+        console.log('Available localStorage keys:', Object.keys(localStorage));
+        
+        // Try multiple possible storage keys for users - the data appears to be in a different structure
+        const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+        const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        
+        // Check if data is stored in MongoDB-style structure with nested objects
+        let allUserData = [];
+        
+        // Handle different data structures
+        if (Array.isArray(registeredUsers)) {
+          allUserData = [...allUserData, ...registeredUsers];
+        } else if (typeof registeredUsers === 'object' && registeredUsers !== null) {
+          // Handle object with nested user data
+          Object.values(registeredUsers).forEach(userData => {
+            if (userData && typeof userData === 'object') {
+              allUserData.push(userData);
+            }
+          });
+        }
+        
+        if (Array.isArray(allUsers)) {
+          allUserData = [...allUserData, ...allUsers];
+        }
+        
+        // Also check localStorage for individual user entries (like the screenshots show)
+        Object.keys(localStorage).forEach(key => {
+          try {
+            const item = JSON.parse(localStorage.getItem(key));
+            if (item && item.userType === 'worker' && item.firstName) {
+              allUserData.push(item);
+            }
+          } catch (e) {
+            // Skip non-JSON items
+          }
+        });
+        
+        console.log('All collected user data:', allUserData);
+        
+        // If current user is a worker, include them too
+        if (user.userType === 'worker') {
+          allUserData.push(user);
+        }
+        
+        // Remove duplicates by email
+        const uniqueUsers = allUserData.filter((user, index, self) => 
+          index === self.findIndex(u => u.email === user.email)
+        );
+        
+        const workerUsers = uniqueUsers.filter(user => user.userType === 'worker');
+        console.log('Found worker users:', workerUsers);
+        
+        // Transform worker data - handle the specific structure from screenshots
+        const realWorkers = workerUsers.map((worker, index) => {
+          // Handle skills array properly
+          let workerServices = ['General Services'];
+          if (worker.skills && Array.isArray(worker.skills) && worker.skills.length > 0) {
+            workerServices = worker.skills;
+          } else if (worker.services && Array.isArray(worker.services) && worker.services.length > 0) {
+            workerServices = worker.services;
+          }
+          
+          return {
+            id: worker._id || worker.id || worker.email || `worker-${index}`,
+            name: `${worker.firstName || 'Worker'} ${worker.lastName || index + 1}`,
+            rating: worker.rating || (4.5 + Math.random() * 0.4),
+            reviews: worker.reviews || Math.floor(Math.random() * 100) + 20,
+            hourlyRate: worker.hourlyRate || 25,
+            location: worker.location || 'erode,tamilnadu',
+            distance: Math.floor(Math.random() * 10) + 1,
+            services: workerServices,
+            image: worker.profileImage || worker.profilePhoto || `https://images.unsplash.com/photo-${Math.random() > 0.5 ? '1494790108755-2616b612b786' : '1507003211169-0a1dd7228f2d'}?w=150&h=150&fit=crop&crop=face`,
+            availability: worker.availability || getRandomAvailability(),
+            completedJobs: worker.completedJobs || Math.floor(Math.random() * 200) + 50,
+            responseTime: getRandomResponseTime(),
+            verified: worker.isVerified !== false
+          };
+        });
+        
+        console.log('Transformed workers:', realWorkers);
+        setWorkers(realWorkers);
+        
+        // Load services from localStorage
+        const savedServices = JSON.parse(localStorage.getItem('services') || '[]');
+        const userServices = JSON.parse(localStorage.getItem('userServices') || '[]');
+        const allServices = [...savedServices, ...userServices];
+        
+        const serviceNames = [...new Set(allServices.map(service => service.name || service.title))].filter(Boolean);
+        setServices(serviceNames.length > 0 ? serviceNames : getDefaultServices());
+        
+        // Load favorites from localStorage
+        const savedFavorites = JSON.parse(localStorage.getItem('favoriteWorkers') || '[]');
+        setFavorites(savedFavorites);
+        
+      } catch (err) {
+        console.error('Error loading worker data:', err);
+        setWorkers([]);
+        setServices(getDefaultServices());
+      }
+    };
+    
+    loadRealData();
+  }, []);
+  
+  const getRandomAvailability = () => {
+    const options = ['Available today', 'Available tomorrow', 'Available this week', 'Available next week'];
+    return options[Math.floor(Math.random() * options.length)];
+  };
+  
+  const getRandomResponseTime = () => {
+    const options = ['30 minutes', '1 hour', '2 hours', '3 hours'];
+    return options[Math.floor(Math.random() * options.length)];
+  };
+  
+  const getDefaultServices = () => [
     'House Cleaning',
     'Bathroom Cleaning', 
     'Home Cooking',
@@ -35,90 +157,13 @@ const SearchWorkers = () => {
     'Garden Maintenance'
   ];
 
-  const workers = [
-    {
-      id: 1,
-      name: 'Maria Rodriguez',
-      rating: 4.9,
-      reviews: 127,
-      hourlyRate: 25,
-      location: 'Manhattan, NY',
-      distance: 2.3,
-      services: ['House Cleaning', 'Bathroom Cleaning'],
-      image: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available today',
-      completedJobs: 340,
-      responseTime: '1 hour',
-      verified: true
-    },
-    {
-      id: 2,
-      name: 'James Wilson',
-      rating: 4.8,
-      reviews: 89,
-      hourlyRate: 30,
-      location: 'Brooklyn, NY',
-      distance: 4.1,
-      services: ['Home Cooking', 'Meal Prep'],
-      image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available tomorrow',
-      completedJobs: 156,
-      responseTime: '30 minutes',
-      verified: true
-    },
-    {
-      id: 3,
-      name: 'Sarah Chen',
-      rating: 4.9,
-      reviews: 156,
-      hourlyRate: 22,
-      location: 'Queens, NY',
-      distance: 6.8,
-      services: ['Laundry Service', 'Organization'],
-      image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available this week',
-      completedJobs: 289,
-      responseTime: '2 hours',
-      verified: true
-    },
-    {
-      id: 4,
-      name: 'David Kim',
-      rating: 4.7,
-      reviews: 73,
-      hourlyRate: 28,
-      location: 'Manhattan, NY',
-      distance: 1.9,
-      services: ['House Cleaning', 'Dishwashing'],
-      image: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available today',
-      completedJobs: 198,
-      responseTime: '45 minutes',
-      verified: false
-    },
-    {
-      id: 5,
-      name: 'Lisa Thompson',
-      rating: 4.8,
-      reviews: 112,
-      hourlyRate: 26,
-      location: 'Bronx, NY',
-      distance: 8.2,
-      services: ['Home Cooking', 'Baking'],
-      image: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available this week',
-      completedJobs: 267,
-      responseTime: '1 hour',
-      verified: true
-    }
-  ];
-
   const toggleFavorite = (workerId) => {
-    setFavorites(prev => 
-      prev.includes(workerId) 
-        ? prev.filter(id => id !== workerId)
-        : [...prev, workerId]
-    );
+    const newFavorites = favorites.includes(workerId) 
+      ? favorites.filter(id => id !== workerId)
+      : [...favorites, workerId];
+    
+    setFavorites(newFavorites);
+    localStorage.setItem('favoriteWorkers', JSON.stringify(newFavorites));
   };
 
   const WorkerCard = ({ worker }) => (
@@ -178,7 +223,7 @@ const SearchWorkers = () => {
         <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
           <div className="flex items-center">
             <DollarSign className="h-4 w-4 mr-1" />
-            ${worker.hourlyRate}/hour
+            ₹{worker.hourlyRate}/hour
           </div>
           <div className="flex items-center">
             <Clock className="h-4 w-4 mr-1" />
@@ -235,7 +280,7 @@ const SearchWorkers = () => {
         {/* Price Range */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Price Range: ${filters.priceRange[0]} - ${filters.priceRange[1]}/hour
+            Price Range: ₹{filters.priceRange[0]} - ₹{filters.priceRange[1]}/hour
           </label>
           <input
             type="range"
@@ -353,11 +398,25 @@ const SearchWorkers = () => {
             </p>
           </div>
           
-          <div className="space-y-6">
-            {workers.map((worker) => (
-              <WorkerCard key={worker.id} worker={worker} />
-            ))}
-          </div>
+          {workers.length > 0 ? (
+            <div className="space-y-6">
+              {workers.map((worker) => (
+                <WorkerCard key={worker.id} worker={worker} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">👥</div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">No Service Providers Found</h3>
+              <p className="text-gray-600 mb-6">No workers are currently registered on the platform.</p>
+              <button 
+                onClick={() => navigate('/register')}
+                className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Join as a Service Provider
+              </button>
+            </div>
+          )}
 
           {/* Load More */}
           <div className="text-center mt-8">

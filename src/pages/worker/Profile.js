@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, 
   Camera, 
@@ -10,21 +10,59 @@ import {
   Save,
   X
 } from 'lucide-react';
+import { authAPI } from '../../services/api';
 
 const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [newSkill, setNewSkill] = useState('');
   const [profileData, setProfileData] = useState({
-    name: 'John Doe',
-    email: 'john.doe@email.com',
-    phone: '+1 (555) 123-4567',
-    location: 'New York, NY',
-    bio: 'Experienced home service professional with 5+ years in cleaning and maintenance. Dedicated to providing high-quality service with attention to detail.',
-    skills: ['House Cleaning', 'Bathroom Cleaning', 'Cooking', 'Dishwashing', 'Laundry'],
-    hourlyRate: 25,
-    experience: '5+ years',
-    rating: 4.8,
-    completedJobs: 48
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    location: '',
+    bio: '',
+    skills: [],
+    experience: '',
+    rating: 0,
+    completedJobs: 0,
+    services: [],
+    profilePhoto: ''
   });
+
+  // Load user profile data on component mount
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        if (user) {
+          setProfileData({
+            firstName: user.firstName || '',
+            lastName: user.lastName || '',
+            email: user.email || '',
+            phone: user.phone || '',
+            location: user.location || '',
+            bio: user.bio || '',
+            skills: user.skills || [],
+            experience: user.experience || 'New',
+            profilePhoto: user.profilePhoto || '',
+            rating: user.rating || 0,
+            completedJobs: user.completedJobs || 0,
+            services: user.services || []
+          });
+        }
+      } catch (err) {
+        setError('Failed to load profile data');
+        console.error('Profile load error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, []);
 
   const handleInputChange = (field, value) => {
     setProfileData(prev => ({
@@ -33,12 +71,72 @@ const Profile = () => {
     }));
   };
 
-  const handleSave = () => {
-    setIsEditing(false);
+  const handleSave = async () => {
+    try {
+      setLoading(true);
+      
+      // Update localStorage directly with profile data (including photo)
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      const updatedUser = { ...currentUser, ...profileData };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      // Try to update backend if available
+      try {
+        await authAPI.updateProfile(profileData);
+      } catch (apiErr) {
+        console.log('Backend update failed, using localStorage only:', apiErr);
+      }
+      
+      setIsEditing(false);
+      setNewSkill('');
+    } catch (err) {
+      setError('Failed to update profile');
+      console.error('Profile update error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const addSkill = () => {
+    if (newSkill.trim() && !profileData.skills.includes(newSkill.trim())) {
+      handleInputChange('skills', [...profileData.skills, newSkill.trim()]);
+      setNewSkill('');
+    }
+  };
+
+  const removeSkill = (index) => {
+    const newSkills = profileData.skills.filter((_, i) => i !== index);
+    handleInputChange('skills', newSkills);
+  };
+
+  const handlePhotoUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        handleInputChange('profilePhoto', e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <span className="ml-2">Loading profile...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+      
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
@@ -70,16 +168,30 @@ const Profile = () => {
             {/* Profile Picture */}
             <div className="flex flex-col items-center mb-6">
               <div className="relative">
-                <div className="w-24 h-24 bg-primary-100 rounded-full flex items-center justify-center">
-                  <User className="h-12 w-12 text-primary-600" />
-                </div>
+                {profileData.profilePhoto ? (
+                  <img
+                    src={profileData.profilePhoto}
+                    alt="Profile"
+                    className="w-24 h-24 rounded-full object-cover border-4 border-primary-100"
+                  />
+                ) : (
+                  <div className="w-24 h-24 bg-primary-100 rounded-full flex items-center justify-center">
+                    <User className="h-12 w-12 text-primary-600" />
+                  </div>
+                )}
                 {isEditing && (
-                  <button className="absolute bottom-0 right-0 bg-primary-600 text-white p-2 rounded-full hover:bg-primary-700">
+                  <label className="absolute bottom-0 right-0 bg-primary-600 text-white p-2 rounded-full hover:bg-primary-700 cursor-pointer">
                     <Camera className="h-4 w-4" />
-                  </button>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="hidden"
+                    />
+                  </label>
                 )}
               </div>
-              <h2 className="text-xl font-semibold text-gray-900 mt-4">{profileData.name}</h2>
+              <h2 className="text-xl font-semibold text-gray-900 mt-4">{profileData.firstName} {profileData.lastName}</h2>
               <p className="text-gray-600">Professional Worker</p>
             </div>
 
@@ -99,10 +211,6 @@ const Profile = () => {
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Experience</span>
                 <span className="font-semibold">{profileData.experience}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Hourly Rate</span>
-                <span className="font-semibold">${profileData.hourlyRate}/hr</span>
               </div>
             </div>
           </div>
@@ -182,19 +290,6 @@ const Profile = () => {
                   <p className="text-gray-900">{profileData.bio}</p>
                 )}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Hourly Rate ($)</label>
-                {isEditing ? (
-                  <input
-                    type="number"
-                    value={profileData.hourlyRate}
-                    onChange={(e) => handleInputChange('hourlyRate', parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  />
-                ) : (
-                  <p className="text-gray-900">${profileData.hourlyRate}/hour</p>
-                )}
-              </div>
             </div>
           </div>
 
@@ -210,10 +305,7 @@ const Profile = () => {
                   {skill}
                   {isEditing && (
                     <button
-                      onClick={() => {
-                        const newSkills = profileData.skills.filter((_, i) => i !== index);
-                        handleInputChange('skills', newSkills);
-                      }}
+                      onClick={() => removeSkill(index)}
                       className="ml-2 text-primary-600 hover:text-primary-800"
                     >
                       <X className="h-3 w-3" />
@@ -222,9 +314,22 @@ const Profile = () => {
                 </span>
               ))}
               {isEditing && (
-                <button className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border-2 border-dashed border-gray-300 text-gray-600 hover:border-primary-300 hover:text-primary-600">
-                  + Add Skill
-                </button>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newSkill}
+                    onChange={(e) => setNewSkill(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addSkill()}
+                    placeholder="Enter skill"
+                    className="px-3 py-1 border border-gray-300 rounded-full text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  />
+                  <button
+                    onClick={addSkill}
+                    className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-primary-600 text-white hover:bg-primary-700"
+                  >
+                    + Add
+                  </button>
+                </div>
               )}
             </div>
           </div>

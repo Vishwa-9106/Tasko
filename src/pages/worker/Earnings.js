@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -9,75 +9,103 @@ import {
   Download,
   Filter
 } from 'lucide-react';
+import { authAPI } from '../../services/api';
 
 const Earnings = () => {
   const [timeframe, setTimeframe] = useState('month');
-  
-  const stats = {
-    totalEarnings: 2450,
-    thisMonth: 850,
-    pendingPayouts: 320,
-    completedJobs: 18
-  };
+  const [stats, setStats] = useState({
+    totalEarnings: 0,
+    thisMonth: 0,
+    pendingPayouts: 0,
+    completedJobs: 0
+  });
+  const [transactions, setTransactions] = useState([]);
+  const [chartData, setChartData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const transactions = [
-    {
-      id: 1,
-      type: 'earning',
-      description: 'House Cleaning - Sarah Johnson',
-      amount: 80,
-      date: '2024-01-15',
-      status: 'completed'
-    },
-    {
-      id: 2,
-      type: 'earning',
-      description: 'Bathroom Deep Clean - Mike Chen',
-      amount: 45,
-      date: '2024-01-14',
-      status: 'pending'
-    },
-    {
-      id: 3,
-      type: 'payout',
-      description: 'Weekly Payout',
-      amount: -275,
-      date: '2024-01-12',
-      status: 'completed'
-    },
-    {
-      id: 4,
-      type: 'earning',
-      description: 'Home Cooking - Emma Davis',
-      amount: 60,
-      date: '2024-01-11',
-      status: 'completed'
-    },
-    {
-      id: 5,
-      type: 'earning',
-      description: 'Laundry Service - Robert Wilson',
-      amount: 35,
-      date: '2024-01-10',
-      status: 'completed'
+  // Load earnings data on component mount
+  useEffect(() => {
+    loadEarningsData();
+  }, []);
+
+  const loadEarningsData = async () => {
+    try {
+      setLoading(true);
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      // Load bookings to calculate earnings
+      const savedBookings = JSON.parse(localStorage.getItem('userBookings') || '[]');
+      const completedBookings = savedBookings.filter(b => b.status === 'completed');
+      const pendingBookings = savedBookings.filter(b => b.status === 'pending');
+      
+      // Calculate stats from real bookings
+      const totalEarnings = completedBookings.reduce((sum, booking) => sum + (booking.amount || 0), 0);
+      const thisMonth = completedBookings
+        .filter(b => new Date(b.date).getMonth() === new Date().getMonth())
+        .reduce((sum, booking) => sum + (booking.amount || 0), 0);
+      const pendingPayouts = pendingBookings.reduce((sum, booking) => sum + (booking.amount || 0), 0);
+      
+      setStats({
+        totalEarnings,
+        thisMonth,
+        pendingPayouts,
+        completedJobs: completedBookings.length
+      });
+
+      // Generate transactions from bookings
+      const earningTransactions = completedBookings.map(booking => ({
+        id: booking._id || booking.id,
+        type: 'earning',
+        description: `${booking.service} - ${booking.customer?.name || 'Customer'}`,
+        amount: booking.amount || 0,
+        date: booking.date,
+        status: 'completed'
+      }));
+
+      const pendingTransactions = pendingBookings.map(booking => ({
+        id: `pending_${booking._id || booking.id}`,
+        type: 'earning',
+        description: `${booking.service} - ${booking.customer?.name || 'Customer'}`,
+        amount: booking.amount || 0,
+        date: booking.date,
+        status: 'pending'
+      }));
+
+      setTransactions([...earningTransactions, ...pendingTransactions].slice(0, 10));
+
+      // Generate chart data from last 6 months
+      const monthlyData = [];
+      const currentDate = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+        const monthBookings = completedBookings.filter(b => {
+          const bookingDate = new Date(b.date);
+          return bookingDate.getMonth() === date.getMonth() && bookingDate.getFullYear() === date.getFullYear();
+        });
+        const monthEarnings = monthBookings.reduce((sum, booking) => sum + (booking.amount || 0), 0);
+        
+        monthlyData.push({
+          month: date.toLocaleDateString('en-US', { month: 'short' }),
+          earnings: monthEarnings
+        });
+      }
+      setChartData(monthlyData);
+      
+    } catch (err) {
+      console.error('Earnings load error:', err);
+      setError('Failed to load earnings data');
+    } finally {
+      setLoading(false);
     }
-  ];
-
-  const chartData = [
-    { month: 'Jul', earnings: 1200 },
-    { month: 'Aug', earnings: 1800 },
-    { month: 'Sep', earnings: 1600 },
-    { month: 'Oct', earnings: 2200 },
-    { month: 'Nov', earnings: 1900 },
-    { month: 'Dec', earnings: 2450 }
-  ];
+  };
 
   const StatCard = ({ title, value, change, icon: Icon, color }) => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900">${value}</p>
+          <p className="text-2xl font-bold text-gray-900">₹{value}</p>
           {change && (
             <div className={`flex items-center mt-2 text-sm ${
               change > 0 ? 'text-green-600' : 'text-red-600'
@@ -87,7 +115,7 @@ const Earnings = () => {
               ) : (
                 <ArrowDownRight className="h-4 w-4 mr-1" />
               )}
-              {Math.abs(change)}% from last month
+              {Math.abs(change || 0)}% from last month
             </div>
           )}
         </div>
@@ -123,7 +151,7 @@ const Earnings = () => {
         <p className={`font-semibold ${
           transaction.amount > 0 ? 'text-green-600' : 'text-blue-600'
         }`}>
-          {transaction.amount > 0 ? '+' : ''}${Math.abs(transaction.amount)}
+          {transaction.amount > 0 ? '+' : ''}₹{Math.abs(transaction.amount)}
         </p>
         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
           transaction.status === 'completed'
@@ -162,15 +190,29 @@ const Earnings = () => {
               }}
             />
             <p className="text-xs text-gray-600 mt-2">{data.month}</p>
-            <p className="text-xs font-semibold text-gray-900">${data.earnings}</p>
+            <p className="text-xs font-semibold text-gray-900">₹{data.earnings}</p>
           </div>
         ))}
       </div>
     </div>
   );
 
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <span className="ml-2">Loading earnings...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
+      {error && (
+        <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <p className="text-sm text-yellow-600">{error}</p>
+        </div>
+      )}
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
@@ -246,11 +288,11 @@ const Earnings = () => {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Payout Amount</span>
-                <span className="font-medium text-green-600">$320.00</span>
+                <span className="font-medium text-green-600">₹{stats.pendingPayouts}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Processing Fee</span>
-                <span className="font-medium text-gray-900">$2.50</span>
+                <span className="font-medium text-gray-900">₹25</span>
               </div>
             </div>
 
