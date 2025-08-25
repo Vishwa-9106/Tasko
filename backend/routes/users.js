@@ -112,7 +112,7 @@ router.get('/worker/:id', async (req, res) => {
       return res.status(404).json({ message: 'Worker not found' });
     }
 
-    res.json(worker.getWorkerProfile());
+    res.json({ worker: worker.getWorkerProfile() });
 
   } catch (error) {
     console.error('Get worker error:', error);

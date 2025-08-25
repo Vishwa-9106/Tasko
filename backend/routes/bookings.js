@@ -309,4 +309,40 @@ router.post('/:bookingId/review', auth, async (req, res) => {
   }
 });
 
+// @route   GET /api/bookings/worker/:workerId/reviews
+// @desc    Get all reviews for a specific worker
+// @access  Public
+router.get('/worker/:workerId/reviews', async (req, res) => {
+  try {
+    const workerId = req.params.workerId;
+    
+    // Find all completed bookings for this worker that have reviews
+    const bookings = await Booking.find({
+      worker: workerId,
+      status: 'completed',
+      'review.rating': { $exists: true }
+    })
+    .populate('customer', 'firstName lastName')
+    .sort({ 'review.createdAt': -1 });
+
+    const reviews = bookings.map(booking => ({
+      id: booking._id,
+      customer: `${booking.customer.firstName} ${booking.customer.lastName}`,
+      rating: booking.review.rating,
+      comment: booking.review.comment || '',
+      date: booking.review.createdAt || booking.updatedAt,
+      service: booking.service.name
+    }));
+
+    res.json(reviews);
+
+  } catch (error) {
+    console.error('Get worker reviews error:', error);
+    res.status(500).json({
+      message: 'Server error',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

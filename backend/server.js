@@ -3,11 +3,20 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
 const dotenv = require('dotenv');
+const http = require('http');
+const socketIo = require('socket.io');
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    methods: ["GET", "POST"]
+  }
+});
 
 // Middleware
 app.use(cors());
@@ -37,6 +46,7 @@ try {
   app.use('/api/users', require('./routes/users'));
   app.use('/api/services', require('./routes/services'));
   app.use('/api/bookings', require('./routes/bookings'));
+  app.use('/api/messages', require('./routes/messages'));
 } catch (error) {
   console.log('⚠️  Some route files may be missing, server will continue without them');
 }
@@ -66,7 +76,71 @@ app.use('*', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log(`👤 User connected: ${socket.id}`);
+
+  // Join user to their personal room for direct messaging
+  socket.on('join', (userId) => {
+    socket.join(userId);
+    console.log(`👤 User ${userId} joined their room`);
+  });
+
+  // Handle sending messages
+  socket.on('message:send', async (data) => {
+    try {
+      const { senderId, receiverId, bookingId, message } = data;
+      
+      // Save message to database
+      const Message = require('./models/Message');
+      const newMessage = new Message({
+        booking: bookingId,
+        sender: senderId,
+        receiver: receiverId,
+        message: message,
+        isRead: false
+      });
+      
+      const savedMessage = await newMessage.save();
+      await savedMessage.populate(['sender', 'receiver']);
+      
+      // Emit to receiver's room for real-time delivery
+      socket.to(receiverId).emit('message:receive', {
+        _id: savedMessage._id,
+        message: savedMessage.message,
+        sender: savedMessage.sender,
+        receiver: savedMessage.receiver,
+        booking: savedMessage.booking,
+        createdAt: savedMessage.createdAt,
+        isRead: savedMessage.isRead
+      });
+      
+      // Confirm to sender that message was sent
+      socket.emit('message:sent', {
+        _id: savedMessage._id,
+        message: savedMessage.message,
+        sender: savedMessage.sender,
+        receiver: savedMessage.receiver,
+        booking: savedMessage.booking,
+        createdAt: savedMessage.createdAt,
+        isRead: savedMessage.isRead
+      });
+      
+      console.log(`📨 Message sent from ${senderId} to ${receiverId}`);
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+      socket.emit('message:error', { error: 'Failed to send message' });
+    }
+  });
+
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log(`👤 User disconnected: ${socket.id}`);
+  });
+});
+
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🔌 Socket.IO server initialized`);
 });
