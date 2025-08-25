@@ -37,6 +37,11 @@ const SearchWorkers = () => {
         setLoading(true);
         const response = await usersAPI.getWorkers();
         
+        // Load user's favorites
+        const favoritesData = await usersAPI.getFavorites();
+        const favoriteIds = favoritesData.map(fav => fav._id);
+        setFavorites(favoriteIds);
+        
         const formattedWorkers = (response.workers || []).map(worker => ({
           id: worker._id,
           name: `${worker.firstName} ${worker.lastName}`,
@@ -66,12 +71,18 @@ const SearchWorkers = () => {
     fetchWorkers();
   }, []);
 
-  const toggleFavorite = (workerId) => {
-    setFavorites(prev => 
-      prev.includes(workerId) 
-        ? prev.filter(id => id !== workerId)
-        : [...prev, workerId]
-    );
+  const toggleFavorite = async (workerId) => {
+    try {
+      const response = await usersAPI.toggleFavorite(workerId);
+      if (response.isFavorite) {
+        setFavorites(prev => [...prev, workerId]);
+      } else {
+        setFavorites(prev => prev.filter(id => id !== workerId));
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      setError('Failed to update favorite status');
+    }
   };
 
   const WorkerCard = ({ worker }) => (

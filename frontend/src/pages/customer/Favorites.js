@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Heart, 
   Star, 
@@ -11,72 +11,72 @@ import {
   Trash2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { usersAPI } from '../../services/api';
 
 const Favorites = () => {
   const navigate = useNavigate();
-  const [favorites, setFavorites] = useState([
-    {
-      id: 2,
-      name: 'James Wilson',
-      rating: 4.8,
-      reviews: 89,
-      hourlyRate: 30,
-      location: 'Brooklyn, NY',
-      distance: 4.1,
-      services: ['Home Cooking', 'Meal Prep'],
-      image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available tomorrow',
-      completedJobs: 156,
-      responseTime: '30 minutes',
-      verified: true,
-      lastBooked: '2024-01-10',
-      totalBookings: 3
-    },
-    {
-      id: 5,
-      name: 'Lisa Thompson',
-      rating: 4.8,
-      reviews: 112,
-      hourlyRate: 26,
-      location: 'Bronx, NY',
-      distance: 8.2,
-      services: ['Home Cooking', 'Baking'],
-      image: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available this week',
-      completedJobs: 267,
-      responseTime: '1 hour',
-      verified: true,
-      lastBooked: '2024-01-05',
-      totalBookings: 2
-    },
-    {
-      id: 7,
-      name: 'Michael Brown',
-      rating: 4.9,
-      reviews: 203,
-      hourlyRate: 28,
-      location: 'Manhattan, NY',
-      distance: 2.8,
-      services: ['House Cleaning', 'Deep Cleaning'],
-      image: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
-      availability: 'Available today',
-      completedJobs: 445,
-      responseTime: '15 minutes',
-      verified: true,
-      lastBooked: '2023-12-28',
-      totalBookings: 5
-    }
-  ]);
+  const [favorites, setFavorites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const removeFavorite = (workerId) => {
-    setFavorites(favorites.filter(worker => worker.id !== workerId));
+  // Load favorites on component mount
+  useEffect(() => {
+    loadFavorites();
+  }, []);
+
+  const loadFavorites = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      const favoritesData = await usersAPI.getFavorites();
+      
+      // Transform backend data to match component format
+      const formattedFavorites = favoritesData.map(worker => ({
+        id: worker._id,
+        name: `${worker.firstName} ${worker.lastName}`,
+        rating: worker.rating || 0,
+        reviews: worker.reviewCount || 0,
+        hourlyRate: worker.hourlyRate || 0,
+        location: worker.location || 'Location not specified',
+        distance: Math.floor(Math.random() * 10) + 1, // Random distance for demo
+        services: worker.services?.map(service => service.name || service.category) || ['General Service'],
+        image: worker.profileImage || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
+        availability: 'Available this week',
+        completedJobs: worker.completedJobs || 0,
+        responseTime: '1 hour',
+        verified: worker.verified || false,
+        lastBooked: 'N/A', // This would need to come from booking history
+        totalBookings: 0 // This would need to come from booking history
+      }));
+      
+      setFavorites(formattedFavorites);
+    } catch (err) {
+      console.error('Error loading favorites:', err);
+      setError('Failed to load favorites');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const removeFavorite = async (workerId) => {
+    try {
+      const response = await usersAPI.toggleFavorite(workerId);
+      // Only remove from UI if backend confirms removal
+      if (!response.isFavorite) {
+        setFavorites(favorites.filter(worker => worker.id !== workerId));
+      }
+    } catch (err) {
+      console.error('Error removing favorite:', err);
+      setError('Failed to remove favorite');
+    }
   };
 
   const stats = {
     totalFavorites: favorites.length,
     totalBookings: favorites.reduce((sum, worker) => sum + worker.totalBookings, 0),
-    averageRating: (favorites.reduce((sum, worker) => sum + worker.rating, 0) / favorites.length).toFixed(1),
-    averageRate: Math.round(favorites.reduce((sum, worker) => sum + worker.hourlyRate, 0) / favorites.length)
+    averageRating: favorites.length > 0 ? (favorites.reduce((sum, worker) => sum + worker.rating, 0) / favorites.length).toFixed(1) : '0.0',
+    averageRate: favorites.length > 0 ? Math.round(favorites.reduce((sum, worker) => sum + worker.hourlyRate, 0) / favorites.length) : 0
   };
 
   const WorkerCard = ({ worker }) => (
@@ -133,7 +133,7 @@ const Favorites = () => {
         <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
           <div className="flex items-center">
             <DollarSign className="h-4 w-4 mr-1" />
-            ${worker.hourlyRate}/hour
+            ₹{worker.hourlyRate}/hour
           </div>
           <div className="flex items-center">
             <Clock className="h-4 w-4 mr-1" />
@@ -164,13 +164,13 @@ const Favorites = () => {
 
       <div className="flex space-x-3">
         <button 
-          onClick={() => navigate(`/worker/${worker.id}`)}
+          onClick={() => navigate(`/customer/worker/${worker.id}`)}
           className="flex-1 px-4 py-2 border border-primary-600 text-primary-600 rounded-lg hover:bg-primary-50 transition-colors"
         >
           View Profile
         </button>
         <button 
-          onClick={() => navigate(`/book/${worker.id}`)}
+          onClick={() => navigate(`/customer/book/${worker.id}`)}
           className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
         >
           Book Now
@@ -199,12 +199,28 @@ const Favorites = () => {
     </div>
   );
 
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading your favorites...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">My Favorites</h1>
         <p className="text-gray-600 mt-2">Your saved service providers for quick booking</p>
+        {error && (
+          <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -231,37 +247,13 @@ const Favorites = () => {
         />
         <StatCard
           title="Average Rate"
-          value={`$${stats.averageRate}/hr`}
+          value={`₹${stats.averageRate}/hr`}
           subtitle="of your favorites"
           icon={DollarSign}
           color="bg-green-500"
         />
       </div>
 
-      {/* Quick Actions */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button 
-            onClick={() => navigate('/search')}
-            className="flex items-center justify-center px-4 py-3 border border-primary-600 text-primary-600 rounded-lg hover:bg-primary-50 transition-colors"
-          >
-            <User className="h-5 w-5 mr-2" />
-            Find New Workers
-          </button>
-          <button className="flex items-center justify-center px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-            <Calendar className="h-5 w-5 mr-2" />
-            Book with Favorite
-          </button>
-          <button 
-            onClick={() => navigate('/bookings')}
-            className="flex items-center justify-center px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Clock className="h-5 w-5 mr-2" />
-            View Booking History
-          </button>
-        </div>
-      </div>
 
       {/* Favorites List */}
       {favorites.length > 0 ? (
@@ -281,7 +273,7 @@ const Favorites = () => {
             Save your preferred service providers for quick and easy booking
           </p>
           <button 
-            onClick={() => navigate('/search')}
+            onClick={() => navigate('/customer/search')}
             className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
           >
             Find Service Providers

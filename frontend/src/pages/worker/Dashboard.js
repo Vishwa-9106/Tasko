@@ -9,7 +9,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import { bookingsAPI } from '../../services/api';
+import { bookingsAPI, usersAPI } from '../../services/api';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -23,7 +23,8 @@ const Dashboard = () => {
     recentBookings: [],
     todaySchedule: 0,
     pendingRequests: 0,
-    newReviews: 0
+    newReviews: 0,
+    reviews: []
   });
 
   // Load user data and calculate stats
@@ -41,7 +42,8 @@ const Dashboard = () => {
           recentBookings: [],
           todaySchedule: 0,
           pendingRequests: 0,
-          newReviews: 0
+          newReviews: 0,
+          reviews: []
         });
 
         // Try to fetch bookings from API
@@ -65,6 +67,21 @@ const Dashboard = () => {
           }));
         } catch (bookingError) {
           console.log('Bookings not available:', bookingError);
+        }
+
+        // Try to fetch worker reviews
+        try {
+          const reviewsResponse = await usersAPI.getWorkerReviews(user._id);
+          if (reviewsResponse && reviewsResponse.reviews) {
+            setDashboardData(prev => ({
+              ...prev,
+              reviews: reviewsResponse.reviews,
+              newReviews: reviewsResponse.reviews.length,
+              averageRating: reviewsResponse.averageRating || prev.averageRating
+            }));
+          }
+        } catch (reviewError) {
+          console.log('Reviews not available:', reviewError);
         }
 
       } catch (err) {
@@ -174,6 +191,51 @@ const Dashboard = () => {
         ))}
       </div>
 
+      {/* Recent Reviews */}
+      {dashboardData.reviews.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-8">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">Recent Reviews</h2>
+          </div>
+          <div className="p-6">
+            <div className="space-y-4">
+              {dashboardData.reviews.slice(0, 3).map((review, index) => (
+                <div key={index} className="border-l-4 border-yellow-400 pl-4 py-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center">
+                      <div className="flex text-yellow-400">
+                        {[...Array(5)].map((_, i) => (
+                          <Star
+                            key={i}
+                            className={`h-4 w-4 ${i < review.rating ? 'fill-current' : ''}`}
+                          />
+                        ))}
+                      </div>
+                      <span className="ml-2 text-sm font-medium text-gray-900">{review.customerName}</span>
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {new Date(review.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">{review.comment}</p>
+                  <p className="text-xs text-gray-500 mt-1">Service: {review.serviceName}</p>
+                </div>
+              ))}
+            </div>
+            {dashboardData.reviews.length > 3 && (
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => navigate('/worker/bookings', { state: { showReviews: true } })}
+                  className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                >
+                  View all {dashboardData.reviews.length} reviews
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Recent Bookings */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-200">
@@ -281,7 +343,7 @@ const Dashboard = () => {
             </div>
           </div>
           <button 
-            onClick={() => navigate('/worker/earnings')}
+            onClick={() => navigate('/worker/bookings', { state: { showReviews: true } })}
             className="mt-4 w-full bg-yellow-600 text-white py-2 px-4 rounded-lg hover:bg-yellow-700 transition-colors"
           >
             View Reviews

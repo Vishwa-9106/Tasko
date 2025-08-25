@@ -31,26 +31,29 @@ const WorkerProfile = () => {
         setLoading(true);
         const response = await usersAPI.getWorkerById(workerId);
         
+        // Extract worker data from response
+        const workerResponse = response;
+        
         const workerData = {
-          id: response._id,
-          name: `${response.firstName} ${response.lastName}`,
-          rating: response.rating || 4.5,
-          reviews: response.reviewCount || 0,
-          hourlyRate: response.hourlyRate || 25,
-          location: response.location || 'Location not specified',
+          id: workerResponse._id,
+          name: `${workerResponse.firstName} ${workerResponse.lastName}`,
+          rating: workerResponse.rating || 4.5,
+          reviews: workerResponse.reviewCount || 0,
+          hourlyRate: workerResponse.hourlyRate || 25,
+          location: workerResponse.location || 'Location not specified',
           distance: Math.floor(Math.random() * 10) + 1, // Random distance for demo
-          services: response.services?.map(service => service.name || service.category) || ['General Service'],
-          image: response.profileImage || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=300&fit=crop&crop=face',
+          services: workerResponse.services?.map(service => service.name || service.category) || ['General Service'],
+          image: workerResponse.profileImage || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=300&fit=crop&crop=face',
           availability: 'Available this week',
-          completedJobs: response.completedJobs || 0,
+          completedJobs: workerResponse.completedJobs || 0,
           responseTime: '1 hour',
-          verified: response.verified || false,
-          joinDate: response.createdAt || new Date().toISOString(),
-          bio: response.bio || 'Professional service provider committed to delivering quality work.',
-          skills: response.skills || ['Professional Service', 'Reliable', 'Experienced'],
-          languages: response.languages || ['English'],
-          backgroundCheck: response.backgroundCheck || false,
-          insurance: response.insurance || false
+          verified: workerResponse.verified || false,
+          joinDate: workerResponse.createdAt || new Date().toISOString(),
+          bio: workerResponse.bio || 'Professional service provider committed to delivering quality work.',
+          skills: workerResponse.skills || ['Professional Service', 'Reliable', 'Experienced'],
+          languages: workerResponse.languages || ['English'],
+          backgroundCheck: workerResponse.backgroundCheck || false,
+          insurance: workerResponse.insurance || false
         };
         
         setWorker(workerData);
@@ -59,7 +62,19 @@ const WorkerProfile = () => {
         try {
           setReviewsLoading(true);
           const reviewsResponse = await usersAPI.getWorkerReviews(workerId);
-          setReviews(reviewsResponse || []);
+          
+          // Handle reviews response format
+          const reviewsData = reviewsResponse?.reviews || reviewsResponse || [];
+          const formattedReviews = reviewsData.map(review => ({
+            id: review._id || review.bookingId,
+            customer: review.customerName,
+            rating: review.rating,
+            comment: review.comment,
+            date: review.createdAt,
+            service: review.serviceName
+          }));
+          
+          setReviews(formattedReviews);
         } catch (reviewError) {
           console.error('Error fetching reviews:', reviewError);
           setReviews([]);
@@ -81,8 +96,31 @@ const WorkerProfile = () => {
   }, [workerId]);
 
 
-  const toggleFavorite = () => {
-    setIsFavorite(!isFavorite);
+  // Check if worker is in favorites on load
+  useEffect(() => {
+    const checkFavoriteStatus = async () => {
+      try {
+        const favoritesData = await usersAPI.getFavorites();
+        const isWorkerFavorite = favoritesData.some(fav => fav._id === workerId);
+        setIsFavorite(isWorkerFavorite);
+      } catch (error) {
+        console.error('Error checking favorite status:', error);
+      }
+    };
+
+    if (workerId) {
+      checkFavoriteStatus();
+    }
+  }, [workerId]);
+
+  const toggleFavorite = async () => {
+    try {
+      const response = await usersAPI.toggleFavorite(workerId);
+      setIsFavorite(response.isFavorite);
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      setError('Failed to update favorite status');
+    }
   };
 
   if (loading) {

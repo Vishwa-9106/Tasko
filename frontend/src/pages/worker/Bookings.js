@@ -52,9 +52,12 @@ const Bookings = () => {
   }, [activeTab]);
 
   useEffect(() => {
-    // Check if navigated from dashboard with pending filter
+    // Check if navigated from dashboard with pending filter or reviews
     if (location.state?.showPending) {
       setActiveTab('pending');
+    }
+    if (location.state?.showReviews) {
+      setShowReviews(true);
     }
   }, [location.state]);
 

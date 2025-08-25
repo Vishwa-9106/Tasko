@@ -150,6 +150,16 @@ export const usersAPI = {
   // Get worker services
   getWorkerServices: (workerId) => 
     apiRequest(`/users/workers/${workerId}/services`),
+
+  // Get user's favorite workers
+  getFavorites: () => 
+    apiRequest('/users/favorites'),
+
+  // Add/remove worker from favorites
+  toggleFavorite: (workerId) => 
+    apiRequest(`/users/favorites/${workerId}`, {
+      method: 'POST'
+    }),
 };
 
 // Health check

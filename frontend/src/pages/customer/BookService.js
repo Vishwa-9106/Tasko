@@ -8,7 +8,8 @@ import {
   Star,
   DollarSign,
   ArrowLeft,
-  CheckCircle
+  CheckCircle,
+  X
 } from 'lucide-react';
 import { usersAPI, bookingsAPI } from '../../services/api';
 
@@ -25,6 +26,7 @@ const BookService = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   useEffect(() => {
     const fetchWorker = async () => {
@@ -95,8 +97,14 @@ const BookService = () => {
       
       await bookingsAPI.createBooking(bookingData);
       
-      alert('Booking request sent successfully! The worker will be notified.');
-      navigate('/customer/bookings');
+      // Show success message instead of alert
+      setShowSuccessMessage(true);
+      
+      // Auto-hide after 5 seconds and navigate
+      setTimeout(() => {
+        setShowSuccessMessage(false);
+        navigate('/customer/bookings');
+      }, 5000);
       
     } catch (error) {
       console.error('Booking error:', error);
@@ -311,6 +319,26 @@ const BookService = () => {
               {submitting ? 'Sending Request...' : 'Confirm Booking'}
             </button>
           </div>
+
+          {/* Success Message */}
+          {showSuccessMessage && (
+            <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                  <p className="text-green-800 font-medium">
+                    Booking request sent successfully! The worker will be notified.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowSuccessMessage(false)}
+                  className="text-green-500 hover:text-green-700 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
