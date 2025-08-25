@@ -273,7 +273,7 @@ router.post('/:bookingId/review', auth, async (req, res) => {
       return res.status(400).json({ message: 'Can only review completed bookings' });
     }
 
-    // Add review
+    // Add review to booking
     booking.review = {
       rating: parseInt(rating),
       comment: comment || '',
@@ -282,8 +282,24 @@ router.post('/:bookingId/review', auth, async (req, res) => {
 
     await booking.save();
 
-    // Update worker's rating
+    // Get customer details for the review
+    const customer = await User.findById(booking.customer);
+
+    // Update worker's profile with the new review
     const worker = await User.findById(booking.worker);
+    
+    // Add review to worker's reviews array
+    worker.reviews.push({
+      bookingId: booking._id,
+      customerId: customer._id,
+      customerName: `${customer.firstName} ${customer.lastName}`,
+      rating: parseInt(rating),
+      comment: comment || '',
+      serviceName: booking.service.name,
+      createdAt: new Date()
+    });
+
+    // Recalculate worker's overall rating and review count
     const workerBookings = await Booking.find({
       worker: booking.worker,
       status: 'completed',
@@ -293,6 +309,7 @@ router.post('/:bookingId/review', auth, async (req, res) => {
     const totalRating = workerBookings.reduce((sum, b) => sum + b.review.rating, 0);
     worker.rating = totalRating / workerBookings.length;
     worker.reviewCount = workerBookings.length;
+    
     await worker.save();
 
     res.json({

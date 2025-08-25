@@ -194,4 +194,35 @@ router.get('/favorites', auth, async (req, res) => {
   }
 });
 
+// @route   GET /api/users/worker/:workerId/reviews
+// @desc    Get all reviews for a specific worker from their profile
+// @access  Public
+router.get('/worker/:workerId/reviews', async (req, res) => {
+  try {
+    const workerId = req.params.workerId;
+    
+    const worker = await User.findById(workerId).select('reviews rating reviewCount');
+    
+    if (!worker) {
+      return res.status(404).json({ message: 'Worker not found' });
+    }
+
+    // Sort reviews by creation date (newest first)
+    const sortedReviews = worker.reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    res.json({
+      reviews: sortedReviews,
+      totalReviews: worker.reviewCount,
+      averageRating: worker.rating
+    });
+
+  } catch (error) {
+    console.error('Get worker reviews error:', error);
+    res.status(500).json({
+      message: 'Server error',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

@@ -119,6 +119,31 @@ const userSchema = new mongoose.Schema({
     default: 0
   },
   
+  // Reviews received (for workers)
+  reviews: [{
+    bookingId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Booking'
+    },
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    customerName: String,
+    rating: {
+      type: Number,
+      min: 1,
+      max: 5,
+      required: true
+    },
+    comment: String,
+    serviceName: String,
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  
   // Customer-specific fields
   favorites: [{
     type: mongoose.Schema.Types.ObjectId,
