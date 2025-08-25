@@ -22,7 +22,7 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
-// Serve uploaded files statically
+// Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // MongoDB connection

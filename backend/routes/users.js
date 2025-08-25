@@ -1,8 +1,10 @@
 const express = require('express');
+const router = express.Router();
 const User = require('../models/User');
 const auth = require('../middleware/auth');
-
-const router = express.Router();
+const { uploadProfilePhoto } = require('../middleware/upload');
+const path = require('path');
+const fs = require('fs');
 
 // @route   GET /api/users/workers
 // @desc    Get all workers with search and filter options
@@ -26,11 +28,12 @@ router.get('/workers', async (req, res) => {
       isActive: true 
     };
 
-    // Search by name or services
+    // Search by name, services, or location
     if (search) {
       query.$or = [
         { firstName: { $regex: search, $options: 'i' } },
         { lastName: { $regex: search, $options: 'i' } },
+        { location: { $regex: search, $options: 'i' } },
         { 'services.name': { $regex: search, $options: 'i' } }
       ];
     }
@@ -218,6 +221,63 @@ router.get('/worker/:workerId/reviews', async (req, res) => {
 
   } catch (error) {
     console.error('Get worker reviews error:', error);
+    res.status(500).json({
+      message: 'Server error',
+      error: error.message
+    });
+  }
+});
+
+// @route   PUT /api/users/profile
+// @desc    Update user profile including profile photo
+// @access  Private
+router.put('/profile', auth, uploadProfilePhoto, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Update basic profile fields
+    const { firstName, lastName, bio, location, phone, hourlyRate, availability } = req.body;
+    
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (bio) user.bio = bio;
+    if (location) user.location = location;
+    if (phone) user.phone = phone;
+    
+    // Worker-specific fields
+    if (user.userType === 'worker') {
+      if (hourlyRate) user.hourlyRate = hourlyRate;
+      if (availability) user.availability = availability;
+    }
+
+    // Handle profile photo upload
+    if (req.file) {
+      // Delete old profile photo if it exists
+      if (user.profileImage) {
+        const oldPhotoPath = path.join(__dirname, '../uploads/profiles', path.basename(user.profileImage));
+        if (fs.existsSync(oldPhotoPath)) {
+          fs.unlinkSync(oldPhotoPath);
+        }
+      }
+      
+      // Set new profile photo URL
+      user.profileImage = `/uploads/profiles/${req.file.filename}`;
+    }
+
+    await user.save();
+
+    // Return updated user profile
+    res.json({
+      message: 'Profile updated successfully',
+      user: user.getPublicProfile()
+    });
+
+  } catch (error) {
+    console.error('Update profile error:', error);
     res.status(500).json({
       message: 'Server error',
       error: error.message

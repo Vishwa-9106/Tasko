@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, 
   Star, 
   MapPin, 
-  Clock, 
   Heart,
-  DollarSign,
   User
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +16,7 @@ const SearchWorkers = () => {
   const [sortBy, setSortBy] = useState('rating');
   const [favorites, setFavorites] = useState([]);
   const [workers, setWorkers] = useState([]);
+  const [allWorkers, setAllWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -31,11 +30,25 @@ const SearchWorkers = () => {
     'Garden Maintenance'
   ];
 
+  // Debounced search effect
   useEffect(() => {
     const fetchWorkers = async () => {
       try {
         setLoading(true);
-        const response = await usersAPI.getWorkers();
+        
+        // Build search parameters
+        const params = {};
+        if (searchQuery.trim()) {
+          params.search = searchQuery.trim();
+        }
+        if (selectedService) {
+          params.service = selectedService;
+        }
+        if (sortBy) {
+          params.sortBy = sortBy;
+        }
+        
+        const response = await usersAPI.getWorkers(params);
         
         // Load user's favorites
         const favoritesData = await usersAPI.getFavorites();
@@ -47,29 +60,33 @@ const SearchWorkers = () => {
           name: `${worker.firstName} ${worker.lastName}`,
           rating: worker.rating || 4.5,
           reviews: worker.reviewCount || 0,
-          hourlyRate: worker.hourlyRate || 25,
           location: worker.location || 'Location not specified',
           distance: Math.floor(Math.random() * 10) + 1, // Random distance for demo
           services: worker.services?.map(service => service.name || service.category) || ['General Service'],
-          image: worker.profileImage || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
-          availability: 'Available this week',
+          image: worker.profileImage ? `http://localhost:5000${worker.profileImage}` : 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
           completedJobs: worker.completedJobs || 0,
-          responseTime: '1 hour',
           verified: worker.verified || false
         }));
         
         setWorkers(formattedWorkers);
+        setAllWorkers(formattedWorkers);
       } catch (error) {
         console.error('Error fetching workers:', error);
         setError('Failed to load workers');
         setWorkers([]);
+        setAllWorkers([]);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchWorkers();
-  }, []);
+    // Debounce search requests
+    const timeoutId = setTimeout(() => {
+      fetchWorkers();
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, selectedService, sortBy]);
 
   const toggleFavorite = async (workerId) => {
     try {
@@ -84,6 +101,20 @@ const SearchWorkers = () => {
       setError('Failed to update favorite status');
     }
   };
+
+  // Client-side filtering as fallback (for immediate feedback)
+  const filteredWorkers = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return workers;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return workers.filter(worker => 
+      worker.name.toLowerCase().includes(query) ||
+      worker.location.toLowerCase().includes(query) ||
+      worker.services.some(service => service.toLowerCase().includes(query))
+    );
+  }, [workers, searchQuery]);
 
   const WorkerCard = ({ worker }) => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
@@ -139,23 +170,9 @@ const SearchWorkers = () => {
           ))}
         </div>
         
-        <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-          <div className="flex items-center">
-            <DollarSign className="h-4 w-4 mr-1" />
-            ₹{worker.hourlyRate}/hour
-          </div>
-          <div className="flex items-center">
-            <Clock className="h-4 w-4 mr-1" />
-            {worker.availability}
-          </div>
-          <div className="flex items-center">
-            <User className="h-4 w-4 mr-1" />
-            {worker.completedJobs} jobs completed
-          </div>
-          <div className="flex items-center">
-            <Clock className="h-4 w-4 mr-1" />
-            Responds in {worker.responseTime}
-          </div>
+        <div className="flex items-center text-sm text-gray-600">
+          <User className="h-4 w-4 mr-1" />
+          {worker.completedJobs} jobs completed
         </div>
       </div>
 
@@ -197,6 +214,18 @@ const SearchWorkers = () => {
           </div>
           
           <div className="flex gap-3">
+            <select
+              value={selectedService}
+              onChange={(e) => setSelectedService(e.target.value)}
+              className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            >
+              <option value="">All Services</option>
+              {services.map((service) => (
+                <option key={service} value={service}>
+                  {service}
+                </option>
+              ))}
+            </select>
             
             <select
               value={sortBy}
@@ -230,16 +259,19 @@ const SearchWorkers = () => {
                 Try Again
               </button>
             </div>
-          ) : workers.length > 0 ? (
+          ) : filteredWorkers.length > 0 ? (
             <>
               <div className="mb-6">
                 <p className="text-gray-600">
-                  Showing {workers.length} service providers
+                  {searchQuery.trim() 
+                    ? `Found ${filteredWorkers.length} service provider${filteredWorkers.length !== 1 ? 's' : ''} matching "${searchQuery}"`
+                    : `Showing ${filteredWorkers.length} service providers`
+                  }
                 </p>
               </div>
               
               <div className="space-y-6">
-                {workers.map((worker) => (
+                {filteredWorkers.map((worker) => (
                   <WorkerCard key={worker.id} worker={worker} />
                 ))}
               </div>
@@ -253,8 +285,29 @@ const SearchWorkers = () => {
             </>
           ) : (
             <div className="text-center py-12">
-              <p className="text-gray-600 mb-4">No service providers found.</p>
-              <p className="text-sm text-gray-500">Try adjusting your search criteria.</p>
+              <div className="mb-4">
+                <Search className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-600 mb-2">
+                  {searchQuery.trim() 
+                    ? `No service providers found matching "${searchQuery}"`
+                    : 'No service providers found'
+                  }
+                </p>
+                <p className="text-sm text-gray-500">
+                  {searchQuery.trim() 
+                    ? 'Try searching with different keywords like worker names, services, or locations.'
+                    : 'Try adjusting your search criteria.'
+                  }
+                </p>
+              </div>
+              {searchQuery.trim() && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="px-4 py-2 text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  Clear search
+                </button>
+              )}
             </div>
           )}
       </div>

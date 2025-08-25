@@ -10,7 +10,7 @@ import {
   Save,
   X
 } from 'lucide-react';
-import { authAPI } from '../../services/api';
+import { authAPI, usersAPI } from '../../services/api';
 
 const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
@@ -75,16 +75,41 @@ const Profile = () => {
     try {
       setLoading(true);
       
-      // Update localStorage directly with profile data (including photo)
-      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-      const updatedUser = { ...currentUser, ...profileData };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
+      // Create FormData for file upload
+      const formData = new FormData();
       
-      // Try to update backend if available
+      // Add basic profile fields
+      formData.append('firstName', profileData.firstName);
+      formData.append('lastName', profileData.lastName);
+      formData.append('bio', profileData.bio);
+      formData.append('location', profileData.location);
+      formData.append('phone', profileData.phone);
+      
+      // Handle profile photo upload
+      const fileInput = document.querySelector('input[type="file"]');
+      if (fileInput && fileInput.files[0]) {
+        formData.append('profilePhoto', fileInput.files[0]);
+      }
+      
+      // Update backend with file upload support
       try {
-        await authAPI.updateProfile(profileData);
+        const response = await usersAPI.updateProfileWithPhoto(formData);
+        
+        // Update localStorage with response data
+        const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        const updatedUser = { ...currentUser, ...response.user };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        
+        // Update local state with backend response
+        setProfileData(prev => ({
+          ...prev,
+          profileImage: response.user.profileImage || prev.profilePhoto
+        }));
+        
       } catch (apiErr) {
-        console.log('Backend update failed, using localStorage only:', apiErr);
+        console.error('Backend update failed:', apiErr);
+        setError('Failed to update profile on server');
+        return;
       }
       
       setIsEditing(false);
@@ -112,11 +137,27 @@ const Profile = () => {
   const handlePhotoUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedTypes.includes(file.type)) {
+        setError('Please select a valid image file (JPEG, PNG, GIF, or WebP)');
+        return;
+      }
+      
+      // Validate file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        setError('File size must be less than 5MB');
+        return;
+      }
+      
+      // Show preview
       const reader = new FileReader();
       reader.onload = (e) => {
         handleInputChange('profilePhoto', e.target.result);
       };
       reader.readAsDataURL(file);
+      
+      setError(''); // Clear any previous errors
     }
   };
 
@@ -168,9 +209,9 @@ const Profile = () => {
             {/* Profile Picture */}
             <div className="flex flex-col items-center mb-6">
               <div className="relative">
-                {profileData.profilePhoto ? (
+                {(profileData.profilePhoto || profileData.profileImage) ? (
                   <img
-                    src={profileData.profilePhoto}
+                    src={profileData.profilePhoto || (profileData.profileImage ? `http://localhost:5000${profileData.profileImage}` : '')}
                     alt="Profile"
                     className="w-24 h-24 rounded-full object-cover border-4 border-primary-100"
                   />

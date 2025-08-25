@@ -135,9 +135,11 @@ export const messagesAPI = {
 
 // Users API functions
 export const usersAPI = {
-  // Get all workers
-  getWorkers: () => 
-    apiRequest('/users/workers'),
+  // Get all workers with optional search parameters
+  getWorkers: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiRequest(`/users/workers${queryString ? `?${queryString}` : ''}`);
+  },
 
   // Get worker by ID
   getWorkerById: (id) => 
@@ -160,6 +162,25 @@ export const usersAPI = {
     apiRequest(`/users/favorites/${workerId}`, {
       method: 'POST'
     }),
+
+  // Update user profile with file upload
+  updateProfileWithPhoto: async (formData) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/users/profile`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Profile update failed');
+    }
+    
+    return response.json();
+  },
 };
 
 // Health check

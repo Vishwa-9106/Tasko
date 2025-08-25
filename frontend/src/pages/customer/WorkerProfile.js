@@ -43,7 +43,7 @@ const WorkerProfile = () => {
           location: workerResponse.location || 'Location not specified',
           distance: Math.floor(Math.random() * 10) + 1, // Random distance for demo
           services: workerResponse.services?.map(service => service.name || service.category) || ['General Service'],
-          image: workerResponse.profileImage || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=300&fit=crop&crop=face',
+          image: workerResponse.profileImage ? `http://localhost:5000${workerResponse.profileImage}` : 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=300&fit=crop&crop=face',
           availability: 'Available this week',
           completedJobs: workerResponse.completedJobs || 0,
           responseTime: '1 hour',
