@@ -215,26 +215,27 @@ const BookService = () => {
 
           {/* Date & Time Selection */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Date & Time</h3>
+            <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Select Date & Time</h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+            {/* Mobile-first: stack, expand touch targets, scale text */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div className="min-w-0">
+                <label className="block text-sm sm:text-base font-medium text-gray-700 mb-2">Date</label>
                 <input
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
                   min={new Date().toISOString().split('T')[0]}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="w-full max-w-full px-3 sm:px-4 py-2.5 sm:py-3 h-11 sm:h-12 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 />
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+              <div className="min-w-0">
+                <label className="block text-sm sm:text-base font-medium text-gray-700 mb-2">Time</label>
                 <select
                   value={selectedTime}
                   onChange={(e) => setSelectedTime(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="w-full max-w-full px-3 sm:px-4 pr-8 py-2.5 sm:py-3 h-11 sm:h-12 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 >
                   <option value="">Select time</option>
                   {timeSlots.map((time) => (

@@ -92,7 +92,7 @@ const AppContent = () => {
               <Navigate to="/login" replace /> :
               <div className="flex">
                 <WorkerNavbar onLogout={handleLogout} />
-                <main className="flex-1 ml-64">
+                <main className="flex-1 lg:ml-64 pt-16 lg:pt-0">
                   <Routes>
                     <Route path="/" element={<Navigate to="/worker/dashboard" replace />} />
                     <Route path="/dashboard" element={<WorkerDashboard />} />
@@ -111,7 +111,7 @@ const AppContent = () => {
               <Navigate to="/login" replace /> :
               <div className="flex">
                 <CustomerNavbar onLogout={handleLogout} />
-                <main className="flex-1 ml-64">
+                <main className="flex-1 lg:ml-64 pt-16 lg:pt-0">
                   <Routes>
                     <Route path="/" element={<Navigate to="/customer/home" replace />} />
                     <Route path="/home" element={<CustomerHome />} />

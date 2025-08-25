@@ -145,46 +145,46 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        <span className="ml-2">Loading dashboard...</span>
+      <div className="p-4 sm:p-6 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-b-2 border-primary-600"></div>
+        <span className="ml-2 text-sm sm:text-base">Loading dashboard...</span>
       </div>
     );
   }
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-4 lg:p-6">
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+        <div className="mb-3 sm:mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
           <p className="text-sm text-red-600">{error}</p>
         </div>
       )}
       
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600 mt-2">Welcome back! Here's your performance overview.</p>
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
+        <p className="text-sm sm:text-base text-gray-600 mt-1 sm:mt-2">Welcome back! Here's your performance overview.</p>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
         {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{stat.value}</p>
-                <div className="flex items-center mt-2">
-                  <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                  <span className={`text-sm font-medium ${
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">{stat.title}</p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1 sm:mt-2">{stat.value}</p>
+                <div className="flex items-center mt-1 sm:mt-2">
+                  <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 text-green-500 mr-1 flex-shrink-0" />
+                  <span className={`text-xs sm:text-sm font-medium truncate ${
                     stat.changeType === 'positive' ? 'text-green-600' : 'text-gray-600'
                   }`}>
                     {stat.change}
                   </span>
                 </div>
               </div>
-              <div className={`p-3 rounded-full ${stat.color}`}>
-                <stat.icon className="h-6 w-6 text-white" />
+              <div className={`p-2 sm:p-3 rounded-full ${stat.color} flex-shrink-0 ml-2`}>
+                <stat.icon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
               </div>
             </div>
           </div>
@@ -193,40 +193,40 @@ const Dashboard = () => {
 
       {/* Recent Reviews */}
       {dashboardData.reviews.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-8">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Reviews</h2>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 sm:mb-8">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Recent Reviews</h2>
           </div>
-          <div className="p-6">
-            <div className="space-y-4">
+          <div className="p-4 sm:p-6">
+            <div className="space-y-3 sm:space-y-4">
               {dashboardData.reviews.slice(0, 3).map((review, index) => (
-                <div key={index} className="border-l-4 border-yellow-400 pl-4 py-2">
-                  <div className="flex items-center justify-between mb-2">
+                <div key={index} className="border-l-4 border-yellow-400 pl-3 sm:pl-4 py-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                     <div className="flex items-center">
                       <div className="flex text-yellow-400">
                         {[...Array(5)].map((_, i) => (
                           <Star
                             key={i}
-                            className={`h-4 w-4 ${i < review.rating ? 'fill-current' : ''}`}
+                            className={`h-3 w-3 sm:h-4 sm:w-4 ${i < review.rating ? 'fill-current' : ''}`}
                           />
                         ))}
                       </div>
-                      <span className="ml-2 text-sm font-medium text-gray-900">{review.customerName}</span>
+                      <span className="ml-2 text-xs sm:text-sm font-medium text-gray-900 truncate">{review.customerName}</span>
                     </div>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 self-start sm:self-auto">
                       {new Date(review.createdAt).toLocaleDateString()}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-600">{review.comment}</p>
-                  <p className="text-xs text-gray-500 mt-1">Service: {review.serviceName}</p>
+                  <p className="text-xs sm:text-sm text-gray-600 line-clamp-2">{review.comment}</p>
+                  <p className="text-xs text-gray-500 mt-1 truncate">Service: {review.serviceName}</p>
                 </div>
               ))}
             </div>
             {dashboardData.reviews.length > 3 && (
-              <div className="mt-4 text-center">
+              <div className="mt-3 sm:mt-4 text-center">
                 <button
                   onClick={() => navigate('/worker/bookings', { state: { showReviews: true } })}
-                  className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                  className="text-primary-600 hover:text-primary-700 text-xs sm:text-sm font-medium"
                 >
                   View all {dashboardData.reviews.length} reviews
                 </button>
@@ -238,26 +238,59 @@ const Dashboard = () => {
 
       {/* Recent Bookings */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Bookings</h2>
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900">Recent Bookings</h2>
         </div>
-        <div className="overflow-x-auto">
+        
+        {/* Mobile Card View */}
+        <div className="block sm:hidden">
+          {dashboardData.recentBookings.length > 0 ? (
+            <div className="divide-y divide-gray-200">
+              {dashboardData.recentBookings.map((booking) => (
+                <div key={booking._id || booking.id} className="p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-medium text-gray-900 truncate">
+                        {typeof booking.service === 'object' ? booking.service.name || 'Service' : booking.service || 'Service'}
+                      </h3>
+                      <p className="text-xs text-gray-600 truncate">{booking.customerName || 'Customer'}</p>
+                    </div>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full flex-shrink-0 ml-2 ${getStatusColor(booking.status)}`}>
+                      {booking.status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs text-gray-500">
+                    <span>{new Date(booking.date).toLocaleDateString()}</span>
+                    <span className="font-medium text-gray-900">₹{booking.amount || 0}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-4 text-center text-gray-500 text-sm">
+              No bookings yet. Start accepting jobs to see them here!
+            </div>
+          )}
+        </div>
+        
+        {/* Desktop Table View */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Service
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Customer
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Date & Time
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Amount
                 </th>
               </tr>
@@ -266,31 +299,31 @@ const Dashboard = () => {
               {dashboardData.recentBookings.length > 0 ? (
                 dashboardData.recentBookings.map((booking) => (
                   <tr key={booking._id || booking.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
+                    <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900 truncate max-w-32 lg:max-w-none">
                         {typeof booking.service === 'object' ? booking.service.name || 'Service' : booking.service || 'Service'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{booking.customerName || 'Customer'}</div>
+                    <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900 truncate max-w-24 lg:max-w-none">{booking.customerName || 'Customer'}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{new Date(booking.date).toLocaleDateString()}</div>
                       <div className="text-sm text-gray-500">{booking.time || 'Time TBD'}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(booking.status)}`}>
                         {booking.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       ₹{booking.amount || 0}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan="5" className="px-4 lg:px-6 py-4 text-center text-gray-500 text-sm">
                     No bookings yet. Start accepting jobs to see them here!
                   </td>
                 </tr>
@@ -301,50 +334,50 @@ const Dashboard = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center">
-            <Calendar className="h-8 w-8 text-primary-600" />
-            <div className="ml-4">
-              <h3 className="text-lg font-medium text-gray-900">Today's Schedule</h3>
-              <p className="text-sm text-gray-600">{dashboardData.todaySchedule} bookings scheduled</p>
+            <Calendar className="h-6 w-6 sm:h-8 sm:w-8 text-primary-600 flex-shrink-0" />
+            <div className="ml-3 sm:ml-4 min-w-0">
+              <h3 className="text-base sm:text-lg font-medium text-gray-900">Today's Schedule</h3>
+              <p className="text-xs sm:text-sm text-gray-600">{dashboardData.todaySchedule} bookings scheduled</p>
             </div>
           </div>
           <button 
             onClick={() => navigate('/worker/bookings')}
-            className="mt-4 w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors"
+            className="mt-3 sm:mt-4 w-full bg-primary-600 text-white py-2 px-3 sm:px-4 rounded-lg hover:bg-primary-700 transition-colors text-sm sm:text-base"
           >
             View Schedule
           </button>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center">
-            <AlertCircle className="h-8 w-8 text-orange-600" />
-            <div className="ml-4">
-              <h3 className="text-lg font-medium text-gray-900">Pending Requests</h3>
-              <p className="text-sm text-gray-600">{dashboardData.pendingRequests} requests awaiting response</p>
+            <AlertCircle className="h-6 w-6 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+            <div className="ml-3 sm:ml-4 min-w-0">
+              <h3 className="text-base sm:text-lg font-medium text-gray-900">Pending Requests</h3>
+              <p className="text-xs sm:text-sm text-gray-600">{dashboardData.pendingRequests} requests awaiting response</p>
             </div>
           </div>
           <button 
             onClick={() => navigate('/worker/bookings', { state: { showPending: true } })}
-            className="mt-4 w-full bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700 transition-colors"
+            className="mt-3 sm:mt-4 w-full bg-orange-600 text-white py-2 px-3 sm:px-4 rounded-lg hover:bg-orange-700 transition-colors text-sm sm:text-base"
           >
             Review Requests
           </button>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 sm:col-span-2 lg:col-span-1">
           <div className="flex items-center">
-            <Star className="h-8 w-8 text-yellow-600" />
-            <div className="ml-4">
-              <h3 className="text-lg font-medium text-gray-900">Reviews</h3>
-              <p className="text-sm text-gray-600">{dashboardData.newReviews} new reviews received</p>
+            <Star className="h-6 w-6 sm:h-8 sm:w-8 text-yellow-600 flex-shrink-0" />
+            <div className="ml-3 sm:ml-4 min-w-0">
+              <h3 className="text-base sm:text-lg font-medium text-gray-900">Reviews</h3>
+              <p className="text-xs sm:text-sm text-gray-600">{dashboardData.newReviews} new reviews received</p>
             </div>
           </div>
           <button 
             onClick={() => navigate('/worker/bookings', { state: { showReviews: true } })}
-            className="mt-4 w-full bg-yellow-600 text-white py-2 px-4 rounded-lg hover:bg-yellow-700 transition-colors"
+            className="mt-3 sm:mt-4 w-full bg-yellow-600 text-white py-2 px-3 sm:px-4 rounded-lg hover:bg-yellow-700 transition-colors text-sm sm:text-base"
           >
             View Reviews
           </button>
