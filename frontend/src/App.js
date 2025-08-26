@@ -120,6 +120,7 @@ const AppContent = () => {
                     <Route path="/favorites" element={<Favorites />} />
                     <Route path="/profile" element={<CustomerProfile />} />
                     <Route path="/book/:workerId" element={<BookService />} />
+                    <Route path="/bookings/:serviceId" element={<BookService />} />
                     <Route path="/worker/:workerId" element={<WorkerProfileView />} />
                     <Route path="/payment" element={<Payment />} />
                   </Routes>

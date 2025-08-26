@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Calendar, 
   Clock, 
@@ -14,8 +14,9 @@ import {
 import { usersAPI, bookingsAPI } from '../../services/api';
 
 const BookService = () => {
-  const { workerId } = useParams();
+  const { workerId, serviceId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [selectedService, setSelectedService] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
@@ -28,11 +29,17 @@ const BookService = () => {
   const [submitting, setSubmitting] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
+  // Resolve workerId: from URL param or from navigation state (when landing via serviceId URL)
+  const resolvedWorkerId = workerId || location.state?.prefill?.workerId || null;
+
   useEffect(() => {
     const fetchWorker = async () => {
       try {
         setLoading(true);
-        const response = await usersAPI.getWorkerById(workerId);
+        if (!resolvedWorkerId) {
+          throw new Error('Missing worker information. Please start booking from a worker profile.');
+        }
+        const response = await usersAPI.getWorkerById(resolvedWorkerId);
         
         // Handle different response formats
         const workerInfo = response.worker || response;
@@ -65,17 +72,25 @@ const BookService = () => {
       }
     };
 
-    if (workerId) {
-      fetchWorker();
+    fetchWorker();
+  }, [resolvedWorkerId]);
+
+  // Apply prefill from navigation state or URL param once worker services are loaded
+  useEffect(() => {
+    const prefill = location.state?.prefill;
+    const candidateServiceId = serviceId || prefill?.serviceId;
+    if (candidateServiceId && worker?.services?.length) {
+      const exists = worker.services.some(s => String(s.id) === String(candidateServiceId));
+      if (exists) setSelectedService(String(candidateServiceId));
     }
-  }, [workerId]);
+  }, [location.state, worker, serviceId]);
 
   const timeSlots = [
     '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
     '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM'
   ];
 
-  const selectedServiceData = worker?.services?.find(s => s.id === selectedService);
+  const selectedServiceData = worker?.services?.find(s => String(s.id) === String(selectedService));
 
   const handleBooking = async () => {
     if (!selectedService || !selectedDate || !selectedTime || !address.trim()) {
@@ -87,7 +102,7 @@ const BookService = () => {
       setSubmitting(true);
       
       const bookingData = {
-        workerId,
+        workerId: resolvedWorkerId,
         serviceId: selectedService,
         scheduledDate: selectedDate,
         scheduledTime: selectedTime,
@@ -186,7 +201,7 @@ const BookService = () => {
                 <label
                   key={service.id}
                   className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer transition-colors ${
-                    selectedService === service.id.toString()
+                    selectedService === String(service.id)
                       ? 'border-primary-500 bg-primary-50'
                       : 'border-gray-200 hover:bg-gray-50'
                   }`}
@@ -195,8 +210,8 @@ const BookService = () => {
                     <input
                       type="radio"
                       name="service"
-                      value={service.id}
-                      checked={selectedService === service.id}
+                      value={String(service.id)}
+                      checked={selectedService === String(service.id)}
                       onChange={(e) => setSelectedService(e.target.value)}
                       className="mr-3"
                     />

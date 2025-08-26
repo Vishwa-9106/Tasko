@@ -11,8 +11,7 @@ import {
   ArrowLeft,
   MessageCircle,
   Calendar,
-  CheckCircle,
-  Shield
+  CheckCircle
 } from 'lucide-react';
 
 const WorkerProfile = () => {
@@ -42,7 +41,15 @@ const WorkerProfile = () => {
           hourlyRate: workerResponse.hourlyRate || 25,
           location: workerResponse.location || 'Location not specified',
           distance: Math.floor(Math.random() * 10) + 1, // Random distance for demo
-          services: workerResponse.services?.map(service => service.name || service.category) || ['General Service'],
+          // Preserve full service objects for detailed rendering
+          services: (workerResponse.services || []).map(s => ({
+            name: s.name || s.category || 'Service',
+            price: s.price,
+            description: s.description || '',
+            active: typeof s.active === 'boolean' ? s.active : true,
+            id: s._id || undefined,
+            category: s.category || 'Other'
+          })),
           image: workerResponse.profileImage ? `http://localhost:5000${workerResponse.profileImage}` : 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=300&fit=crop&crop=face',
           availability: 'Available this week',
           completedJobs: workerResponse.completedJobs || 0,
@@ -94,6 +101,8 @@ const WorkerProfile = () => {
       fetchWorkerProfile();
     }
   }, [workerId]);
+
+  
 
 
   // Check if worker is in favorites on load
@@ -168,7 +177,7 @@ const WorkerProfile = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Profile */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-3 space-y-6">
           {/* Worker Info Card */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-start justify-between mb-6">
@@ -214,52 +223,124 @@ const WorkerProfile = () => {
               </button>
             </div>
 
-            {/* Services */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Services Offered</h3>
-              <div className="flex flex-wrap gap-2">
-                {worker.services.map((service, index) => (
-                  <span
-                    key={index}
-                    className="px-3 py-1 bg-primary-100 text-primary-800 text-sm font-medium rounded-full"
-                  >
-                    {service}
-                  </span>
-                ))}
-              </div>
-            </div>
-
             {/* Bio */}
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">About</h3>
               <p className="text-gray-600 leading-relaxed">{worker.bio}</p>
             </div>
 
-            {/* Skills & Languages */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Skills</h3>
-                <div className="space-y-2">
-                  {worker.skills.map((skill, index) => (
-                    <div key={index} className="flex items-center text-gray-600">
-                      <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
-                      {skill}
+            {/* Services */}
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Services Offered</h3>
+              {worker.services && worker.services.length > 0 ? (
+                <div>
+                  {Object.entries(
+                    worker.services.reduce((groups, svc) => {
+                      const cat = svc.category || 'Other';
+                      if (!groups[cat]) groups[cat] = [];
+                      groups[cat].push(svc);
+                      return groups;
+                    }, {})
+                  ).map(([cat, list], idx) => (
+                    <div key={cat} className={idx > 0 ? 'mt-6' : ''}>
+                      {/* Category header */}
+                      <div className="px-2 py-2 bg-gray-50 rounded-md border border-gray-200">
+                        <span className="text-base sm:text-lg font-semibold text-gray-900">{cat}</span>
+                      </div>
+
+                      {/* Service items under category */}
+                      <div className="mt-2 pl-4 sm:pl-6 space-y-3">
+                        {list.map((svc, sidx) => (
+                          <div
+                            key={svc.id || sidx}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+                              const userType = localStorage.getItem('userType');
+                              const target = `/customer/bookings/${svc.id}`;
+                              if (!isAuthenticated || userType !== 'customer') {
+                                navigate('/login', { state: { redirectTo: target } });
+                                return;
+                              }
+                              navigate(target, {
+                                state: {
+                                  prefill: {
+                                    serviceId: svc.id,
+                                    serviceName: svc.name,
+                                    price: svc.price,
+                                    workerId: worker.id,
+                                    workerName: worker.name,
+                                  }
+                                }
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.currentTarget.click();
+                              }
+                            }}
+                            className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex items-start justify-between">
+                              <h4 className="text-base sm:text-lg font-semibold text-gray-900">{svc.name}</h4>
+                              {svc.price !== undefined && svc.price !== null && (
+                                <span className="text-primary-600 font-semibold ml-3 whitespace-nowrap">₹{svc.price}</span>
+                              )}
+                            </div>
+                            {svc.description ? (
+                              <p className="mt-2 text-sm text-gray-700 leading-relaxed">{svc.description}</p>
+                            ) : (
+                              <p className="mt-2 text-sm text-gray-500">No description provided.</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Languages</h3>
-                <div className="space-y-2">
-                  {worker.languages.map((language, index) => (
-                    <div key={index} className="flex items-center text-gray-600">
-                      <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
-                      {language}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ) : (
+                <p className="text-gray-600">No services listed.</p>
+              )}
             </div>
+
+            {/* Action Buttons moved below services */}
+            <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-3 sm:space-y-0">
+              <button 
+                onClick={() => {
+                  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+                  const userType = localStorage.getItem('userType');
+                  const target = `/customer/book/${worker.id}`;
+                  if (!isAuthenticated || userType !== 'customer') {
+                    navigate('/login', { state: { redirectTo: target } });
+                    return;
+                  }
+                  // Optional prefill payload support
+                  const firstActiveService = (worker.services || []).find(s => s.active);
+                  navigate(target, {
+                    state: firstActiveService ? {
+                      prefill: {
+                        serviceId: firstActiveService.id,
+                        serviceName: firstActiveService.name,
+                        price: firstActiveService.price,
+                        workerId: worker.id,
+                        workerName: worker.name,
+                      }
+                    } : undefined
+                  });
+                }}
+                className="w-full sm:w-auto px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                <Calendar className="h-5 w-5 inline mr-2" />
+                Book Now
+              </button>
+              <button className="w-full sm:w-auto px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                <MessageCircle className="h-5 w-5 inline mr-2" />
+                Send Message
+              </button>
+            </div>
+
           </div>
 
           {/* Reviews */}
@@ -317,76 +398,7 @@ const WorkerProfile = () => {
           </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="lg:col-span-1 space-y-6">
-          {/* Quick Stats */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Stats</h3>
-            <div className="space-y-4">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Hourly Rate:</span>
-                <span className="font-semibold text-primary-600">₹{worker.hourlyRate}/hour</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Jobs Completed:</span>
-                <span className="font-semibold">{worker.completedJobs}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Response Time:</span>
-                <span className="font-semibold">{worker.responseTime}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Member Since:</span>
-                <span className="font-semibold">
-                  {new Date(worker.joinDate).toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'short' 
-                  })}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Verification */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Verification</h3>
-            <div className="space-y-3">
-              <div className="flex items-center">
-                <Shield className={`h-5 w-5 mr-3 ${worker.backgroundCheck ? 'text-green-500' : 'text-gray-400'}`} />
-                <span className={worker.backgroundCheck ? 'text-green-700' : 'text-gray-500'}>
-                  Background Check
-                </span>
-              </div>
-              <div className="flex items-center">
-                <Shield className={`h-5 w-5 mr-3 ${worker.insurance ? 'text-green-500' : 'text-gray-400'}`} />
-                <span className={worker.insurance ? 'text-green-700' : 'text-gray-500'}>
-                  Insured
-                </span>
-              </div>
-              <div className="flex items-center">
-                <CheckCircle className={`h-5 w-5 mr-3 ${worker.verified ? 'text-green-500' : 'text-gray-400'}`} />
-                <span className={worker.verified ? 'text-green-700' : 'text-gray-500'}>
-                  Identity Verified
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="space-y-3">
-            <button 
-              onClick={() => navigate(`/book/${worker.id}`)}
-              className="w-full px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-            >
-              <Calendar className="h-5 w-5 inline mr-2" />
-              Book Now
-            </button>
-            <button className="w-full px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-              <MessageCircle className="h-5 w-5 inline mr-2" />
-              Send Message
-            </button>
-          </div>
-        </div>
+        {/* Sidebar removed for action buttons; main content spans full width */}
       </div>
     </div>
   );
