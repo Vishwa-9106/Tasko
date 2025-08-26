@@ -75,73 +75,49 @@ const Home = () => {
       id: 1,
       name: 'House Cleaning',
       description: 'Professional home cleaning services',
-      price: 'From $50',
-      icon: '🏠',
-      rating: 4.8,
-      bookings: 1250
+      icon: '🏠'
     },
     {
       id: 2,
       name: 'Bathroom Cleaning',
       description: 'Deep bathroom sanitization',
-      price: 'From $30',
-      icon: '🚿',
-      rating: 4.9,
-      bookings: 890
+      icon: '🚿'
     },
     {
       id: 3,
       name: 'Home Cooking',
-      description: 'Fresh meals prepared at home',
-      price: 'From $40',
-      icon: '👨‍🍳',
-      rating: 4.7,
-      bookings: 650
+      description: 'Fresh meals prepared by home chefs',
+      icon: '👨‍🍳'
     },
     {
       id: 4,
       name: 'Laundry Service',
       description: 'Washing, drying, and folding',
-      price: 'From $25',
-      icon: '👕',
-      rating: 4.6,
-      bookings: 420
+      icon: '👕'
     },
     {
       id: 5,
       name: 'Maintenance',
-      description: 'Professional home maintenance and repair services',
-      price: 'From $60',
-      icon: '🛠️',
-      rating: 4.5,
-      bookings: 300
+      description: 'Reliable repair and handyman help',
+      icon: '🛠️'
     },
     {
       id: 6,
       name: 'Cloud Kitchen',
-      description: 'Delicious meals delivered from our cloud kitchen',
-      price: 'From $35',
-      icon: '🍱',
-      rating: 4.8,
-      bookings: 700
+      description: '“Healthy & hygienic meals”',
+      icon: '🍱'
     },
     {
       id: 7,
       name: 'cookie Products',
-      description: 'Fresh groceries and daily essentials delivered to your home',
-      price: 'From $20',
-      icon: '🛒',
-      rating: 4.8,
-      bookings: 700
+      description: 'Daily groceries & essentials at your door',
+      icon: '🛒'
     },
     {
       id: 8,
       name: 'Baby Sitting',
-      description: 'Trusted babysitting and childcare services',
-      price: 'From $45',
-      icon: '🍼',
-      rating: 4.7,
-      bookings: 350
+      description: 'Caring babysitters you can trust',
+      icon: '🍼'
     }
   ];
 
@@ -211,9 +187,8 @@ const Home = () => {
                 <h3 className="text-base sm:text-lg md:text-xl font-semibold text-gray-900 mb-2">{service.name}</h3>
                 <p className="text-xs sm:text-sm md:text-base text-gray-600 mb-3 sm:mb-4 line-clamp-2">{service.description}</p>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs sm:text-sm md:text-base font-medium text-primary-600">From ₹{service.price}</span>
+                  <span className="text-xs sm:text-sm md:text-base font-medium text-primary-600">{service.price}</span>
                   <div className="flex items-center text-xs text-gray-500">
-                    <Star className="h-3 w-3 sm:h-4 sm:w-4 fill-current text-yellow-400 mr-1" />
                     {service.rating}
                   </div>
                 </div>

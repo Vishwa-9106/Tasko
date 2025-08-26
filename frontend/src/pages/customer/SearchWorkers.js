@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usersAPI } from '../../services/api';
+import { CATEGORIES } from '../../constants/categories';
 
 const SearchWorkers = () => {
   const navigate = useNavigate();
@@ -21,14 +22,8 @@ const SearchWorkers = () => {
   const [error, setError] = useState(null);
 
 
-  const services = [
-    'House Cleaning',
-    'Bathroom Cleaning', 
-    'Home Cooking',
-    'Laundry Service',
-    'Dishwashing',
-    'Garden Maintenance'
-  ];
+  // Use centralized categories for consistency
+  const services = CATEGORIES;
 
   // Debounced search effect
   useEffect(() => {

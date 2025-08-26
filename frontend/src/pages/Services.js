@@ -181,10 +181,13 @@ const Services = () => {
             <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
               <option value="">Select category</option>
               <option value="Cleaning">Cleaning</option>
-              <option value="Cooking">Cooking</option>
-              <option value="Laundry">Laundry</option>
               <option value="Dishwashing">Dishwashing</option>
-              <option value="Other">Other</option>
+              <option value="Laundry">Laundry</option>
+              <option value="Cooking">Cooking</option>
+              <option value="Cloud Kitchen">Cloud Kitchen</option>
+              <option value="Baby Sitting">Baby Sitting</option>
+              <option value="Gardening">Gardening</option>
+              <option value="Maintenance">Maintenance</option>
             </select>
           </div>
           <div className="flex space-x-3 pt-4">
