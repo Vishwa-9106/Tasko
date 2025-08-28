@@ -94,3 +94,24 @@ export const BABYSITTING_OPTIONS = [
   'Full-Day Babysitting',
   'Night-Time Babysitting'
 ];
+
+// Predefined options for Service Name when category is "Maintenance"
+export const MAINTENANCE_OPTIONS = [
+  'Bathroom Maintenance',
+  'Hall / Living Room Maintenance',
+  'Kitchen Maintenance',
+  'Bedroom Maintenance',
+  'Outdoor / General Maintenance'
+];
+
+// Predefined options for Service Name when category is "Cloud Kitchen"
+export const CLOUD_KITCHEN_OPTIONS = [
+  'Everyday Meals',
+  'Breakfast Items',
+  'Snacks & Quick Bites',
+  'Soups & Light Foods',
+  'Non-Veg Dishes',
+  'Rice Varieties',
+  'Curries & Gravies',
+  'Sweets & Desserts'
+];

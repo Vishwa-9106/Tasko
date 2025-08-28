@@ -79,9 +79,9 @@ const Home = () => {
     },
     {
       id: 2,
-      name: 'Bathroom Cleaning',
-      description: 'Deep bathroom sanitization',
-      icon: '🚿'
+      name: 'Diswashing',
+      description: 'Clean, hygienic utensils.',
+      icon: '🍽️'
     },
     {
       id: 3,
@@ -109,9 +109,9 @@ const Home = () => {
     },
     {
       id: 7,
-      name: 'cookie Products',
-      description: 'Daily groceries & essentials at your door',
-      icon: '🛒'
+      name: 'Gardening',
+      description: 'Plant care and landscaping.',
+      icon: '🌿'
     },
     {
       id: 8,

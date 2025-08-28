@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Home, Star, Clock, MapPin } from 'lucide-react';
-import { CATEGORIES, ICON_MAP, HOME_CLEANING_OPTIONS, LAUNDRY_OPTIONS, DISHWASHING_OPTIONS, COOKING_OPTIONS, GARDENING_OPTIONS, BABYSITTING_OPTIONS } from '../../constants/categories';
+import { CATEGORIES, ICON_MAP, HOME_CLEANING_OPTIONS, LAUNDRY_OPTIONS, DISHWASHING_OPTIONS, COOKING_OPTIONS, GARDENING_OPTIONS, BABYSITTING_OPTIONS, MAINTENANCE_OPTIONS, CLOUD_KITCHEN_OPTIONS } from '../../constants/categories';
 
 const Services = () => {
   const [services, setServices] = useState([]);
@@ -44,12 +44,20 @@ const Services = () => {
       if (serviceName && !COOKING_OPTIONS.includes(serviceName)) {
         setServiceName('');
       }
+    } else if (serviceCategory === 'Cloud Kitchen') {
+      if (serviceName && !CLOUD_KITCHEN_OPTIONS.includes(serviceName)) {
+        setServiceName('');
+      }
     } else if (serviceCategory === 'Gardening') {
       if (serviceName && !GARDENING_OPTIONS.includes(serviceName)) {
         setServiceName('');
       }
     } else if (serviceCategory === 'Baby Sitting') {
       if (serviceName && !BABYSITTING_OPTIONS.includes(serviceName)) {
+        setServiceName('');
+      }
+    } else if (serviceCategory === 'Maintenance') {
+      if (serviceName && !MAINTENANCE_OPTIONS.includes(serviceName)) {
         setServiceName('');
       }
     }
@@ -412,7 +420,7 @@ const Services = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Service Name</label>
-                {serviceCategory === 'Home Cleaning' || serviceCategory === 'Laundry' || serviceCategory === 'Dishwashing' || serviceCategory === 'Cooking' || serviceCategory === 'Gardening' || serviceCategory === 'Baby Sitting' ? (
+                {serviceCategory === 'Home Cleaning' || serviceCategory === 'Laundry' || serviceCategory === 'Dishwashing' || serviceCategory === 'Cooking' || serviceCategory === 'Cloud Kitchen' || serviceCategory === 'Gardening' || serviceCategory === 'Baby Sitting' || serviceCategory === 'Maintenance' ? (
                   <select
                     value={serviceName}
                     onChange={(e) => setServiceName(e.target.value)}
@@ -427,9 +435,13 @@ const Services = () => {
                           ? DISHWASHING_OPTIONS
                           : serviceCategory === 'Cooking'
                             ? COOKING_OPTIONS
-                            : serviceCategory === 'Gardening'
+                            : serviceCategory === 'Cloud Kitchen'
+                              ? CLOUD_KITCHEN_OPTIONS
+                              : serviceCategory === 'Gardening'
                               ? GARDENING_OPTIONS
-                              : BABYSITTING_OPTIONS).map((opt) => (
+                              : serviceCategory === 'Baby Sitting'
+                                ? BABYSITTING_OPTIONS
+                                : MAINTENANCE_OPTIONS).map((opt) => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>

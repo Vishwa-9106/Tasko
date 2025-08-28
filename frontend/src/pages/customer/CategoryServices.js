@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { servicesAPI, usersAPI } from '../../services/api';
 import { ArrowLeft, Search } from 'lucide-react';
+import { HOME_CLEANING_OPTIONS, LAUNDRY_OPTIONS, COOKING_OPTIONS, DISHWASHING_OPTIONS, BABYSITTING_OPTIONS, GARDENING_OPTIONS, MAINTENANCE_OPTIONS, CLOUD_KITCHEN_OPTIONS } from '../../constants/categories';
 
 // Helper: convert slug to readable title
 const unslugify = (slug) => slug.replace(/-/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (m) => m.toUpperCase());
@@ -22,19 +23,105 @@ const CategoryServices = () => {
         setLoading(true);
         setError(null);
 
-        // Fetch services by category
-        const svcData = await servicesAPI.getServicesByCategory(readableCategory);
-        const normalizedServices = (Array.isArray(svcData?.services) ? svcData.services : Array.isArray(svcData) ? svcData : [])
-          .map((s, idx) => ({
-            id: s._id || s.id || `svc-${idx}`,
-            name: s.name || s.category || 'Service',
-            description: s.description || '',
-            category: s.category || readableCategory,
+        // Determine if this is the House Cleaning, Laundry Service, Home Cooking, Dishwashing, Baby Sitting, Gardening, Maintenance, or Cloud Kitchen page.
+        // Route provides 'House Cleaning', 'Laundry Service', 'Home Cooking', 'Dishwashing' (or typo 'Diswashing'), 'Baby Sitting', 'Gardening', 'Maintenance', and 'Cloud Kitchen'.
+        // categories.js holds options under "Home Cleaning", "Laundry", "Cooking", "Dishwashing", "Baby Sitting", "Gardening", "Maintenance", and "Cloud Kitchen" respectively.
+        const isHouseCleaning = readableCategory.toLowerCase() === 'house cleaning';
+        const isLaundryService = readableCategory.toLowerCase() === 'laundry service';
+        const isHomeCooking = readableCategory.toLowerCase() === 'home cooking';
+        const lc = readableCategory.toLowerCase();
+        const isDishwashing = lc === 'dishwashing' || lc === 'diswashing';
+        const isBabySitting = lc === 'baby sitting';
+        const isGardening = lc === 'gardening';
+        const isMaintenance = lc === 'maintenance';
+        const isCloudKitchen = lc === 'cloud kitchen';
+
+        if (isHouseCleaning) {
+          // Build services dynamically from HOME_CLEANING_OPTIONS
+          const normalizedServices = HOME_CLEANING_OPTIONS.map((name, idx) => ({
+            id: `hc-${idx}`,
+            name,
+            description: '',
+            category: 'Home Cleaning',
           }));
-        setServices(normalizedServices);
+          setServices(normalizedServices);
+        } else if (isLaundryService) {
+          // Build services dynamically from LAUNDRY_OPTIONS
+          const normalizedServices = LAUNDRY_OPTIONS.map((name, idx) => ({
+            id: `laundry-${idx}`,
+            name,
+            description: '',
+            category: 'Laundry',
+          }));
+          setServices(normalizedServices);
+        } else if (isHomeCooking) {
+          // Build services dynamically from COOKING_OPTIONS
+          const normalizedServices = COOKING_OPTIONS.map((name, idx) => ({
+            id: `cook-${idx}`,
+            name,
+            description: '',
+            category: 'Cooking',
+          }));
+          setServices(normalizedServices);
+        } else if (isDishwashing) {
+          // Build services dynamically from DISHWASHING_OPTIONS
+          const normalizedServices = DISHWASHING_OPTIONS.map((name, idx) => ({
+            id: `dish-${idx}`,
+            name,
+            description: '',
+            category: 'Dishwashing',
+          }));
+          setServices(normalizedServices);
+        } else if (isBabySitting) {
+          // Build services dynamically from BABYSITTING_OPTIONS
+          const normalizedServices = BABYSITTING_OPTIONS.map((name, idx) => ({
+            id: `baby-${idx}`,
+            name,
+            description: '',
+            category: 'Baby Sitting',
+          }));
+          setServices(normalizedServices);
+        } else if (isGardening) {
+          // Build services dynamically from GARDENING_OPTIONS
+          const normalizedServices = GARDENING_OPTIONS.map((name, idx) => ({
+            id: `garden-${idx}`,
+            name,
+            description: '',
+            category: 'Gardening',
+          }));
+          setServices(normalizedServices);
+        } else if (isMaintenance) {
+          // Build services dynamically from MAINTENANCE_OPTIONS
+          const normalizedServices = MAINTENANCE_OPTIONS.map((name, idx) => ({
+            id: `maint-${idx}`,
+            name,
+            description: '',
+            category: 'Maintenance',
+          }));
+          setServices(normalizedServices);
+        } else if (isCloudKitchen) {
+          // Build services dynamically from CLOUD_KITCHEN_OPTIONS
+          const normalizedServices = CLOUD_KITCHEN_OPTIONS.map((name, idx) => ({
+            id: `ck-${idx}`,
+            name,
+            description: '',
+            category: 'Cloud Kitchen',
+          }));
+          setServices(normalizedServices);
+        } else {
+          // Default: fetch services by category from backend
+          const svcData = await servicesAPI.getServicesByCategory(readableCategory);
+          const normalizedServices = (Array.isArray(svcData?.services) ? svcData.services : Array.isArray(svcData) ? svcData : [])
+            .map((s, idx) => ({
+              id: s._id || s.id || `svc-${idx}`,
+              name: s.name || s.category || 'Service',
+              description: s.description || '',
+              category: s.category || readableCategory,
+            }));
+          setServices(normalizedServices);
+        }
 
         // Fetch workers (used to compute how many offer each service)
-        // Backend commonly returns services per worker in usersAPI.getWorkerById; for list, we expect similar shape
         const workersResp = await usersAPI.getWorkers();
         const normalizedWorkers = (Array.isArray(workersResp?.workers) ? workersResp.workers : Array.isArray(workersResp) ? workersResp : [])
           .map((w, idx) => ({
@@ -62,7 +149,10 @@ const CategoryServices = () => {
     const sid = String(service.id);
     const sname = (service.name || '').toLowerCase();
     return workers.reduce((acc, w) => (
-      w.services?.some((sv) => String(sv.id) === sid || (sv.name || '').toLowerCase() === sname) ? acc + 1 : acc
+      w.services?.some((sv) => {
+        const n = (sv.name || '').toLowerCase();
+        return String(sv.id) === sid || n === sname || n.includes(sname) || sname.includes(n);
+      }) ? acc + 1 : acc
     ), 0);
   };
 
@@ -183,10 +273,10 @@ const CategoryServices = () => {
                   </div>
                   <div className="mt-4">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleBook(svc); }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/customer/search?service=${encodeURIComponent(svc.name)}`); }}
                       className="w-full px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
                     >
-                      Book Now
+                      View Worker
                     </button>
                   </div>
                 </div>

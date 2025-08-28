@@ -6,7 +6,7 @@ import {
   Heart,
   User
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { usersAPI } from '../../services/api';
 import { CATEGORIES } from '../../constants/categories';
 import {
@@ -20,6 +20,7 @@ import {
 
 const SearchWorkers = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedService, setSelectedService] = useState('');
   const [sortBy, setSortBy] = useState('rating');
@@ -43,6 +44,15 @@ const SearchWorkers = () => {
     'Baby Sitting': BABYSITTING_OPTIONS,
     // Categories like 'Cloud Kitchen' and 'Maintenance' currently have no predefined service options
   }), []);
+
+  // Read `service` query param and auto-apply as selected service
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const svc = params.get('service');
+    if (svc && svc !== selectedService) {
+      setSelectedService(svc);
+    }
+  }, [location.search]);
 
   // Debounced search effect
   useEffect(() => {
