@@ -14,6 +14,7 @@ import WorkerEarnings from './pages/worker/Earnings';
 
 // Customer Pages
 import CustomerHome from './pages/customer/Home';
+import CategoryServices from './pages/customer/CategoryServices';
 import SearchWorkers from './pages/customer/SearchWorkers';
 import CustomerBookings from './pages/customer/BookingHistory';
 import Favorites from './pages/customer/Favorites';
@@ -120,6 +121,7 @@ const AppContent = () => {
                     <Route path="/favorites" element={<Favorites />} />
                     <Route path="/profile" element={<CustomerProfile />} />
                     <Route path="/book/:workerId" element={<BookService />} />
+                    <Route path="/services/:categoryName" element={<CategoryServices />} />
                     <Route path="/bookings/:serviceId" element={<BookService />} />
                     <Route path="/worker/:workerId" element={<WorkerProfileView />} />
                     <Route path="/payment" element={<Payment />} />

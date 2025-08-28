@@ -9,6 +9,14 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { usersAPI } from '../../services/api';
 import { CATEGORIES } from '../../constants/categories';
+import {
+  HOME_CLEANING_OPTIONS,
+  LAUNDRY_OPTIONS,
+  DISHWASHING_OPTIONS,
+  COOKING_OPTIONS,
+  GARDENING_OPTIONS,
+  BABYSITTING_OPTIONS
+} from '../../constants/categories';
 
 const SearchWorkers = () => {
   const navigate = useNavigate();
@@ -25,6 +33,17 @@ const SearchWorkers = () => {
   // Use centralized categories for consistency
   const services = CATEGORIES;
 
+  // Map categories to their service options for category-based search expansion
+  const CATEGORY_SERVICE_MAP = useMemo(() => ({
+    'Home Cleaning': HOME_CLEANING_OPTIONS,
+    'Laundry': LAUNDRY_OPTIONS,
+    'Dishwashing': DISHWASHING_OPTIONS,
+    'Cooking': COOKING_OPTIONS,
+    'Gardening': GARDENING_OPTIONS,
+    'Baby Sitting': BABYSITTING_OPTIONS,
+    // Categories like 'Cloud Kitchen' and 'Maintenance' currently have no predefined service options
+  }), []);
+
   // Debounced search effect
   useEffect(() => {
     const fetchWorkers = async () => {
@@ -33,8 +52,18 @@ const SearchWorkers = () => {
         
         // Build search parameters
         const params = {};
-        if (searchQuery.trim()) {
-          params.search = searchQuery.trim();
+        const trimmed = searchQuery.trim();
+        if (trimmed) {
+          const lower = trimmed.toLowerCase();
+          // Determine if query is targeting a category (case-insensitive, partial both ways)
+          const isCategoryQuery = Object.keys(CATEGORY_SERVICE_MAP).some(cat => {
+            const catLower = cat.toLowerCase();
+            return catLower.includes(lower) || lower.includes(catLower);
+          });
+          // If not a category query, forward to backend to leverage its search
+          if (!isCategoryQuery) {
+            params.search = trimmed;
+          }
         }
         if (selectedService) {
           params.service = selectedService;
@@ -102,14 +131,57 @@ const SearchWorkers = () => {
     if (!searchQuery.trim()) {
       return workers;
     }
-    
+
     const query = searchQuery.toLowerCase();
-    return workers.filter(worker => 
-      worker.name.toLowerCase().includes(query) ||
-      worker.location.toLowerCase().includes(query) ||
-      worker.services.some(service => service.toLowerCase().includes(query))
+
+    // Detect categories that match the query (case-insensitive, partial)
+    const matchedCategories = Object.keys(CATEGORY_SERVICE_MAP).filter(cat =>
+      cat.toLowerCase().includes(query)
     );
-  }, [workers, searchQuery]);
+
+    // Build a flat list of all known service options
+    const allServiceOptions = Object.values(CATEGORY_SERVICE_MAP).flat().map(s => s.toLowerCase());
+
+    // Determine if the query targets a specific known service (case-insensitive, partial both ways)
+    const isSpecificServiceQuery = allServiceOptions.some(opt => opt.includes(query) || query.includes(opt));
+
+    // Build a set of all services under matched categories
+    const expandedServices = new Set();
+    matchedCategories.forEach(cat => {
+      (CATEGORY_SERVICE_MAP[cat] || []).forEach(svc => expandedServices.add(svc.toLowerCase()));
+    });
+
+    // If this is a specific service query, restrict results to workers providing that service
+    if (isSpecificServiceQuery) {
+      return workers.filter(worker =>
+        worker.services.some(svc => {
+          const ws = svc.toLowerCase();
+          return allServiceOptions.some(opt =>
+            (opt.includes(query) || query.includes(opt)) && (ws.includes(query) || query.includes(ws))
+          );
+        })
+      );
+    }
+
+    // Otherwise, use the broader matching (name/location/service text or any service in a matched category)
+    return workers.filter(worker => {
+      const nameMatch = worker.name.toLowerCase().includes(query);
+      const locationMatch = worker.location.toLowerCase().includes(query);
+      const serviceTextMatch = worker.services.some(service => service.toLowerCase().includes(query));
+
+      // If the query matched a category, include workers that offer any service within that category.
+      let categoryServicesMatch = false;
+      if (expandedServices.size > 0) {
+        const workerServicesLower = worker.services.map(s => s.toLowerCase());
+        // Partial match both ways to be tolerant of naming variations
+        categoryServicesMatch = workerServicesLower.some(ws =>
+          Array.from(expandedServices).some(es => ws.includes(es) || es.includes(ws))
+        );
+      }
+
+      return nameMatch || locationMatch || serviceTextMatch || categoryServicesMatch;
+    });
+  }, [workers, searchQuery, CATEGORY_SERVICE_MAP]);
 
   const WorkerCard = ({ worker }) => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-md transition-shadow">
