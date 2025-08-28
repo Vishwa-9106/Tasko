@@ -11,6 +11,21 @@ const CategoryServices = () => {
   const navigate = useNavigate();
   const { categoryName } = useParams();
   const readableCategory = useMemo(() => unslugify(categoryName || ''), [categoryName]);
+  // Disable card navigation on these service pages (hover remains; only button navigates)
+  const isCardClickDisabled = useMemo(() => {
+    const lc = readableCategory.toLowerCase();
+    return [
+      'house cleaning',
+      'dishwashing',
+      'diswashing',
+      'home cooking',
+      'laundry service',
+      'maintenance',
+      'cloud kitchen',
+      'gardening',
+      'baby sitting'
+    ].includes(lc);
+  }, [readableCategory]);
 
   const [services, setServices] = useState([]);
   const [workers, setWorkers] = useState([]);
@@ -254,11 +269,11 @@ const CategoryServices = () => {
               return (
                 <div
                   key={svc.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleBook(svc)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleBook(svc); } }}
-                  className="border border-gray-200 rounded-lg p-4 sm:p-5 bg-white shadow-sm cursor-pointer hover:shadow-md hover:bg-gray-50 transition-colors"
+                  role={isCardClickDisabled ? undefined : 'button'}
+                  tabIndex={isCardClickDisabled ? undefined : 0}
+                  onClick={isCardClickDisabled ? undefined : () => handleBook(svc)}
+                  onKeyDown={isCardClickDisabled ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleBook(svc); } }}
+                  className={`border border-gray-200 rounded-lg p-4 sm:p-5 bg-white shadow-sm hover:shadow-md hover:bg-gray-50 transition-colors${isCardClickDisabled ? '' : ' cursor-pointer'}`}
                 >
                   <div className="flex items-start justify-between">
                     <h3 className="text-lg font-semibold text-gray-900">{svc.name}</h3>
