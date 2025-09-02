@@ -27,11 +27,19 @@ import Payment from './pages/customer/Payment';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import './index.css';
+// Admin Pages
+import AdminHome from './pages/admin/Home';
+import AdminWorkers from './pages/admin/Workers';
+import AdminCustomers from './pages/admin/Customers';
+import AdminCategories from './pages/admin/Categories';
+import AdminProducts from './pages/admin/Products';
+import WorkerDetails from './pages/admin/WorkerDetails';
+import CustomerDetails from './pages/admin/CustomerDetails';
 
 const AppContent = () => {
   const [userType, setUserType] = useState(localStorage.getItem('userType') || null);
   const [isAuthenticated, setIsAuthenticated] = useState(localStorage.getItem('isAuthenticated') === 'true');
-  const { notifications, clearNotification } = useSocket();
+  const { notifications, clearNotification, isBlocked, blockMessage, clearBlock } = useSocket();
 
   useEffect(() => {
     // Listen for auth changes
@@ -56,11 +64,28 @@ const AppContent = () => {
     setIsAuthenticated(false);
     localStorage.removeItem('userType');
     localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    clearBlock();
+    // Redirect to login
+    window.location.href = '/login';
   };
 
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 relative">
+        {isBlocked && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="mx-4 max-w-md w-full rounded-lg bg-white p-6 shadow-xl">
+              <h2 className="text-xl font-semibold text-red-700">Account Blocked</h2>
+              <p className="mt-2 text-sm text-gray-700">{blockMessage || 'Your account has been blocked by admin.'}</p>
+              <p className="mt-2 text-xs text-gray-500">You have been logged out and cannot use the app.</p>
+              <div className="mt-4 flex justify-end">
+                <button onClick={handleLogout} className="rounded-md bg-red-600 text-white px-4 py-2 text-sm hover:bg-red-700">Logout</button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Notification Toasts */}
         {notifications.map((notification) => (
           <NotificationToast
@@ -74,7 +99,7 @@ const AppContent = () => {
             path="/login" 
             element={
               isAuthenticated ? 
-                <Navigate to={userType === 'worker' ? '/worker/dashboard' : '/customer/home'} replace /> :
+                <Navigate to={userType === 'admin' ? '/admin/home' : (userType === 'worker' ? '/worker/dashboard' : '/customer/home')} replace /> :
                 <Login onLogin={handleLogin} />
             } 
           />
@@ -82,7 +107,7 @@ const AppContent = () => {
             path="/register" 
             element={
               isAuthenticated ? 
-                <Navigate to={userType === 'worker' ? '/worker/dashboard' : '/customer/home'} replace /> :
+                <Navigate to={userType === 'admin' ? '/admin/home' : (userType === 'worker' ? '/worker/dashboard' : '/customer/home')} replace /> :
                 <Register onRegister={handleLogin} />
             } 
           />
@@ -130,13 +155,34 @@ const AppContent = () => {
               </div>
           } />
 
+          {/* Admin Routes */}
+          <Route path="/admin/*" element={
+            !isAuthenticated || userType !== 'admin' ?
+              <Navigate to="/login" replace /> :
+              <div className="flex">
+                {/* No navbar for blank admin home as requested */}
+                <main className="flex-1">
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/admin/home" replace />} />
+                    <Route path="/home" element={<AdminHome />} />
+                    <Route path="/workers" element={<AdminWorkers />} />
+                    <Route path="/workers/:id" element={<WorkerDetails />} />
+                    <Route path="/customers" element={<AdminCustomers />} />
+                    <Route path="/customers/:id" element={<CustomerDetails />} />
+                    <Route path="/categories" element={<AdminCategories />} />
+                    <Route path="/products" element={<AdminProducts />} />
+                  </Routes>
+                </main>
+              </div>
+          } />
+
           {/* Default redirect */}
           <Route 
             path="/" 
             element={
               !isAuthenticated ? 
                 <Navigate to="/login" replace /> :
-                <Navigate to={userType === 'worker' ? '/worker/dashboard' : '/customer/home'} replace />
+                <Navigate to={userType === 'admin' ? '/admin/home' : (userType === 'worker' ? '/worker/dashboard' : '/customer/home')} replace />
             } 
           />
         </Routes>

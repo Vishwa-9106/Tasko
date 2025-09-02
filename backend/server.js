@@ -18,6 +18,9 @@ const io = socketIo(server, {
   }
 });
 
+// Make io available to routes
+app.set('io', io);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -45,6 +48,7 @@ try {
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/users', require('./routes/users'));
   app.use('/api/services', require('./routes/services'));
+  app.use('/api/categories', require('./routes/categories'));
   app.use('/api/bookings', require('./routes/bookings'));
   app.use('/api/messages', require('./routes/messages'));
 } catch (error) {

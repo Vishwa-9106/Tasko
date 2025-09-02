@@ -17,8 +17,24 @@ const apiRequest = async (endpoint, options = {}) => {
 
   try {
     const response = await fetch(url, config);
-    const data = await response.json();
-    
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (_) {
+      // Non-JSON response; keep data as empty object
+    }
+
+    if (response.status === 401) {
+      // Unauthorized: clear auth and redirect to login
+      localStorage.removeItem('userType');
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      // Force redirect so protected routes do not reload admin pages
+      window.location.href = '/login';
+      throw new Error(data.message || 'Unauthorized');
+    }
+
     if (!response.ok) {
       throw new Error(data.message || 'API request failed');
     }
@@ -141,9 +157,35 @@ export const usersAPI = {
     return apiRequest(`/users/workers${queryString ? `?${queryString}` : ''}`);
   },
 
+  // Admin: Get all workers (active + blocked)
+  getAdminWorkers: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiRequest(`/users/admin/workers${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Get all customers with optional search parameters
+  getCustomers: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiRequest(`/users/customers${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Admin: Get all customers (active + blocked)
+  getAdminCustomers: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiRequest(`/users/admin/customers${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Get customer by ID (detailed profile)
+  getCustomerById: (id) =>
+    apiRequest(`/users/customer/${id}`),
+
   // Get worker by ID
   getWorkerById: (id) => 
     apiRequest(`/users/worker/${id}`),
+
+  // Admin: Get worker by ID (includes blocked users)
+  getAdminWorkerById: (id) =>
+    apiRequest(`/users/admin/worker/${id}`),
 
   // Get worker reviews
   getWorkerReviews: (workerId) => 
@@ -181,6 +223,28 @@ export const usersAPI = {
     
     return response.json();
   },
+  
+  // Block a user by ID (admin only)
+  blockUser: (userId) => 
+    apiRequest(`/users/${userId}/block`, {
+      method: 'PUT'
+    }),
+};
+
+// Categories API functions
+export const categoriesAPI = {
+  // Add a new service name to a category constants list (admin only)
+  addService: (category, name) =>
+    apiRequest(`/categories/${encodeURIComponent(category)}/services`, {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    }),
+  // Delete a service name from a category constants list (admin only)
+  deleteService: (category, name) =>
+    apiRequest(`/categories/${encodeURIComponent(category)}/services`, {
+      method: 'DELETE',
+      body: JSON.stringify({ name })
+    }),
 };
 
 // Health check
@@ -193,5 +257,6 @@ export default {
   bookingsAPI,
   messagesAPI,
   usersAPI,
+  categoriesAPI,
   healthCheck,
 };

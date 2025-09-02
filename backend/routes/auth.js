@@ -128,35 +128,34 @@ router.post('/register', async (req, res) => {
 });
 
 // @route   POST /api/auth/login
-// @desc    Login user
+// @desc    Login user (email + password only)
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
-    const { email, password, userType } = req.body;
+    const { email, password } = req.body;
 
     // Validate required fields
-    if (!email || !password || !userType) {
+    if (!email || !password) {
       return res.status(400).json({
-        message: 'Please provide email, password, and user type'
+        message: 'Please provide email and password'
       });
     }
 
-    // Find user by email and userType
+    // Find user by email
     const user = await User.findOne({ 
-      email: email.toLowerCase(),
-      userType: userType
+      email: email.toLowerCase()
     });
 
     if (!user) {
       return res.status(401).json({
-        message: 'Invalid credentials or user type'
+        message: 'Invalid credentials'
       });
     }
 
     // Check if account is active
     if (!user.isActive) {
       return res.status(401).json({
-        message: 'Account is deactivated. Please contact support.'
+        message: 'Your account has been blocked by admin.'
       });
     }
 

@@ -15,11 +15,20 @@ export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockMessage, setBlockMessage] = useState('');
 
   useEffect(() => {
     // Initialize socket connection
     const newSocket = io(process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5000', {
       transports: ['websocket', 'polling']
+    });
+
+    // Listen for admin block event
+    newSocket.on('user:blocked', (payload) => {
+      console.log('⛔ User blocked event received:', payload);
+      setBlockMessage(payload?.message || 'Your account has been blocked by admin.');
+      setIsBlocked(true);
     });
 
     // Connection event handlers
@@ -86,13 +95,22 @@ export const SocketProvider = ({ children }) => {
     setNotifications([]);
   };
 
+  // Function to clear block state (used after logout)
+  const clearBlock = () => {
+    setIsBlocked(false);
+    setBlockMessage('');
+  };
+
   const value = {
     socket,
     isConnected,
     notifications,
     sendMessage,
     clearNotification,
-    clearAllNotifications
+    clearAllNotifications,
+    isBlocked,
+    blockMessage,
+    clearBlock
   };
 
   return (

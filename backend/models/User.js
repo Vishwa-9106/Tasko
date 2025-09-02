@@ -31,7 +31,7 @@ const userSchema = new mongoose.Schema({
   },
   userType: {
     type: String,
-    enum: ['customer', 'worker'],
+    enum: ['customer', 'worker', 'admin'],
     required: true
   },
   

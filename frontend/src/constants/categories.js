@@ -38,7 +38,8 @@ export const HOME_CLEANING_OPTIONS = [
   'Disinfection & Sanitization',
   'Balcony & Outdoor Area Cleaning',
   'Appliance Cleaning'
-];
+
+];;;
 
 // Predefined options for Service Name when category is "Laundry"
 export const LAUNDRY_OPTIONS = [
@@ -70,12 +71,15 @@ export const DISHWASHING_OPTIONS = [
 // Predefined options for Service Name when category is "Cooking"
 export const COOKING_OPTIONS = [
   'Meals (Sappaadu)',
-  'Tiffin Items',
+  
   'Non-Veg Specials',
   'Variety Rice',
   'Biryani',
-  'Snacks & Sweets'
-];
+  'Snacks & Sweets',
+  'chicken gravy',
+'Tiffin Items',
+
+];;;;;
 
 // Predefined options for Service Name when category is "Gardening"
 export const GARDENING_OPTIONS = [

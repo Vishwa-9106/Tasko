@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Cookie, Mail, Lock, Eye, EyeOff, User, Briefcase } from 'lucide-react';
+import { Cookie, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { authAPI } from '../services/api';
 
 const Login = () => {
   const navigate = useNavigate();
-  const [userType, setUserType] = useState('customer');
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -28,10 +27,7 @@ const Login = () => {
     
     try {
       // Call backend API
-      const response = await authAPI.login({
-        ...formData,
-        userType
-      });
+      const response = await authAPI.login(formData);
       
       // Store authentication data
       localStorage.setItem('token', response.token);
@@ -40,7 +36,9 @@ const Login = () => {
       localStorage.setItem('user', JSON.stringify(response.user));
       
       // Redirect based on user type
-      if (response.user.userType === 'worker') {
+      if (response.user.userType === 'admin') {
+        navigate('/admin/home');
+      } else if (response.user.userType === 'worker') {
         navigate('/worker/dashboard');
       } else {
         navigate('/customer/home');
@@ -57,7 +55,7 @@ const Login = () => {
   };
 
   return (
-    <div className="h-screen w-full bg-gradient-to-br from-primary-50 to-secondary-50 flex items-center justify-center overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-secondary-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         {/* Logo and Header */}
         <div className="text-center">
@@ -74,39 +72,6 @@ const Login = () => {
 
         {/* Login Form */}
         <div className="bg-white rounded-lg shadow-lg p-8">
-          {/* User Type Selection */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              I am a:
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setUserType('customer')}
-                className={`flex items-center justify-center px-4 py-3 border rounded-lg transition-colors ${
-                  userType === 'customer'
-                    ? 'border-primary-500 bg-primary-50 text-primary-700'
-                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <User className="h-5 w-5 mr-2" />
-                Customer
-              </button>
-              <button
-                type="button"
-                onClick={() => setUserType('worker')}
-                className={`flex items-center justify-center px-4 py-3 border rounded-lg transition-colors ${
-                  userType === 'worker'
-                    ? 'border-primary-500 bg-primary-50 text-primary-700'
-                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Briefcase className="h-5 w-5 mr-2" />
-                Service Provider
-              </button>
-            </div>
-          </div>
-
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
