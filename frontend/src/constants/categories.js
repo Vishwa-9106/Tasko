@@ -10,8 +10,9 @@ export const CATEGORIES = [
   'Cloud Kitchen',
   'Baby Sitting',
   'Gardening',
-  'Maintenance'
-];
+  'Maintenance',
+'Water wash',
+];;
 
 // Icon mapping for categories
 export const ICON_MAP = {
@@ -24,7 +25,9 @@ export const ICON_MAP = {
   'Baby Sitting': Home,
   'Gardening': Home,
   'Maintenance': Wrench
-};
+,
+'Water wash': Home
+};;
 
 // Predefined options for Service Name when category is "Home Cleaning"
 export const HOME_CLEANING_OPTIONS = [
@@ -119,3 +122,11 @@ export const CLOUD_KITCHEN_OPTIONS = [
   'Curries & Gravies',
   'Sweets & Desserts'
 ];
+
+// Predefined options for Service Name when category is "WATER WASH"
+export const WATER_WASH_OPTIONS = [
+  'Bike water service',
+  'Car water service',
+
+'foam wash',
+];;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, 
   Star, 
@@ -9,6 +9,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import * as CAT from '../../constants/categories';
 
 const Home = () => {
   const navigate = useNavigate();
@@ -70,56 +71,20 @@ const Home = () => {
     }
   };
 
-  const popularServices = [
-    {
-      id: 1,
-      name: 'House Cleaning',
-      description: 'Professional home cleaning services',
-      icon: '🏠'
-    },
-    {
-      id: 2,
-      name: 'Diswashing',
-      description: 'Clean, hygienic utensils.',
-      icon: '🍽️'
-    },
-    {
-      id: 3,
-      name: 'Home Cooking',
-      description: 'Fresh meals prepared by home chefs',
-      icon: '👨‍🍳'
-    },
-    {
-      id: 4,
-      name: 'Laundry Service',
-      description: 'Washing, drying, and folding',
-      icon: '👕'
-    },
-    {
-      id: 5,
-      name: 'Maintenance',
-      description: 'Reliable repair and handyman help',
-      icon: '🛠️'
-    },
-    {
-      id: 6,
-      name: 'Cloud Kitchen',
-      description: '“Healthy & hygienic meals”',
-      icon: '🍱'
-    },
-    {
-      id: 7,
-      name: 'Gardening',
-      description: 'Plant care and landscaping.',
-      icon: '🌿'
-    },
-    {
-      id: 8,
-      name: 'Baby Sitting',
-      description: 'Caring babysitters you can trust',
-      icon: '🍼'
-    }
-  ];
+  // Build category cards directly from constants so new ones show automatically
+  const categoryCards = useMemo(() => {
+    const list = Array.isArray(CAT.CATEGORIES) ? CAT.CATEGORIES : [];
+    return list.map((name, idx) => {
+      const Icon = CAT.ICON_MAP?.[name];
+      return {
+        id: idx + 1,
+        name,
+        // Optional: lightweight descriptions per category (fallback empty)
+        description: '',
+        Icon,
+      };
+    });
+  }, []);
 
 
   const howItWorks = [
@@ -177,25 +142,37 @@ const Home = () => {
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-            {popularServices.map((service) => {
-              const slug = service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+            {categoryCards.map((card) => {
+              const slug = card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+              const IconComp = card.Icon;
               return (
-              <div 
-                key={service.id}
-                onClick={() => navigate(`/customer/services/${slug}`)}
-                className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-md transition-all duration-200 cursor-pointer group hover:scale-105"
-              >
-                <div className="text-2xl sm:text-3xl md:text-4xl mb-3 sm:mb-4">{service.icon}</div>
-                <h3 className="text-base sm:text-lg md:text-xl font-semibold text-gray-900 mb-2">{service.name}</h3>
-                <p className="text-xs sm:text-sm md:text-base text-gray-600 mb-3 sm:mb-4 line-clamp-2">{service.description}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs sm:text-sm md:text-base font-medium text-primary-600">{service.price}</span>
-                  <div className="flex items-center text-xs text-gray-500">
-                    {service.rating}
+                <div
+                  key={card.id}
+                  onClick={() => navigate(`/customer/services/${slug}`)}
+                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-md transition-all duration-200 cursor-pointer group hover:scale-105"
+                >
+                  <div className="mb-3 sm:mb-4">
+                    {IconComp ? (
+                      <IconComp className="h-6 w-6 sm:h-8 sm:w-8 text-primary-600" />
+                    ) : (
+                      <Users className="h-6 w-6 sm:h-8 sm:w-8 text-primary-600" />
+                    )}
+                  </div>
+                  <h3 className="text-base sm:text-lg md:text-xl font-semibold text-gray-900 mb-2">{card.name}</h3>
+                  {card.description ? (
+                    <p className="text-xs sm:text-sm md:text-base text-gray-600 mb-3 sm:mb-4 line-clamp-2">{card.description}</p>
+                  ) : (
+                    <p className="text-xs sm:text-sm md:text-base text-gray-500 mb-3 sm:mb-4">Explore services</p>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs sm:text-sm md:text-base font-medium text-primary-600">Browse</span>
+                    <div className="flex items-center text-xs text-gray-500">
+                      <ArrowRight className="h-4 w-4" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            );})}
+              );
+            })}
           </div>
         </div>
       </section>

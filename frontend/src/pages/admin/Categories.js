@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import {
+import * as CAT from '../../constants/categories';
+import { servicesAPI, categoriesAPI } from '../../services/api';
+const {
   CATEGORIES,
   ICON_MAP,
   HOME_CLEANING_OPTIONS,
@@ -10,16 +12,19 @@ import {
   BABYSITTING_OPTIONS,
   MAINTENANCE_OPTIONS,
   CLOUD_KITCHEN_OPTIONS,
-} from '../../constants/categories';
-import { servicesAPI, categoriesAPI } from '../../services/api';
+} = CAT;
 
 const AdminCategories = () => {
+  const [categoryList, setCategoryList] = useState(CATEGORIES || []);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryServices, setNewCategoryServices] = useState('');
 
   const OPTIONS_MAP = {
     'Home Cleaning': HOME_CLEANING_OPTIONS,
@@ -30,6 +35,18 @@ const AdminCategories = () => {
     'Baby Sitting': BABYSITTING_OPTIONS,
     'Maintenance': MAINTENANCE_OPTIONS,
     'Cloud Kitchen': CLOUD_KITCHEN_OPTIONS,
+  };
+
+  const toConstName = (categoryName) =>
+    (categoryName || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_') + '_OPTIONS';
+
+  const getOptionsForCategory = (name) => {
+    if (OPTIONS_MAP[name]) return OPTIONS_MAP[name];
+    // Look for dynamically created OPTIONS export
+    const constName = toConstName(name);
+    return CAT[constName] || [];
   };
 
   const handleDeleteService = async (name) => {
@@ -60,7 +77,7 @@ const AdminCategories = () => {
         countMap.set(key, (s.workerCount ?? 0));
       });
 
-      const predefined = OPTIONS_MAP[name];
+      const predefined = getOptionsForCategory(name);
       if (predefined && predefined.length) {
         const merged = predefined.map((label) => ({
           label,
@@ -113,6 +130,7 @@ const AdminCategories = () => {
   };
 
   return (
+    <>
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between">
@@ -120,14 +138,14 @@ const AdminCategories = () => {
           <button
             type="button"
             className="inline-flex items-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
-            onClick={() => {/* TODO: open add category modal */}}
+            onClick={() => setShowCategoryModal(true)}
           >
             Add Category
           </button>
         </div>
 
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
-          {CATEGORIES.map((name) => {
+          {categoryList.map((name) => {
             const Icon = ICON_MAP[name];
             return (
               <div
@@ -238,6 +256,80 @@ const AdminCategories = () => {
         )}
       </div>
     </div>
+    {showCategoryModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/30" onClick={() => setShowCategoryModal(false)} />
+        {/* Modal */}
+        <div className="relative z-10 w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-gray-800">Add New Category</h3>
+            <p className="text-sm text-gray-500">Create a category and add its services (comma-separated)</p>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category Name</label>
+              <input
+                type="text"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                placeholder="e.g., Housekeeping"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Services List (comma-separated)</label>
+              <textarea
+                rows={4}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                placeholder="Service A, Service B, Service C"
+                value={newCategoryServices}
+                onChange={(e) => setNewCategoryServices(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="mt-5 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              className="text-sm font-medium text-gray-600 hover:text-gray-800"
+              onClick={() => { setShowCategoryModal(false); setNewCategoryName(''); setNewCategoryServices(''); }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-amber-600 disabled:opacity-50"
+              onClick={async () => {
+                const name = newCategoryName.trim();
+                if (!name) return;
+                const services = newCategoryServices
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                try {
+                  setLoading(true);
+                  await categoriesAPI.addCategory(name, services);
+                  // Update categories locally so card appears immediately
+                  setCategoryList((prev) => (prev.includes(name) ? prev : [...prev, name]));
+                  // If this category has services predefined, selecting it will show them
+                  setShowCategoryModal(false);
+                  setNewCategoryName('');
+                  setNewCategoryServices('');
+                } catch (e) {
+                  setError(e.message || 'Failed to add category');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={!newCategoryName.trim() || loading}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

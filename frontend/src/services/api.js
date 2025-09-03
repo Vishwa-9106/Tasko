@@ -233,6 +233,12 @@ export const usersAPI = {
 
 // Categories API functions
 export const categoriesAPI = {
+  // Create a new category with optional services (admin only)
+  addCategory: (name, services = []) =>
+    apiRequest('/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name, services })
+    }),
   // Add a new service name to a category constants list (admin only)
   addService: (category, name) =>
     apiRequest(`/categories/${encodeURIComponent(category)}/services`, {
@@ -251,7 +257,7 @@ export const categoriesAPI = {
 export const healthCheck = () => 
   apiRequest('/health');
 
-export default {
+const api = {
   authAPI,
   servicesAPI,
   bookingsAPI,
@@ -260,3 +266,5 @@ export default {
   categoriesAPI,
   healthCheck,
 };
+
+export default api;

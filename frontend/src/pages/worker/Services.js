@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Home, Star, Clock, MapPin } from 'lucide-react';
-import { CATEGORIES, ICON_MAP, HOME_CLEANING_OPTIONS, LAUNDRY_OPTIONS, DISHWASHING_OPTIONS, COOKING_OPTIONS, GARDENING_OPTIONS, BABYSITTING_OPTIONS, MAINTENANCE_OPTIONS, CLOUD_KITCHEN_OPTIONS } from '../../constants/categories';
+import * as CAT from '../../constants/categories';
 
 const Services = () => {
   const [services, setServices] = useState([]);
@@ -26,42 +26,36 @@ const Services = () => {
 
   const navigate = useNavigate();
 
-  // Ensure serviceName aligns with category switch behavior
+  // Helpers to resolve options dynamically from constants
+  const toConstName = (categoryName) =>
+    (categoryName || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_') + '_OPTIONS';
+
+  const getOptionsForCategory = (name) => {
+    const map = {
+      'Home Cleaning': CAT.HOME_CLEANING_OPTIONS,
+      'Laundry': CAT.LAUNDRY_OPTIONS,
+      'Dishwashing': CAT.DISHWASHING_OPTIONS,
+      'Cooking': CAT.COOKING_OPTIONS,
+      'Cloud Kitchen': CAT.CLOUD_KITCHEN_OPTIONS,
+      'Gardening': CAT.GARDENING_OPTIONS,
+      'Baby Sitting': CAT.BABYSITTING_OPTIONS,
+      'Maintenance': CAT.MAINTENANCE_OPTIONS,
+    };
+    if (map[name]) return map[name];
+    // Try dynamic constant for newly added categories (e.g., WATER_WASH_OPTIONS)
+    const constName = toConstName(name);
+    return CAT[constName] || [];
+  };
+
+  // Ensure serviceName aligns with category switch behavior (dynamic)
   useEffect(() => {
-    if (serviceCategory === 'Home Cleaning') {
-      if (serviceName && !HOME_CLEANING_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
-    } else if (serviceCategory === 'Laundry') {
-      if (serviceName && !LAUNDRY_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
-    } else if (serviceCategory === 'Dishwashing') {
-      if (serviceName && !DISHWASHING_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
-    } else if (serviceCategory === 'Cooking') {
-      if (serviceName && !COOKING_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
-    } else if (serviceCategory === 'Cloud Kitchen') {
-      if (serviceName && !CLOUD_KITCHEN_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
-    } else if (serviceCategory === 'Gardening') {
-      if (serviceName && !GARDENING_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
-    } else if (serviceCategory === 'Baby Sitting') {
-      if (serviceName && !BABYSITTING_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
-    } else if (serviceCategory === 'Maintenance') {
-      if (serviceName && !MAINTENANCE_OPTIONS.includes(serviceName)) {
-        setServiceName('');
-      }
+    const predefined = getOptionsForCategory(serviceCategory);
+    if (predefined.length && serviceName && !predefined.includes(serviceName)) {
+      setServiceName('');
     }
-    // For other categories, keep user's typed value
+    // For categories without predefined options, keep user's typed value
   }, [serviceCategory]);
 
   useEffect(() => {
@@ -105,7 +99,7 @@ const Services = () => {
   };
 
   const getServiceIcon = (category) => {
-    return ICON_MAP[category] || Home;
+    return CAT.ICON_MAP[category] || Home;
   };
 
   // Validate fields and return { valid, errors, nameForBackend }
@@ -410,7 +404,7 @@ const Services = () => {
                   className="w-full px-3 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 >
                   <option value="">Select category</option>
-                  {CATEGORIES.map((cat) => (
+                  {(CAT.CATEGORIES || []).map((cat) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -420,28 +414,14 @@ const Services = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Service Name</label>
-                {serviceCategory === 'Home Cleaning' || serviceCategory === 'Laundry' || serviceCategory === 'Dishwashing' || serviceCategory === 'Cooking' || serviceCategory === 'Cloud Kitchen' || serviceCategory === 'Gardening' || serviceCategory === 'Baby Sitting' || serviceCategory === 'Maintenance' ? (
+                {getOptionsForCategory(serviceCategory).length > 0 ? (
                   <select
                     value={serviceName}
                     onChange={(e) => setServiceName(e.target.value)}
                     className="w-full px-3 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
                   >
                     <option value="">Select service</option>
-                    {(serviceCategory === 'Home Cleaning'
-                      ? HOME_CLEANING_OPTIONS
-                      : serviceCategory === 'Laundry'
-                        ? LAUNDRY_OPTIONS
-                        : serviceCategory === 'Dishwashing'
-                          ? DISHWASHING_OPTIONS
-                          : serviceCategory === 'Cooking'
-                            ? COOKING_OPTIONS
-                            : serviceCategory === 'Cloud Kitchen'
-                              ? CLOUD_KITCHEN_OPTIONS
-                              : serviceCategory === 'Gardening'
-                              ? GARDENING_OPTIONS
-                              : serviceCategory === 'Baby Sitting'
-                                ? BABYSITTING_OPTIONS
-                                : MAINTENANCE_OPTIONS).map((opt) => (
+                    {getOptionsForCategory(serviceCategory).map((opt) => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>

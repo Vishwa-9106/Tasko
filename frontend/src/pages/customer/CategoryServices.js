@@ -2,18 +2,27 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { servicesAPI, usersAPI } from '../../services/api';
 import { ArrowLeft, Search } from 'lucide-react';
-import { HOME_CLEANING_OPTIONS, LAUNDRY_OPTIONS, COOKING_OPTIONS, DISHWASHING_OPTIONS, BABYSITTING_OPTIONS, GARDENING_OPTIONS, MAINTENANCE_OPTIONS, CLOUD_KITCHEN_OPTIONS } from '../../constants/categories';
+import * as CAT from '../../constants/categories';
 
-// Helper: convert slug to readable title
-const unslugify = (slug) => slug.replace(/-/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (m) => m.toUpperCase());
+// Helpers for slug <-> category mapping
+const slugify = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 const CategoryServices = () => {
   const navigate = useNavigate();
   const { categoryName } = useParams();
-  const readableCategory = useMemo(() => unslugify(categoryName || ''), [categoryName]);
+  // Build mapping from constants so we can recover exact category label from slug
+  const { exactCategory, readableCategory } = useMemo(() => {
+    const categories = Array.isArray(CAT.CATEGORIES) ? CAT.CATEGORIES : [];
+    const bySlug = new Map(categories.map((c) => [slugify(c), c]));
+    const slug = (categoryName || '').toLowerCase();
+    const exact = bySlug.get(slug);
+    // Fallback readable string for legacy routes not in constants
+    const fallbackReadable = (categoryName || '').replace(/-/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (m) => m.toUpperCase());
+    return { exactCategory: exact || fallbackReadable, readableCategory: exact || fallbackReadable };
+  }, [categoryName]);
   // Disable card navigation on these service pages (hover remains; only button navigates)
   const isCardClickDisabled = useMemo(() => {
-    const lc = readableCategory.toLowerCase();
+    const lc = (exactCategory || readableCategory).toLowerCase();
     return [
       'house cleaning',
       'dishwashing',
@@ -25,7 +34,7 @@ const CategoryServices = () => {
       'gardening',
       'baby sitting'
     ].includes(lc);
-  }, [readableCategory]);
+  }, [exactCategory, readableCategory]);
 
   const [services, setServices] = useState([]);
   const [workers, setWorkers] = useState([]);
@@ -38,100 +47,44 @@ const CategoryServices = () => {
         setLoading(true);
         setError(null);
 
-        // Determine if this is the House Cleaning, Laundry Service, Home Cooking, Dishwashing, Baby Sitting, Gardening, Maintenance, or Cloud Kitchen page.
-        // Route provides 'House Cleaning', 'Laundry Service', 'Home Cooking', 'Dishwashing' (or typo 'Diswashing'), 'Baby Sitting', 'Gardening', 'Maintenance', and 'Cloud Kitchen'.
-        // categories.js holds options under "Home Cleaning", "Laundry", "Cooking", "Dishwashing", "Baby Sitting", "Gardening", "Maintenance", and "Cloud Kitchen" respectively.
-        const isHouseCleaning = readableCategory.toLowerCase() === 'house cleaning';
-        const isLaundryService = readableCategory.toLowerCase() === 'laundry service';
-        const isHomeCooking = readableCategory.toLowerCase() === 'home cooking';
-        const lc = readableCategory.toLowerCase();
-        const isDishwashing = lc === 'dishwashing' || lc === 'diswashing';
-        const isBabySitting = lc === 'baby sitting';
-        const isGardening = lc === 'gardening';
-        const isMaintenance = lc === 'maintenance';
-        const isCloudKitchen = lc === 'cloud kitchen';
+        // Dynamic options resolver similar to worker/Services
+        const toConstName = (category) => (category || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_OPTIONS';
+        const getOptionsForCategory = (name) => {
+          const fixed = {
+            'Home Cleaning': CAT.HOME_CLEANING_OPTIONS,
+            'Laundry': CAT.LAUNDRY_OPTIONS,
+            'Dishwashing': CAT.DISHWASHING_OPTIONS,
+            'Cooking': CAT.COOKING_OPTIONS,
+            'Cloud Kitchen': CAT.CLOUD_KITCHEN_OPTIONS,
+            'Gardening': CAT.GARDENING_OPTIONS,
+            'Baby Sitting': CAT.BABYSITTING_OPTIONS,
+            'Maintenance': CAT.MAINTENANCE_OPTIONS,
+          };
+          if (fixed[name]) return fixed[name];
+          const dyn = CAT[toConstName(name)];
+          return Array.isArray(dyn) ? dyn : [];
+        };
 
-        if (isHouseCleaning) {
-          // Build services dynamically from HOME_CLEANING_OPTIONS
-          const normalizedServices = HOME_CLEANING_OPTIONS.map((name, idx) => ({
-            id: `hc-${idx}`,
+        // Prefer exact constant category if available
+        const categoryLabel = exactCategory || readableCategory;
+        const options = getOptionsForCategory(categoryLabel);
+        if (options.length) {
+          const normalizedServices = options.map((name, idx) => ({
+            id: `${slugify(categoryLabel)}-${idx}`,
             name,
             description: '',
-            category: 'Home Cleaning',
-          }));
-          setServices(normalizedServices);
-        } else if (isLaundryService) {
-          // Build services dynamically from LAUNDRY_OPTIONS
-          const normalizedServices = LAUNDRY_OPTIONS.map((name, idx) => ({
-            id: `laundry-${idx}`,
-            name,
-            description: '',
-            category: 'Laundry',
-          }));
-          setServices(normalizedServices);
-        } else if (isHomeCooking) {
-          // Build services dynamically from COOKING_OPTIONS
-          const normalizedServices = COOKING_OPTIONS.map((name, idx) => ({
-            id: `cook-${idx}`,
-            name,
-            description: '',
-            category: 'Cooking',
-          }));
-          setServices(normalizedServices);
-        } else if (isDishwashing) {
-          // Build services dynamically from DISHWASHING_OPTIONS
-          const normalizedServices = DISHWASHING_OPTIONS.map((name, idx) => ({
-            id: `dish-${idx}`,
-            name,
-            description: '',
-            category: 'Dishwashing',
-          }));
-          setServices(normalizedServices);
-        } else if (isBabySitting) {
-          // Build services dynamically from BABYSITTING_OPTIONS
-          const normalizedServices = BABYSITTING_OPTIONS.map((name, idx) => ({
-            id: `baby-${idx}`,
-            name,
-            description: '',
-            category: 'Baby Sitting',
-          }));
-          setServices(normalizedServices);
-        } else if (isGardening) {
-          // Build services dynamically from GARDENING_OPTIONS
-          const normalizedServices = GARDENING_OPTIONS.map((name, idx) => ({
-            id: `garden-${idx}`,
-            name,
-            description: '',
-            category: 'Gardening',
-          }));
-          setServices(normalizedServices);
-        } else if (isMaintenance) {
-          // Build services dynamically from MAINTENANCE_OPTIONS
-          const normalizedServices = MAINTENANCE_OPTIONS.map((name, idx) => ({
-            id: `maint-${idx}`,
-            name,
-            description: '',
-            category: 'Maintenance',
-          }));
-          setServices(normalizedServices);
-        } else if (isCloudKitchen) {
-          // Build services dynamically from CLOUD_KITCHEN_OPTIONS
-          const normalizedServices = CLOUD_KITCHEN_OPTIONS.map((name, idx) => ({
-            id: `ck-${idx}`,
-            name,
-            description: '',
-            category: 'Cloud Kitchen',
+            category: categoryLabel,
           }));
           setServices(normalizedServices);
         } else {
-          // Default: fetch services by category from backend
-          const svcData = await servicesAPI.getServicesByCategory(readableCategory);
+          // Default: fetch services by category from backend using exact label
+          const svcData = await servicesAPI.getServicesByCategory(categoryLabel);
           const normalizedServices = (Array.isArray(svcData?.services) ? svcData.services : Array.isArray(svcData) ? svcData : [])
             .map((s, idx) => ({
               id: s._id || s.id || `svc-${idx}`,
               name: s.name || s.category || 'Service',
               description: s.description || '',
-              category: s.category || readableCategory,
+              category: s.category || categoryLabel,
             }));
           setServices(normalizedServices);
         }
