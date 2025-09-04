@@ -9,17 +9,22 @@ import {
   LogOut,
   Cookie,
   Menu,
-  X
+  X,
+  ShoppingBag,
+  ShoppingCart
 } from 'lucide-react';
+import { useCart } from '../contexts/CartContext';
 
 const CustomerNavbar = ({ onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { count, openCart } = useCart();
 
   const navItems = [
     { path: '/customer/home', icon: Home, label: 'Home' },
     { path: '/customer/search', icon: Search, label: 'Find Workers' },
     { path: '/customer/bookings', icon: Calendar, label: 'My Bookings' },
     { path: '/customer/favorites', icon: Heart, label: 'Favorites' },
+    { path: '/customer/products', icon: ShoppingBag, label: 'Cookie Product' },
     { path: '/customer/profile', icon: User, label: 'Profile' },
   ];
 
@@ -40,12 +45,26 @@ const CustomerNavbar = ({ onLogout }) => {
             <Cookie className="h-6 w-6 text-primary-600 mr-2" />
             <span className="text-lg font-bold text-gray-800">Cookie</span>
           </div>
-          <button
-            onClick={toggleMobileMenu}
-            className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
-          >
-            {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openCart}
+              className="relative p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+              aria-label="Open cart"
+            >
+              <ShoppingCart className="h-6 w-6" />
+              {count > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary-600 text-white text-[10px] leading-[18px] text-center">
+                  {count}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={toggleMobileMenu}
+              className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -59,9 +78,13 @@ const CustomerNavbar = ({ onLogout }) => {
         isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       }`}>
         {/* Logo */}
-        <div className="flex items-center justify-center h-16 border-b border-gray-200">
-          <Cookie className="h-6 w-6 lg:h-8 lg:w-8 text-primary-600 mr-2" />
-          <span className="text-lg lg:text-xl font-bold text-gray-800">Cookie</span>
+        <div className="flex items-center justify-between h-16 border-b border-gray-200 px-3 lg:px-4">
+          <div className="flex items-center">
+            <Cookie className="h-6 w-6 lg:h-8 lg:w-8 text-primary-600 mr-2" />
+            <span className="text-lg lg:text-xl font-bold text-gray-800">Cookie</span>
+          </div>
+          {/* Cart icon removed from sidebar as requested */}
+          <div />
         </div>
 
         {/* Navigation */}

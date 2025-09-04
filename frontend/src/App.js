@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import WorkerNavbar from './components/WorkerNavbar';
 import CustomerNavbar from './components/CustomerNavbar';
 import { SocketProvider, useSocket } from './contexts/SocketContext';
+import { CartProvider } from './contexts/CartContext';
+import CartDrawer from './components/CartDrawer';
 import NotificationToast from './components/NotificationToast';
 
 // Worker Pages
@@ -18,10 +20,14 @@ import CategoryServices from './pages/customer/CategoryServices';
 import SearchWorkers from './pages/customer/SearchWorkers';
 import CustomerBookings from './pages/customer/BookingHistory';
 import Favorites from './pages/customer/Favorites';
+import CustomerProducts from './pages/customer/Products';
 import CustomerProfile from './pages/customer/Profile';
 import BookService from './pages/customer/BookService';
 import WorkerProfileView from './pages/customer/WorkerProfile';
 import Payment from './pages/customer/Payment';
+import Checkout from './pages/customer/Checkout';
+import OrderSuccess from './pages/customer/OrderSuccess';
+import MyOrders from './pages/customer/MyOrders';
 
 // Shared Pages
 import Login from './pages/Login';
@@ -35,6 +41,7 @@ import AdminCategories from './pages/admin/Categories';
 import AdminProducts from './pages/admin/Products';
 import WorkerDetails from './pages/admin/WorkerDetails';
 import CustomerDetails from './pages/admin/CustomerDetails';
+import AdminOrders from './pages/admin/Orders';
 
 const AppContent = () => {
   const [userType, setUserType] = useState(localStorage.getItem('userType') || null);
@@ -94,6 +101,8 @@ const AppContent = () => {
             onClose={clearNotification}
           />
         ))}
+        {/* Cart Drawer */}
+        <CartDrawer />
         <Routes>
           <Route 
             path="/login" 
@@ -144,12 +153,16 @@ const AppContent = () => {
                     <Route path="/search" element={<SearchWorkers />} />
                     <Route path="/bookings" element={<CustomerBookings />} />
                     <Route path="/favorites" element={<Favorites />} />
+                    <Route path="/products" element={<CustomerProducts />} />
+                    <Route path="/orders" element={<MyOrders />} />
                     <Route path="/profile" element={<CustomerProfile />} />
                     <Route path="/book/:workerId" element={<BookService />} />
                     <Route path="/services/:categoryName" element={<CategoryServices />} />
                     <Route path="/bookings/:serviceId" element={<BookService />} />
                     <Route path="/worker/:workerId" element={<WorkerProfileView />} />
                     <Route path="/payment" element={<Payment />} />
+                    <Route path="/checkout" element={<Checkout />} />
+                    <Route path="/order-success" element={<OrderSuccess />} />
                   </Routes>
                 </main>
               </div>
@@ -171,6 +184,7 @@ const AppContent = () => {
                     <Route path="/customers/:id" element={<CustomerDetails />} />
                     <Route path="/categories" element={<AdminCategories />} />
                     <Route path="/products" element={<AdminProducts />} />
+                    <Route path="/orders" element={<AdminOrders />} />
                   </Routes>
                 </main>
               </div>
@@ -194,7 +208,9 @@ const AppContent = () => {
 function App() {
   return (
     <SocketProvider>
-      <AppContent />
+      <CartProvider>
+        <AppContent />
+      </CartProvider>
     </SocketProvider>
   );
 }

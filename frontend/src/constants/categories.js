@@ -12,7 +12,9 @@ export const CATEGORIES = [
   'Gardening',
   'Maintenance',
 'Water wash',
-];;
+
+'Mobile repair',
+];;;
 
 // Icon mapping for categories
 export const ICON_MAP = {
@@ -27,7 +29,9 @@ export const ICON_MAP = {
   'Maintenance': Wrench
 ,
 'Water wash': Home
-};;
+,
+'Mobile repair': Home
+};;;
 
 // Predefined options for Service Name when category is "Home Cleaning"
 export const HOME_CLEANING_OPTIONS = [
@@ -130,3 +134,9 @@ export const WATER_WASH_OPTIONS = [
 
 'foam wash',
 ];;
+
+// Predefined options for Service Name when category is "MOBILE REPAIR"
+export const MOBILE_REPAIR_OPTIONS = [
+  'display change',
+  'battery replacement',
+];

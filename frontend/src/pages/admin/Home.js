@@ -34,6 +34,14 @@ const IconPackage = (props) => (
   </svg>
 );
 
+const IconClipboard = (props) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+    <rect x="8" y="3" width="8" height="4" rx="1" ry="1" />
+    <path d="M16 7h1a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1" />
+    <path d="M9 12h6M9 16h6" />
+  </svg>
+);
+
 const cards = [
   {
     title: 'Cookie Workers',
@@ -66,6 +74,14 @@ const cards = [
     hover: 'hover:shadow-fuchsia-200/60',
     path: '/admin/products',
     bgIcon: 'text-purple-100'
+  },
+  {
+    title: 'Orders',
+    icon: IconClipboard,
+    color: 'from-rose-500 to-red-600',
+    hover: 'hover:shadow-rose-200/60',
+    path: '/admin/orders',
+    bgIcon: 'text-rose-100'
   }
 ];
 

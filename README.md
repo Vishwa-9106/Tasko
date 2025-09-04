@@ -70,6 +70,33 @@ npm start     # starts on http://localhost:3000
 
 Ensure `REACT_APP_API_URL` points to the backend API (e.g., http://localhost:5000/api).
 
+## Dynamic Categories
+The app reads all service categories from `frontend/src/constants/categories.js` and wires them automatically:
+
+- __Customer Home cards__: built from `CATEGORIES` with icons from `ICON_MAP`.
+- __Customer Category page__: loads predefined service options for a category if present.
+- __Worker Services form__: shows categories from `CATEGORIES` and service-name options from constants.
+
+### Add a new category
+1) Edit `frontend/src/constants/categories.js`:
+   - Add the label to `CATEGORIES` (e.g., `"Water wash"`).
+   - Add an icon mapping in `ICON_MAP` (e.g., `'Water wash': Home`).
+   - Optionally add an options array named after the category in UPPER_SNAKE_CASE + `_OPTIONS`.
+     Example for `Water wash`:
+     ```js
+     export const WATER_WASH_OPTIONS = [
+       'Bike water service',
+       'Car water service',
+       'Foam wash',
+     ];
+     ```
+
+2) Navigate to Customer Home. A card for the new category will appear automatically.
+
+3) Click the card. The category page will list the predefined options. If no options array exists, it will fallback to fetching services for that category from the backend.
+
+No code changes are required beyond updating the constants file.
+
 ## Available Scripts
 Backend (`backend/package.json`):
 - `npm run dev` – Start server with nodemon

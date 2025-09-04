@@ -51,6 +51,8 @@ try {
   app.use('/api/categories', require('./routes/categories'));
   app.use('/api/bookings', require('./routes/bookings'));
   app.use('/api/messages', require('./routes/messages'));
+  app.use('/api/products', require('./routes/products'));
+  app.use('/api/orders', require('./routes/orders'));
 } catch (error) {
   console.log('⚠️  Some route files may be missing, server will continue without them');
 }

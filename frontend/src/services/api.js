@@ -257,6 +257,97 @@ export const categoriesAPI = {
 export const healthCheck = () => 
   apiRequest('/health');
 
+// Products API (admin-managed)
+export const productsAPI = {
+  // List all products (public)
+  list: () => apiRequest('/products'),
+
+  // Create product (admin) with optional image upload
+  create: async ({ name, description = '', price, stock, category, image }) => {
+    const token = localStorage.getItem('token');
+    const form = new FormData();
+    form.append('name', name);
+    form.append('description', description || '');
+    form.append('price', String(price));
+    form.append('stock', String(stock));
+    form.append('category', category);
+    if (image) form.append('image', image);
+
+    const res = await fetch(`${API_BASE_URL}/products`, {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Create product failed');
+    return data;
+  },
+
+  // Update product (admin) with optional new image
+  update: async (id, { name, description, price, stock, category, isActive, image }) => {
+    const token = localStorage.getItem('token');
+    const form = new FormData();
+    if (name !== undefined) form.append('name', name);
+    if (description !== undefined) form.append('description', description);
+    if (price !== undefined) form.append('price', String(price));
+    if (stock !== undefined) form.append('stock', String(stock));
+    if (category !== undefined) form.append('category', category);
+    if (isActive !== undefined) form.append('isActive', String(isActive));
+    if (image) form.append('image', image);
+
+    const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+      method: 'PUT',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Update product failed');
+    return data;
+  },
+
+  // Delete product (admin)
+  remove: async (id) => {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Delete product failed');
+    return data;
+  },
+};
+
+// Orders API functions
+export const ordersAPI = {
+  // Create a new order (customer)
+  createOrder: (orderData) =>
+    apiRequest('/orders', {
+      method: 'POST',
+      body: JSON.stringify(orderData),
+    }),
+
+  // Admin: list all orders
+  listAll: () => apiRequest('/orders'),
+
+  // Admin: update order status
+  updateStatus: (id, status) =>
+    apiRequest(`/orders/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+
+  // Customer: list my orders
+  myOrders: () => apiRequest('/orders/mine'),
+};
+
 const api = {
   authAPI,
   servicesAPI,
@@ -264,6 +355,9 @@ const api = {
   messagesAPI,
   usersAPI,
   categoriesAPI,
+  productsAPI,
+  ordersAPI,
+  // productsAPI will be appended below
   healthCheck,
 };
 
