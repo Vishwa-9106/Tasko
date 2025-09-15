@@ -20,7 +20,11 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     // Initialize socket connection
-    const newSocket = io(process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5000', {
+    const apiBase = (process.env.REACT_APP_API_URL || '').trim();
+    // Remove trailing /api or /api/ safely
+    const socketBase = apiBase ? apiBase.replace(/\/?api\/?$/, '') : '';
+    const socketUrl = socketBase || 'http://localhost:5000';
+    const newSocket = io(socketUrl, {
       transports: ['websocket', 'polling']
     });
 

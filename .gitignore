@@ -1,0 +1,34 @@
+# Root .gitignore for cookie monorepo
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# Env files
+.env
+backend/.env
+frontend/.env
+
+# Build outputs
+frontend/build/
+backend/dist/
+backend/coverage/
+coverage/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Uploads (optional for dev, ensure persistent storage in prod)
+backend/uploads/

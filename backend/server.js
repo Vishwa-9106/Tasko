@@ -11,10 +11,34 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Build allowed origins from env for CORS
+const FRONTEND_URLS_ENV = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '';
+const FRONTEND_URLS = FRONTEND_URLS_ENV
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+const DEFAULT_ORIGINS = ['http://localhost:3000'];
+const ALLOWED_ORIGINS = [...DEFAULT_ORIGINS, ...FRONTEND_URLS];
+
+// Helper to check wildcard subdomains like https://*.vercel.app
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // allow non-browser requests
+  for (const o of ALLOWED_ORIGINS) {
+    if (o === origin) return true;
+    // Very simple wildcard support for Vercel previews
+    if (o.includes('*.vercel.app') && origin.endsWith('.vercel.app')) return true;
+  }
+  return false;
+};
+
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    methods: ["GET", "POST"]
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
+    },
+    methods: ["GET", "POST"],
   }
 });
 
@@ -22,14 +46,24 @@ const io = socketIo(server, {
 app.set('io', io);
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // MongoDB connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://vishwadhanapal9126:Vishwa9126@cookie.2gnualo.mongodb.net/?retryWrites=true&w=majority&appName=cookie';
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error('❌ MONGODB_URI is not set. Please configure it in your environment.');
+  process.exit(1);
+}
 
 mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
