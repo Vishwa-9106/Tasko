@@ -20,9 +20,23 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     // Initialize socket connection
-    const apiBase = (process.env.REACT_APP_API_URL || '').trim();
-    // Remove trailing /api or /api/ safely
-    const socketBase = apiBase ? apiBase.replace(/\/?api\/?$/, '') : '';
+    // Normalize env URL to avoid cases like " https://..." or "https:// https://..."
+    const rawEnv = process.env.REACT_APP_API_URL || '';
+    const normalizeUrl = (url) => {
+      let v = (url || '').trim();
+      // collapse internal whitespace
+      v = v.replace(/\s+/g, ' ');
+      // if it contains a space after protocol like "https:// https://...", remove the leading protocol portion
+      v = v.replace(/^(https?:\/\/)?\s+(https?:\/\/)/i, '$2');
+      // remove any stray spaces
+      v = v.replace(/\s/g, '');
+      // strip trailing /api or /api/
+      v = v.replace(/\/?api\/?$/i, '');
+      // strip trailing slash
+      v = v.replace(/\/$/, '');
+      return v;
+    };
+    const socketBase = normalizeUrl(rawEnv);
     const socketUrl = socketBase || 'http://localhost:5000';
     const newSocket = io(socketUrl, {
       transports: ['websocket', 'polling']

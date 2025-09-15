@@ -1,5 +1,22 @@
 // API configuration and service functions
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Normalize and sanitize REACT_APP_API_URL to prevent malformed URLs
+const normalizeApiBase = (url) => {
+  let v = (url || '').trim();
+  // collapse internal whitespace to a single space
+  v = v.replace(/\s+/g, ' ');
+  // handle cases like "https:// https://..." by dropping the first protocol
+  v = v.replace(/^(https?:\/\/)?\s+(https?:\/\/)/i, '$2');
+  // remove all remaining whitespace
+  v = v.replace(/\s/g, '');
+  // strip any trailing slash
+  v = v.replace(/\/$/, '');
+  // ensure it ends with /api (strip existing /api first to avoid double)
+  v = v.replace(/\/?api\/?$/i, '');
+  if (v) v = `${v}/api`;
+  return v;
+};
+
+const API_BASE_URL = normalizeApiBase(process.env.REACT_APP_API_URL) || 'http://localhost:5000/api';
 
 // Helper function to make API requests
 const apiRequest = async (endpoint, options = {}) => {
