@@ -1,0 +1,9 @@
+
+{
+    "rewrites": [
+      {
+        "source": "/api/(.*)",
+        "destination": "https://cookie-1-glkc.onrender.com/api/$1"
+      }
+    ]
+  }

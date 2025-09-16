@@ -32,3 +32,5 @@ Thumbs.db
 
 # Uploads (optional for dev, ensure persistent storage in prod)
 backend/uploads/
+
+.vercel
