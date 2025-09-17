@@ -86,6 +86,57 @@ const Home = () => {
     });
   }, []);
 
+  // Color palette for lively, colorful UI accents used across cards/steps
+  const palette = useMemo(() => ([
+    {
+      name: 'pink',
+      cardHoverBgFrom: 'hover:from-white',
+      cardHoverBgTo: 'hover:to-pink-50',
+      ring: 'ring-pink-200',
+      iconBg: 'from-pink-500 to-rose-600',
+      text: 'text-pink-600'
+    },
+    {
+      name: 'indigo',
+      cardHoverBgFrom: 'hover:from-white',
+      cardHoverBgTo: 'hover:to-indigo-50',
+      ring: 'ring-indigo-200',
+      iconBg: 'from-indigo-500 to-blue-600',
+      text: 'text-indigo-600'
+    },
+    {
+      name: 'emerald',
+      cardHoverBgFrom: 'hover:from-white',
+      cardHoverBgTo: 'hover:to-emerald-50',
+      ring: 'ring-emerald-200',
+      iconBg: 'from-emerald-500 to-teal-600',
+      text: 'text-emerald-600'
+    },
+    {
+      name: 'amber',
+      cardHoverBgFrom: 'hover:from-white',
+      cardHoverBgTo: 'hover:to-amber-50',
+      ring: 'ring-amber-200',
+      iconBg: 'from-amber-500 to-orange-600',
+      text: 'text-amber-600'
+    },
+    {
+      name: 'violet',
+      cardHoverBgFrom: 'hover:from-white',
+      cardHoverBgTo: 'hover:to-violet-50',
+      ring: 'ring-violet-200',
+      iconBg: 'from-violet-500 to-purple-600',
+      text: 'text-violet-600'
+    },
+    {
+      name: 'cyan',
+      cardHoverBgFrom: 'hover:from-white',
+      cardHoverBgTo: 'hover:to-cyan-50',
+      ring: 'ring-cyan-200',
+      iconBg: 'from-cyan-500 to-sky-600',
+      text: 'text-cyan-600'
+    },
+  ]), []);
 
   const howItWorks = [
     {
@@ -142,20 +193,25 @@ const Home = () => {
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-            {categoryCards.map((card) => {
+            {categoryCards.map((card, idx) => {
               const slug = card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
               const IconComp = card.Icon;
+              const color = palette[idx % palette.length];
               return (
                 <div
                   key={card.id}
                   onClick={() => navigate(`/customer/services/${slug}`)}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-md transition-all duration-200 cursor-pointer group hover:scale-105"
+                  className={`rounded-xl border border-gray-200 p-4 sm:p-6 transition-all duration-200 cursor-pointer group hover:-translate-y-1 hover:shadow-xl ring-0 hover:ring-2 ${color.ring} bg-white bg-gradient-to-br ${color.cardHoverBgFrom} ${color.cardHoverBgTo}`}
                 >
                   <div className="mb-3 sm:mb-4">
                     {IconComp ? (
-                      <IconComp className="h-6 w-6 sm:h-8 sm:w-8 text-primary-600" />
+                      <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br ${color.iconBg} text-white flex items-center justify-center shadow-md`}>
+                        <IconComp className="h-5 w-5 sm:h-6 sm:w-6" />
+                      </div>
                     ) : (
-                      <Users className="h-6 w-6 sm:h-8 sm:w-8 text-primary-600" />
+                      <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br ${color.iconBg} text-white flex items-center justify-center shadow-md`}>
+                        <Users className="h-5 w-5 sm:h-6 sm:w-6" />
+                      </div>
                     )}
                   </div>
                   <h3 className="text-base sm:text-lg md:text-xl font-semibold text-gray-900 mb-2">{card.name}</h3>
@@ -165,8 +221,8 @@ const Home = () => {
                     <p className="text-xs sm:text-sm md:text-base text-gray-500 mb-3 sm:mb-4">Explore services</p>
                   )}
                   <div className="flex items-center justify-between">
-                    <span className="text-xs sm:text-sm md:text-base font-medium text-primary-600">Browse</span>
-                    <div className="flex items-center text-xs text-gray-500">
+                    <span className={`text-xs sm:text-sm md:text-base font-medium ${color.text}`}>Browse</span>
+                    <div className="flex items-center text-xs text-gray-500 group-hover:translate-x-0.5 transition-transform">
                       <ArrowRight className="h-4 w-4" />
                     </div>
                   </div>
@@ -188,15 +244,18 @@ const Home = () => {
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-            {howItWorks.map((step, index) => (
-              <div key={index} className="text-center">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                  <step.icon className="h-6 w-6 sm:h-8 sm:w-8 text-primary-600" />
+            {howItWorks.map((step, index) => {
+              const color = palette[index % palette.length];
+              return (
+                <div key={index} className="text-center">
+                  <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br ${color.iconBg} flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-md transform transition-transform hover:scale-105`}>
+                    <step.icon className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">{step.title}</h3>
+                  <p className="text-sm sm:text-base text-gray-600 px-2">{step.description}</p>
                 </div>
-                <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">{step.title}</h3>
-                <p className="text-sm sm:text-base text-gray-600 px-2">{step.description}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -212,7 +271,7 @@ const Home = () => {
           </p>
           <button 
             onClick={() => navigate('/customer/search')}
-            className="bg-white text-primary-600 px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold hover:bg-gray-100 transition-colors inline-flex items-center"
+            className="bg-white text-primary-600 px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold hover:bg-gray-100 hover:shadow-lg transition-all inline-flex items-center"
           >
             Get Started
             <ArrowRight className="ml-2 h-4 w-4 sm:h-5 sm:w-5" />

@@ -268,6 +268,12 @@ export const categoriesAPI = {
       method: 'DELETE',
       body: JSON.stringify({ name })
     }),
+  // Rename a service in a category constants list (admin only)
+  updateService: (category, oldName, newName) =>
+    apiRequest(`/categories/${encodeURIComponent(category)}/services`, {
+      method: 'PUT',
+      body: JSON.stringify({ oldName, newName })
+    }),
 };
 
 // Health check

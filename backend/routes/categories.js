@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const auth = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -112,6 +113,70 @@ router.post('/', auth, requireRole('admin'), async (req, res) => {
   }
 });
 
+// PUT /api/categories/:category/services
+// Body: { oldName: string, newName: string }
+router.put('/:category/services', auth, requireRole('admin'), async (req, res) => {
+  try {
+    const category = safeString(req.params.category);
+    const oldName = safeString((req.body && req.body.oldName) || '');
+    const newName = safeString((req.body && req.body.newName) || '');
+
+    if (!category || !oldName || !newName) {
+      return res.status(400).json({ message: 'Category, oldName and newName are required' });
+    }
+
+    const constName = CATEGORY_CONST_MAP[category] || toConstName(category);
+
+    if (!fs.existsSync(CATEGORIES_FILE)) {
+      return res.status(500).json({ message: 'categories.js file not found' });
+    }
+
+    const original = fs.readFileSync(CATEGORIES_FILE, 'utf8');
+
+    // Check presence first
+    const present = new RegExp(`['"]${oldName.replace(/[.*+?^${}()|[\]\\]/g, r => `\\${r}`)}['"]`, 's').test(original);
+    if (!present) {
+      return res.status(404).json({ message: 'Service not found in category', updated: false });
+    }
+
+    const updated = replaceInArraySource(original, constName, oldName, newName);
+
+    if (updated === original) {
+      return res.json({ message: 'No changes applied', updated: false });
+    }
+
+    fs.writeFileSync(CATEGORIES_FILE, updated, 'utf8');
+
+    // Propagate rename across all workers' services in DB
+    try {
+      await User.updateMany(
+        {
+          userType: 'worker',
+          'services.name': oldName,
+          'services.category': category,
+        },
+        {
+          $set: { 'services.$[elem].name': newName },
+        },
+        {
+          arrayFilters: [
+            { 'elem.name': oldName, 'elem.category': category },
+          ],
+        }
+      );
+    } catch (e) {
+      console.error('DB propagate rename error:', e);
+      // Do not fail the request if constants file update succeeded; include warning
+      return res.json({ message: 'Service renamed (constants updated). DB propagation failed', updated: true, warning: e.message });
+    }
+
+    return res.json({ message: 'Service renamed', updated: true });
+  } catch (err) {
+    console.error('Rename category service error:', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
 function removeFromArraySource(source, constName, item) {
   const regex = new RegExp(
     `export\\s+const\\s+${constName}\\s*=\\s*\\[(.*?)\\]`,
@@ -174,6 +239,37 @@ function appendToArraySource(source, constName, item) {
   const insertion = `\n${indent}'${item}',`;
   const newArrayBody = arrayBodyWithComma + insertion;
   return source.replace(regex, `export const ${constName} = [${newArrayBody}\n];`);
+}
+
+function replaceInArraySource(source, constName, oldItem, newItem) {
+  // Regex to find export const CONST = [ ... ]; capturing inside of array
+  const regex = new RegExp(
+    `export\\s+const\\s+${constName}\\s*=\\s*\\[([\\s\\S]*?)\\]`,
+    's'
+  );
+  const match = source.match(regex);
+  if (!match) {
+    throw new Error(`Could not find constant ${constName} in categories.js`);
+  }
+
+  const arrayBody = match[1];
+  const quotedOld = new RegExp(
+    `(['"])${oldItem.replace(/[.*+?^${}()|[\]\\]/g, (r) => `\\${r}`)}\\1`,
+    'g'
+  );
+
+  if (!quotedOld.test(arrayBody)) {
+    // old item not present; return original without change
+    return source;
+  }
+
+  // Replace keeping original quote style
+  const replacedBody = arrayBody.replace(quotedOld, (m, quote) => {
+    const safeNew = String(newItem).trim().replace(new RegExp(quote, 'g'), `\\${quote}`);
+    return `${quote}${safeNew}${quote}`;
+  });
+
+  return source.replace(regex, `export const ${constName} = [${replacedBody}\n];`);
 }
 
 // POST /api/categories/:category/services

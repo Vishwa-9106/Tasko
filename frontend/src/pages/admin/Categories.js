@@ -22,6 +22,9 @@ const AdminCategories = () => {
   const [error, setError] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
+  const [editingLabel, setEditingLabel] = useState(null);
+  const [editValue, setEditValue] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryServices, setNewCategoryServices] = useState('');
@@ -35,6 +38,39 @@ const AdminCategories = () => {
     'Baby Sitting': BABYSITTING_OPTIONS,
     'Maintenance': MAINTENANCE_OPTIONS,
     'Cloud Kitchen': CLOUD_KITCHEN_OPTIONS,
+  };
+
+  const startEditService = (label) => {
+    setEditingLabel(label);
+    setEditValue(label);
+    setError(null);
+  };
+
+  const cancelEditService = () => {
+    setEditingLabel(null);
+    setEditValue('');
+  };
+
+  const submitEditService = async (oldLabel) => {
+    if (!selectedCategory) return;
+    const newLabel = (editValue || '').trim();
+    if (!newLabel || newLabel === oldLabel) {
+      setEditingLabel(null);
+      return;
+    }
+    try {
+      setSavingEdit(true);
+      setError(null);
+      await categoriesAPI.updateService(selectedCategory, oldLabel, newLabel);
+      // refresh list to reflect new name and counts
+      await handleCategoryClick(selectedCategory);
+      setEditingLabel(null);
+      setEditValue('');
+    } catch (e) {
+      setError(e.message || 'Failed to update service');
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const toConstName = (categoryName) =>
@@ -105,6 +141,8 @@ const AdminCategories = () => {
     setError(null);
     setShowAddForm(false);
     setNewServiceName('');
+    setEditingLabel(null);
+    setEditValue('');
   };
 
   const submitAddService = async () => {
@@ -234,17 +272,63 @@ const AdminCategories = () => {
                     const count = s.workerCount ?? '-';
                     return (
                       <li key={label} className="py-3 flex items-center justify-between">
-                        <div className="font-medium text-gray-800">{label}</div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-sm text-gray-500">Workers: {count}</div>
-                          <button
-                            type="button"
-                            style={{ color: 'red', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
-                            onClick={() => handleDeleteService(label)}
-                            disabled={loading}
-                          >
-                            Delete
-                          </button>
+                        <div className="flex-1 min-w-0">
+                          {editingLabel === label ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                className="w-full sm:w-80 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                disabled={savingEdit}
+                                autoFocus
+                              />
+                            </div>
+                          ) : (
+                            <div className="font-medium text-gray-800 truncate">{label}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 ml-4">
+                          <div className="text-sm text-gray-500 flex-shrink-0">Workers: {count}</div>
+                          {editingLabel === label ? (
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button
+                                type="button"
+                                className="inline-flex items-center rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-600 disabled:opacity-50"
+                                onClick={() => submitEditService(label)}
+                                disabled={savingEdit || !editValue.trim()}
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                className="text-sm text-gray-600 hover:text-gray-800"
+                                onClick={cancelEditService}
+                                disabled={savingEdit}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <button
+                                type="button"
+                                className="text-sm text-amber-600 hover:text-amber-700 font-medium"
+                                onClick={() => startEditService(label)}
+                                disabled={loading}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                style={{ color: 'red', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+                                onClick={() => handleDeleteService(label)}
+                                disabled={loading}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </li>
                     );
