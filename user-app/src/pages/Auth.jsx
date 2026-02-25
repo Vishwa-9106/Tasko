@@ -48,6 +48,7 @@ export default function AuthPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [socialLoading, setSocialLoading] = useState("");
 
@@ -60,6 +61,10 @@ export default function AuthPage() {
       if (isRegister) {
         if (password.length < 6) {
           setError("Password must be at least 6 characters.");
+          return;
+        }
+        if (password !== confirmPassword) {
+          setError("Password and confirm password must match.");
           return;
         }
         await register({ name, email: trimmedEmail, password });
@@ -163,6 +168,16 @@ export default function AuthPage() {
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
+              {isRegister ? (
+                <input
+                  type="password"
+                  className="auth-input"
+                  placeholder="Confirm password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                />
+              ) : null}
               {error ? <p className="auth-error">{error}</p> : null}
               <button type="submit" className="auth-primary-btn" disabled={socialLoading !== ""}>
                 {isRegister ? "REGISTER" : "LOGIN"}
@@ -181,7 +196,15 @@ export default function AuthPage() {
                 {socialLoading === "apple" ? "SIGNING IN..." : "CONTINUE WITH APPLE"}
               </button>
             </div>
-            <button type="button" className="auth-toggle-btn" onClick={() => setIsRegister((prev) => !prev)}>
+            <button
+              type="button"
+              className="auth-toggle-btn"
+              onClick={() => {
+                setIsRegister((prev) => !prev);
+                setError("");
+                setConfirmPassword("");
+              }}
+            >
               {isRegister ? "ALREADY HAVE AN ACCOUNT? LOGIN" : "NEED AN ACCOUNT? REGISTER"}
             </button>
           </div>

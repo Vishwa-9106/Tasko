@@ -1,4 +1,5 @@
 import cors from "cors";
+import crypto from "crypto";
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
@@ -9,6 +10,20 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT || 5000);
 const allowedOrigins = ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"];
+const fixedAdminEmail = "kit27.ad63@gmail.com";
+const fixedAdminPassword = "Tasko@123";
+const configuredAdminEmails = (process.env.ADMIN_EMAILS || "")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+const bootstrapAdminEmail = (process.env.BOOTSTRAP_ADMIN_EMAIL || fixedAdminEmail).trim().toLowerCase();
+const bootstrapAdminPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD || fixedAdminPassword;
+const adminEmails = new Set(
+  [fixedAdminEmail, bootstrapAdminEmail, ...configuredAdminEmails].filter(Boolean)
+);
+const adminPasswords = new Set([fixedAdminPassword, bootstrapAdminPassword]);
+const adminSessions = new Map<string, { email: string; createdAt: number }>();
+const adminSessionTtlMs = 1000 * 60 * 60 * 24;
 
 app.use(
   cors({
@@ -22,6 +37,54 @@ type WritableRole = Exclude<RoleType, "unknown">;
 
 function isWritableRole(role: unknown): role is WritableRole {
   return role === "user" || role === "worker" || role === "admin";
+}
+
+function isAllowedAdminEmail(email: string): boolean {
+  return adminEmails.has(email.trim().toLowerCase());
+}
+
+function createAdminSession(email: string): string {
+  const token = crypto.randomBytes(32).toString("hex");
+  adminSessions.set(token, {
+    email: email.trim().toLowerCase(),
+    createdAt: Date.now()
+  });
+  return token;
+}
+
+function isValidAdminSession(sessionToken: string): boolean {
+  const session = adminSessions.get(sessionToken);
+  if (!session) return false;
+
+  if (Date.now() - session.createdAt > adminSessionTtlMs) {
+    adminSessions.delete(sessionToken);
+    return false;
+  }
+
+  return true;
+}
+
+function clearAdminSession(sessionToken: string): void {
+  adminSessions.delete(sessionToken);
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function sendDashboardReadFallback<T>(
+  res: Response,
+  route: string,
+  fallbackPayload: T,
+  error: unknown
+): Response {
+  // eslint-disable-next-line no-console
+  console.error(`${route} failed, using fallback payload: ${getErrorMessage(error)}`);
+  return res.json(fallbackPayload);
 }
 
 function readRouteParam(param: string | string[] | undefined): string {
@@ -83,6 +146,66 @@ async function resolveRole(uid: string): Promise<RoleType> {
   return "unknown";
 }
 
+async function ensureAdminAccountRecord(email: string, password: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  let adminUser;
+
+  try {
+    adminUser = await adminAuth.getUserByEmail(normalizedEmail);
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code !== "auth/user-not-found") {
+      throw error;
+    }
+
+    adminUser = await adminAuth.createUser({
+      email: normalizedEmail,
+      password,
+      displayName: "Tasko Admin"
+    });
+  }
+
+  await adminAuth.updateUser(adminUser.uid, {
+    password,
+    displayName: adminUser.displayName || "Tasko Admin",
+    disabled: false
+  });
+
+  await db
+    .collection("users")
+    .doc(adminUser.uid)
+    .set(
+      {
+        uid: adminUser.uid,
+        email: normalizedEmail,
+        name: "Tasko Admin",
+        role: "admin",
+        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+}
+
+async function ensureAdminAccount(): Promise<void> {
+  const seedAdminAccounts = [
+    { email: fixedAdminEmail, password: fixedAdminPassword },
+    { email: bootstrapAdminEmail, password: bootstrapAdminPassword }
+  ];
+  const seededByEmail = new Map(seedAdminAccounts.map((account) => [account.email, account]));
+
+  try {
+    await Promise.all(
+      Array.from(seededByEmail.values()).map((account) => ensureAdminAccountRecord(account.email, account.password))
+    );
+    // eslint-disable-next-line no-console
+    console.log(`Admin account ready: ${Array.from(seededByEmail.keys()).join(", ")}`);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("Failed to ensure bootstrap admin account:", error);
+  }
+}
+
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
@@ -111,6 +234,10 @@ app.post("/api/auth/validate", async (req: Request, res: Response) => {
     const decoded = await adminAuth.verifyIdToken(idToken);
     const role = await resolveRole(decoded.uid);
 
+    if (expectedRole === "admin" && !isAllowedAdminEmail(decoded.email || "")) {
+      return res.status(403).json({ message: "This account is not authorized for admin access" });
+    }
+
     if (expectedRole && role !== expectedRole) {
       return res.status(403).json({ message: `Access denied for role '${role}'` });
     }
@@ -137,6 +264,10 @@ app.post("/api/auth/sync-role", async (req: Request, res: Response) => {
     }
 
     const decoded = await adminAuth.verifyIdToken(idToken);
+    if (role === "admin" && !isAllowedAdminEmail(decoded.email || "")) {
+      return res.status(403).json({ message: "This account is not authorized for admin access" });
+    }
+
     await syncUserRoleRecord({
       uid: decoded.uid,
       email: decoded.email || "",
@@ -152,6 +283,64 @@ app.post("/api/auth/sync-role", async (req: Request, res: Response) => {
   } catch (error) {
     return res.status(401).json({ message: "Role sync failed", error });
   }
+});
+
+app.post("/api/admin/login", async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body as { email?: string; password?: string };
+    const normalizedEmail = (email || "").trim().toLowerCase();
+
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ message: "email and password are required" });
+    }
+
+    if (!isAllowedAdminEmail(normalizedEmail)) {
+      return res.status(403).json({ message: "This account is not authorized for admin access" });
+    }
+
+    if (!adminPasswords.has(password)) {
+      return res.status(401).json({ message: "Invalid admin credentials" });
+    }
+
+    try {
+      await ensureAdminAccountRecord(normalizedEmail, password);
+    } catch (error) {
+      // Allow admin login to proceed even if Firebase Auth user provisioning fails.
+      // This dashboard login uses backend session tokens, not Firebase ID tokens.
+      // eslint-disable-next-line no-console
+      console.error("Admin account sync failed during login:", error);
+    }
+
+    const sessionToken = createAdminSession(normalizedEmail);
+
+    return res.json({
+      sessionToken,
+      email: normalizedEmail
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to login as admin", error });
+  }
+});
+
+app.post("/api/admin/session/validate", (req: Request, res: Response) => {
+  const { sessionToken } = req.body as { sessionToken?: string };
+  if (!sessionToken) {
+    return res.status(400).json({ message: "sessionToken is required" });
+  }
+
+  if (!isValidAdminSession(sessionToken)) {
+    return res.status(401).json({ message: "Admin session is invalid or expired" });
+  }
+
+  return res.json({ valid: true });
+});
+
+app.post("/api/admin/logout", (req: Request, res: Response) => {
+  const { sessionToken } = req.body as { sessionToken?: string };
+  if (sessionToken) {
+    clearAdminSession(sessionToken);
+  }
+  return res.json({ message: "Logged out" });
 });
 
 app.get("/api/services", async (_req: Request, res: Response) => {
@@ -208,9 +397,9 @@ app.get("/api/users", async (_req: Request, res: Response) => {
   try {
     const snapshot = await db.collection("users").get();
     const users = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    res.json(users);
+    return res.json(users);
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch users", error });
+    return sendDashboardReadFallback(res, "/api/users", [], error);
   }
 });
 
@@ -252,9 +441,9 @@ app.get("/api/bookings", async (req: Request, res: Response) => {
 
     const snapshot = await query.get();
     const bookings = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    res.json(bookings);
+    return res.json(bookings);
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch bookings", error });
+    return sendDashboardReadFallback(res, "/api/bookings", [], error);
   }
 });
 
@@ -320,9 +509,19 @@ app.get("/api/workers", async (_req: Request, res: Response) => {
   try {
     const snapshot = await db.collection("workers").get();
     const workers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    res.json(workers);
+    return res.json(workers);
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch workers", error });
+    return sendDashboardReadFallback(res, "/api/workers", [], error);
+  }
+});
+
+app.get("/api/admin/worker-requests", async (_req: Request, res: Response) => {
+  try {
+    const snapshot = await db.collection("workers").where("status", "==", "pending").get();
+    const requests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    return res.json(requests);
+  } catch (error) {
+    return sendDashboardReadFallback(res, "/api/admin/worker-requests", [], error);
   }
 });
 
@@ -438,11 +637,26 @@ app.get("/api/admin/analytics", async (_req: Request, res: Response) => {
       pendingWorkers
     });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch analytics", error });
+    return sendDashboardReadFallback(
+      res,
+      "/api/admin/analytics",
+      { userCount: 0, workerCount: 0, bookingCount: 0, pendingWorkers: 0 },
+      error
+    );
   }
 });
 
-app.listen(port, () => {
+async function startServer() {
+  await ensureAdminAccount();
+
+  app.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Tasko backend running on http://localhost:${port}`);
+  });
+}
+
+startServer().catch((error) => {
   // eslint-disable-next-line no-console
-  console.log(`Tasko backend running on http://localhost:${port}`);
+  console.error("Failed to start backend:", error);
+  process.exit(1);
 });

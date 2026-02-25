@@ -1223,6 +1223,63 @@ body.menu-open {
   width: 100%;
 }
 
+.worker-auth-divider {
+  margin: 0.95rem 0 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+}
+
+.worker-auth-divider span {
+  flex: 1;
+  height: 1px;
+  background: rgba(146, 164, 198, 0.35);
+}
+
+.worker-auth-divider p {
+  margin: 0;
+  color: #98abd0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.worker-social-actions {
+  display: grid;
+  gap: 0.62rem;
+}
+
+.worker-social-btn {
+  min-height: 50px;
+  border-radius: 14px;
+  border: 1px solid rgba(146, 164, 198, 0.45);
+  background: rgba(8, 18, 42, 0.4);
+  color: #eaf0ff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: transform 220ms ease, border-color 220ms ease, background 220ms ease;
+}
+
+.worker-social-btn.dark {
+  border-color: rgba(198, 167, 94, 0.42);
+  background: rgba(198, 167, 94, 0.14);
+  color: #f3e2bc;
+}
+
+.worker-social-btn:hover:enabled {
+  transform: translateY(-2px);
+  border-color: rgba(198, 167, 94, 0.58);
+  background: rgba(198, 167, 94, 0.1);
+}
+
+.worker-social-btn:disabled {
+  opacity: 0.66;
+  cursor: not-allowed;
+}
+
 .scroll-reveal {
   opacity: 0;
   filter: blur(3px);

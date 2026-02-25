@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import api from "./api";
-import { auth } from "./firebase";
+
+const ADMIN_LOGIN_EMAIL = "kit27.ad63@gmail.com";
+const ADMIN_LOGIN_PASSWORD = "Tasko@123";
+const LOGIN_PATH = "/";
+const DASHBOARD_PATH = "/dashboard";
+
+function normalizePathname(pathname) {
+  return pathname === DASHBOARD_PATH ? DASHBOARD_PATH : LOGIN_PATH;
+}
+
+function navigateTo(pathname) {
+  const targetPath = normalizePathname(pathname);
+  if (window.location.pathname !== targetPath) {
+    window.history.pushState({}, "", targetPath);
+  }
+}
 
 function MetricCard({ label, value }) {
   return (
@@ -13,9 +27,10 @@ function MetricCard({ label, value }) {
 }
 
 export default function App() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [token, setToken] = useState(localStorage.getItem("tasko_admin_id_token") || "");
+  const [email, setEmail] = useState(ADMIN_LOGIN_EMAIL);
+  const [password, setPassword] = useState(ADMIN_LOGIN_PASSWORD);
+  const [token, setToken] = useState(localStorage.getItem("tasko_admin_session_token") || "");
+  const [pathname, setPathname] = useState(() => normalizePathname(window.location.pathname));
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -26,22 +41,49 @@ export default function App() {
     pendingWorkers: 0
   });
   const [workers, setWorkers] = useState([]);
+  const [workerRequests, setWorkerRequests] = useState([]);
   const [users, setUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [assignSelection, setAssignSelection] = useState({});
 
   const approvedWorkers = useMemo(() => workers.filter((worker) => worker.status === "approved"), [workers]);
 
+  useEffect(() => {
+    const onPopState = () => {
+      setPathname(normalizePathname(window.location.pathname));
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (token && pathname !== DASHBOARD_PATH) {
+      navigateTo(DASHBOARD_PATH);
+      setPathname(DASHBOARD_PATH);
+      return;
+    }
+
+    if (!token && pathname !== LOGIN_PATH) {
+      navigateTo(LOGIN_PATH);
+      setPathname(LOGIN_PATH);
+    }
+  }, [token, pathname]);
+
   const loadDashboard = async () => {
-    const [analyticsRes, workersRes, usersRes, bookingsRes] = await Promise.all([
+    const [analyticsRes, workersRes, workerRequestsRes, usersRes, bookingsRes] = await Promise.all([
       api.get("/api/admin/analytics"),
       api.get("/api/workers"),
+      api.get("/api/admin/worker-requests"),
       api.get("/api/users"),
       api.get("/api/bookings")
     ]);
 
     setAnalytics(analyticsRes.data);
     setWorkers(workersRes.data);
+    setWorkerRequests(workerRequestsRes.data);
     setUsers(usersRes.data);
     setBookings(bookingsRes.data);
   };
@@ -49,13 +91,12 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
     const validateAndLoad = async () => {
-      await api.post("/api/auth/sync-role", { idToken: token, role: "admin" });
-      await api.post("/api/auth/validate", { idToken: token, expectedRole: "admin" });
+      await api.post("/api/admin/session/validate", { sessionToken: token });
       await loadDashboard();
     };
 
     validateAndLoad().catch(async () => {
-      setError("Admin session is invalid or does not have admin role");
+      setError("Admin session is invalid or expired");
       await logout();
     });
   }, [token]);
@@ -66,15 +107,21 @@ export default function App() {
     setError("");
 
     try {
-      const credential = await signInWithEmailAndPassword(auth, email, password);
-      const idToken = await credential.user.getIdToken();
-      await api.post("/api/auth/sync-role", { idToken, role: "admin" });
-      await api.post("/api/auth/validate", { idToken, expectedRole: "admin" });
-      localStorage.setItem("tasko_admin_id_token", idToken);
-      setToken(idToken);
+      const response = await api.post("/api/admin/login", {
+        email: email.trim().toLowerCase(),
+        password
+      });
+      const sessionToken = response.data.sessionToken;
+      if (!sessionToken) {
+        throw new Error("Missing admin session token");
+      }
+      localStorage.setItem("tasko_admin_session_token", sessionToken);
+      setToken(sessionToken);
+      navigateTo(DASHBOARD_PATH);
+      setPathname(DASHBOARD_PATH);
       await loadDashboard();
     } catch (loginError) {
-      setError(loginError.response?.data?.message || "Login failed");
+      setError(loginError.response?.data?.message || "Admin login failed");
     } finally {
       setLoading(false);
     }
@@ -97,21 +144,35 @@ export default function App() {
   };
 
   const logout = async () => {
-    await signOut(auth);
-    localStorage.removeItem("tasko_admin_id_token");
+    await api.post("/api/admin/logout", { sessionToken: token }).catch(() => {});
+    localStorage.removeItem("tasko_admin_session_token");
     setToken("");
+    navigateTo(LOGIN_PATH);
+    setPathname(LOGIN_PATH);
   };
 
-  if (!token) {
+  if (!token || pathname !== DASHBOARD_PATH) {
     return (
       <div className="mx-auto max-w-md px-4 py-10">
         <div className="card">
           <h1 className="mb-4 text-2xl font-bold text-panel-700">Tasko Admin Login</h1>
+          <p className="mb-4 text-sm text-slate-600">Authorized account: {ADMIN_LOGIN_EMAIL}</p>
+          <p className="mb-4 text-sm text-slate-600">Default password: {ADMIN_LOGIN_PASSWORD}</p>
           <form className="space-y-3" onSubmit={login}>
-            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input
+              className="input"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Admin email"
+              required
+            />
             <input
               className="input"
               type="password"
+              autoComplete="current-password"
+              placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -143,6 +204,57 @@ export default function App() {
         <MetricCard label="Workers" value={analytics.workerCount} />
         <MetricCard label="Bookings" value={analytics.bookingCount} />
         <MetricCard label="Pending Workers" value={analytics.pendingWorkers} />
+      </section>
+
+      <section className="card overflow-x-auto">
+        <h2 className="mb-3 text-xl font-semibold">Worker Requests</h2>
+        {workerRequests.length === 0 ? (
+          <p className="text-sm text-slate-600">No pending worker requests.</p>
+        ) : (
+          <table className="min-w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-emerald-100 text-slate-500">
+                <th className="py-2">Name</th>
+                <th>Mobile</th>
+                <th>Email</th>
+                <th>Category</th>
+                <th>Test Score</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workerRequests.map((worker) => (
+                <tr key={worker.id} className="border-b border-emerald-50">
+                  <td className="py-2">{worker.name}</td>
+                  <td>{worker.mobile || "-"}</td>
+                  <td>{worker.email}</td>
+                  <td>{worker.primaryCategory || worker.categories?.[0] || "-"}</td>
+                  <td>
+                    {worker.assessment?.totalQuestions
+                      ? `${worker.assessment.score}/${worker.assessment.totalQuestions} (${worker.assessment.percentage || 0}%)`
+                      : "-"}
+                  </td>
+                  <td className="space-x-2">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => updateWorkerApproval(worker.id, "approved")}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => updateWorkerApproval(worker.id, "rejected")}
+                    >
+                      Reject
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
 
       <section className="card overflow-x-auto">

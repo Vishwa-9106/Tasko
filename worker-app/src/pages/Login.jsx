@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  OAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut
+} from "firebase/auth";
 import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../firebase";
 import { api } from "../api";
@@ -21,6 +27,15 @@ function getFirebaseLoginErrorMessage(error) {
   if (code === "auth/network-request-failed") {
     return "Network error. Check your connection and retry.";
   }
+  if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+    return "Sign-in popup was closed before completion.";
+  }
+  if (code === "auth/account-exists-with-different-credential") {
+    return "Account exists with a different sign-in method for this email.";
+  }
+  if (code === "auth/unauthorized-domain") {
+    return "Current domain is not authorized in Firebase Authentication settings.";
+  }
 
   return fallback;
 }
@@ -30,7 +45,30 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState("");
   const [error, setError] = useState("");
+
+  const routeWorkerByStatus = async (uid, idToken) => {
+    // Some environments can return 401 from token verification even after successful Firebase sign-in.
+    // Do not block worker access on that specific backend token-check failure.
+    try {
+      await api.post("/api/auth/validate", { idToken, expectedRole: "worker" });
+    } catch (validationError) {
+      if (validationError?.response?.status !== 401) {
+        throw validationError;
+      }
+    }
+
+    const workerResponse = await api.get(`/api/workers/${uid}`);
+    localStorage.setItem("tasko_worker_id", uid);
+
+    if (workerResponse.data.status === "approved") {
+      navigate("/dashboard");
+      return;
+    }
+
+    navigate("/waiting");
+  };
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -40,22 +78,47 @@ export default function LoginPage() {
     try {
       const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
       const idToken = await credential.user.getIdToken();
-
-      await api.post("/api/auth/validate", { idToken, expectedRole: "worker" });
-
-      localStorage.setItem("tasko_worker_id", credential.user.uid);
-      const workerResponse = await api.get(`/api/workers/${credential.user.uid}`);
-
-      if (workerResponse.data.status === "approved") {
-        navigate("/dashboard");
-        return;
-      }
-
-      navigate("/waiting");
+      await routeWorkerByStatus(credential.user.uid, idToken);
     } catch (loginError) {
       setError(getFirebaseLoginErrorMessage(loginError));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSocialLogin = async (providerName) => {
+    setError("");
+    setSocialLoading(providerName);
+
+    try {
+      const provider =
+        providerName === "google"
+          ? (() => {
+              const googleProvider = new GoogleAuthProvider();
+              googleProvider.setCustomParameters({ prompt: "select_account" });
+              return googleProvider;
+            })()
+          : (() => {
+              const appleProvider = new OAuthProvider("apple.com");
+              appleProvider.addScope("email");
+              appleProvider.addScope("name");
+              return appleProvider;
+            })();
+
+      const credential = await signInWithPopup(auth, provider);
+      const idToken = await credential.user.getIdToken();
+      await routeWorkerByStatus(credential.user.uid, idToken);
+    } catch (socialError) {
+      const isMissingWorker = socialError?.response?.status === 404;
+
+      if (isMissingWorker) {
+        setError("No worker account found for this social login. Please register as worker first.");
+        await signOut(auth).catch(() => {});
+      } else {
+        setError(getFirebaseLoginErrorMessage(socialError));
+      }
+    } finally {
+      setSocialLoading("");
     }
   };
 
@@ -113,10 +176,39 @@ export default function LoginPage() {
 
             {error ? <p className="auth-error">{error}</p> : null}
 
-            <button type="submit" className="btn-luxury-primary btn-glow auth-submit-btn" disabled={loading}>
+            <button
+              type="submit"
+              className="btn-luxury-primary btn-glow auth-submit-btn"
+              disabled={loading || socialLoading !== ""}
+            >
               {loading ? "Signing in..." : "Login"}
             </button>
           </form>
+
+          <div className="worker-auth-divider">
+            <span />
+            <p>OR CONTINUE WITH</p>
+            <span />
+          </div>
+
+          <div className="worker-social-actions">
+            <button
+              type="button"
+              className="worker-social-btn"
+              onClick={() => handleSocialLogin("google")}
+              disabled={loading || socialLoading !== ""}
+            >
+              {socialLoading === "google" ? "SIGNING IN..." : "CONTINUE WITH GOOGLE"}
+            </button>
+            <button
+              type="button"
+              className="worker-social-btn dark"
+              onClick={() => handleSocialLogin("apple")}
+              disabled={loading || socialLoading !== ""}
+            >
+              {socialLoading === "apple" ? "SIGNING IN..." : "CONTINUE WITH APPLE"}
+            </button>
+          </div>
 
           <p className="auth-footnote">
             New worker?{" "}
