@@ -1,29 +1,30 @@
-import { Link } from "react-router-dom";
+import Navbar from "../components/landing/Navbar";
+import HeroSection from "../components/landing/HeroSection";
+import HowItWorks from "../components/landing/HowItWorks";
+import ServicesGrid from "../components/landing/ServicesGrid";
+import WhyJoin from "../components/landing/WhyJoin";
+import TrustSection from "../components/landing/TrustSection";
+import Testimonials from "../components/landing/Testimonials";
+import CTASection from "../components/landing/CTASection";
+import Footer from "../components/landing/Footer";
 
 export default function LandingPage() {
   const workerId = localStorage.getItem("tasko_worker_id");
+  const loginHref = workerId ? "/waiting" : "/login";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-10">
-      <section className="rounded-2xl bg-gradient-to-r from-orange-100 to-amber-100 p-8">
-        <p className="mb-2 text-xs font-bold uppercase tracking-widest text-orange-700">Tasko Worker</p>
-        <h1 className="mb-3 text-4xl font-bold text-slate-900">Grow your service business with Tasko</h1>
-        <p className="text-slate-700">Register, verify your category, pass test checks, and receive assignments.</p>
-      </section>
-
-      <div className="card flex flex-col gap-3 sm:flex-row">
-        <Link to="/register" className="btn btn-primary text-center">
-          Register as Worker
-        </Link>
-        <Link to="/test" className="btn btn-secondary text-center">
-          Test Placeholder
-        </Link>
-        {workerId ? (
-          <Link to="/waiting" className="btn btn-secondary text-center">
-            Resume Session
-          </Link>
-        ) : null}
-      </div>
+    <div className="worker-landing" id="top">
+      <Navbar loginHref={loginHref} />
+      <main className="worker-main">
+        <HeroSection loginHref={loginHref} />
+        <HowItWorks />
+        <ServicesGrid />
+        <WhyJoin />
+        <TrustSection />
+        <Testimonials />
+        <CTASection />
+      </main>
+      <Footer />
     </div>
   );
 }

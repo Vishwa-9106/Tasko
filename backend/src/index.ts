@@ -260,22 +260,38 @@ app.get("/api/bookings", async (req: Request, res: Response) => {
 
 app.post("/api/workers/register", async (req: Request, res: Response) => {
   try {
-    const { firebaseUid, name, email, categories } = req.body;
-    if (!firebaseUid || !name || !email) {
-      return res.status(400).json({ message: "firebaseUid, name and email are required" });
+    const { firebaseUid, name, mobile, email, categories, assessment } = req.body;
+    if (!firebaseUid || !name || !mobile || !email) {
+      return res.status(400).json({ message: "firebaseUid, name, mobile and email are required" });
     }
+
+    const normalizedCategories = Array.isArray(categories)
+      ? categories.filter((category) => typeof category === "string" && category.trim().length > 0)
+      : [];
+
+    const normalizedAssessment =
+      assessment && typeof assessment === "object"
+        ? {
+            ...assessment,
+            reviewedByAdmin: false
+          }
+        : null;
 
     await Promise.all([
       db.collection("workers").doc(firebaseUid).set(
         {
           firebaseUid,
           name,
+          mobile,
           email,
-          categories: Array.isArray(categories) ? categories : [],
+          categories: normalizedCategories,
+          primaryCategory: normalizedCategories[0] || "",
+          assessment: normalizedAssessment,
           role: "worker",
           status: "pending",
           online: false,
-          createdAt: timestamp()
+          createdAt: timestamp(),
+          updatedAt: timestamp()
         },
         { merge: true }
       ),
@@ -283,10 +299,12 @@ app.post("/api/workers/register", async (req: Request, res: Response) => {
         {
           uid: firebaseUid,
           name,
+          mobile,
           email,
           role: "worker",
           workerStatus: "pending",
-          createdAt: timestamp()
+          createdAt: timestamp(),
+          updatedAt: timestamp()
         },
         { merge: true }
       )

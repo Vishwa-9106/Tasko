@@ -151,7 +151,10 @@ export default function App() {
           <thead>
             <tr className="border-b border-emerald-100 text-slate-500">
               <th className="py-2">Name</th>
+              <th>Mobile</th>
               <th>Email</th>
+              <th>Category</th>
+              <th>Test Score</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -160,7 +163,14 @@ export default function App() {
             {workers.map((worker) => (
               <tr key={worker.id} className="border-b border-emerald-50">
                 <td className="py-2">{worker.name}</td>
+                <td>{worker.mobile || "-"}</td>
                 <td>{worker.email}</td>
+                <td>{worker.primaryCategory || worker.categories?.[0] || "-"}</td>
+                <td>
+                  {worker.assessment?.totalQuestions
+                    ? `${worker.assessment.score}/${worker.assessment.totalQuestions} (${worker.assessment.percentage || 0}%)`
+                    : "-"}
+                </td>
                 <td className="capitalize">{worker.status}</td>
                 <td className="space-x-2">
                   <button

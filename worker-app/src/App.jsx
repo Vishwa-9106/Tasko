@@ -1,6 +1,7 @@
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import LandingPage from "./pages/Landing";
 import RegisterPage from "./pages/Register";
+import LoginPage from "./pages/Login";
 import TestPage from "./pages/Test";
 import WaitingApprovalPage from "./pages/WaitingApproval";
 import DashboardPage from "./pages/Dashboard";
@@ -23,12 +24,17 @@ function TopNav() {
 }
 
 export default function App() {
+  const location = useLocation();
+  const hiddenTopNavRoutes = new Set(["/", "/register", "/login"]);
+  const showTopNav = !hiddenTopNavRoutes.has(location.pathname);
+
   return (
     <div className="min-h-screen">
-      <TopNav />
+      {showTopNav ? <TopNav /> : null}
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/test" element={<TestPage />} />
         <Route path="/waiting" element={<WaitingApprovalPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
