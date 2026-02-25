@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-emerald-50 text-slate-900;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.card {
+  @apply rounded-xl bg-white p-5 shadow-sm ring-1 ring-emerald-200;
+}
+
+.input {
+  @apply w-full rounded-lg border border-emerald-200 px-3 py-2 text-sm focus:border-panel-500 focus:outline-none;
+}
+
+.btn {
+  @apply rounded-lg px-3 py-2 text-xs font-semibold transition;
+}
+
+.btn-primary {
+  @apply bg-panel-500 text-white hover:bg-panel-700;
+}
+
+.btn-danger {
+  @apply bg-red-500 text-white hover:bg-red-700;
+}
+
+.btn-soft {
+  @apply bg-emerald-100 text-emerald-700 hover:bg-emerald-200;
+}

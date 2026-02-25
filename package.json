@@ -1,0 +1,16 @@
+{
+  "name": "tasko",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix user-app install && npm --prefix worker-app install && npm --prefix admin-panel install",
+    "dev": "concurrently -n backend,user,worker,admin -c yellow,cyan,magenta,green \"npm --prefix backend run dev\" \"npm --prefix user-app run dev\" \"npm --prefix worker-app run dev\" \"npm --prefix admin-panel run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:user": "npm --prefix user-app run dev",
+    "dev:worker": "npm --prefix worker-app run dev",
+    "dev:admin": "npm --prefix admin-panel run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

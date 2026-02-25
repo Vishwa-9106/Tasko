@@ -1,126 +1,118 @@
-# Cookie Home Services
+# Tasko
 
-A full‑stack home services marketplace with customer and worker interfaces, real-time chat/notifications, bookings, reviews, and favorites.
+Tasko uses a shared architecture:
 
-## Features
-- Customer and Worker portals
-- Search workers by name, location, services, with filters and sorting
-- Favorites (add/remove, synced with backend)
-- Booking management with statuses and reviews
-- Real-time messaging via Socket.io
-- Fully responsive UI across pages (dashboard, services, bookings, search, home)
+- One backend application (`backend`) on port `5000`
+- One Firebase project (Authentication + Firestore)
+- One backend environment file (`backend/.env`)
+- Three frontend applications that share the same backend and database:
+  - `user-app` on `3000`
+  - `worker-app` on `3001`
+  - `admin-panel` on `3002`
 
-## Tech Stack
-- Frontend: React (CRA), React Router, Axios, Tailwind CSS
-- Backend: Node.js, Express, Mongoose (MongoDB), JWT Auth, Multer
-- Realtime: Socket.io
+All three frontends connect to the same backend API and same Firebase project. Only UI/routing entry points are different by app.
 
-## Monorepo Structure
-```
-./
-├─ backend/           # Express API server
-│  ├─ routes/         # auth, users, bookings, messages, services
-│  ├─ models/         # User, Service, Message
-│  ├─ middleware/     # auth, upload
-│  ├─ server.js       # App entry
-│  ├─ package.json
-│  └─ .env            # Backend env vars (not committed)
-└─ frontend/          # React app
-   ├─ public/
-   ├─ src/
-   ├─ package.json
-   └─ .env            # Frontend env vars
+## Project Structure
+
+```text
+tasko/
+├── user-app/
+├── worker-app/
+├── admin-panel/
+└── backend/
 ```
 
-## Prerequisites
-- Node.js LTS (v18+ recommended)
-- MongoDB database (Atlas or local)
+## Backend Requirements Implemented
 
-## Environment Variables
-Create the following files (examples shown). Do NOT commit real secrets.
+- Node.js + Express + TypeScript
+- Firebase Admin SDK connection to Firestore
+- CORS enabled for:
+  - `http://localhost:3000`
+  - `http://localhost:3001`
+  - `http://localhost:3002`
+- REST APIs for:
+  - authentication validation (`/api/auth/validate`)
+  - booking creation (`/api/bookings`)
+  - worker approval (`/api/workers/:workerId/approval`)
+  - job assignment (`/api/jobs/assign`)
+  - analytics (`/api/admin/analytics`)
+- Role-based data uses `role` field in Firestore (`users`/`workers`)
 
-Backend: `backend/.env`
-```
-NODE_ENV=development
-PORT=5000
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority
-JWT_SECRET=your-secure-random-string
-```
+## Single Environment File
 
-Frontend: `frontend/.env`
-```
-REACT_APP_API_URL=http://localhost:5000/api
-REACT_APP_APP_NAME=Cookie Home Services
-```
+Only configure environment variables in:
 
-## Install & Run
-### 1) Backend
-```
-# from ./backend
+- `backend/.env` (copy from `backend/.env.example`)
+
+This one file contains:
+
+- Firebase Admin credentials
+- Firebase Web config values returned to all frontends from `/api/config/client`
+
+## Setup
+
+1. Install dependencies from the project root (`d:\Tasko`):
+
+```powershell
+cd d:\Tasko
 npm install
-npm run dev   # starts on http://localhost:5000
+npm run install:all
 ```
 
-### 2) Frontend
+2. Create backend env file:
+
+```powershell
+cd d:\Tasko\backend
+copy .env.example .env
 ```
-# from ./frontend
-npm install
-npm start     # starts on http://localhost:3000
+
+3. Fill Firebase values in `backend/.env`:
+
+- Admin SDK keys:
+  - `FIREBASE_PROJECT_ID`
+  - `FIREBASE_CLIENT_EMAIL`
+  - `FIREBASE_PRIVATE_KEY`
+- Web SDK keys (same Firebase project):
+  - `FIREBASE_WEB_API_KEY`
+  - `FIREBASE_WEB_AUTH_DOMAIN`
+  - `FIREBASE_WEB_PROJECT_ID`
+  - `FIREBASE_WEB_STORAGE_BUCKET`
+  - `FIREBASE_WEB_MESSAGING_SENDER_ID`
+  - `FIREBASE_WEB_APP_ID`
+
+## Run (From `d:\Tasko`)
+
+Start all 4 apps with one command:
+
+```powershell
+cd d:\Tasko
+npm run dev
 ```
 
-Ensure `REACT_APP_API_URL` points to the backend API (e.g., http://localhost:5000/api).
+You can also run one app at a time from root:
 
-## Dynamic Categories
-The app reads all service categories from `frontend/src/constants/categories.js` and wires them automatically:
+```powershell
+npm run dev:backend
+npm run dev:user
+npm run dev:worker
+npm run dev:admin
+```
 
-- __Customer Home cards__: built from `CATEGORIES` with icons from `ICON_MAP`.
-- __Customer Category page__: loads predefined service options for a category if present.
-- __Worker Services form__: shows categories from `CATEGORIES` and service-name options from constants.
+## Run (Manual Per App)
 
-### Add a new category
-1) Edit `frontend/src/constants/categories.js`:
-   - Add the label to `CATEGORIES` (e.g., `"Water wash"`).
-   - Add an icon mapping in `ICON_MAP` (e.g., `'Water wash': Home`).
-   - Optionally add an options array named after the category in UPPER_SNAKE_CASE + `_OPTIONS`.
-     Example for `Water wash`:
-     ```js
-     export const WATER_WASH_OPTIONS = [
-       'Bike water service',
-       'Car water service',
-       'Foam wash',
-     ];
-     ```
+Open 4 terminals:
 
-2) Navigate to Customer Home. A card for the new category will appear automatically.
+```powershell
+cd d:\Tasko\backend; npm run dev
+cd d:\Tasko\user-app; npm run dev
+cd d:\Tasko\worker-app; npm run dev
+cd d:\Tasko\admin-panel; npm run dev
+```
 
-3) Click the card. The category page will list the predefined options. If no options array exists, it will fallback to fetching services for that category from the backend.
+## Firestore Collections
 
-No code changes are required beyond updating the constants file.
-
-## Available Scripts
-Backend (`backend/package.json`):
-- `npm run dev` – Start server with nodemon
-- `npm start` – Start server with node
-
-Frontend (`frontend/package.json`):
-- `npm start` – Start CRA dev server
-- `npm run build` – Production build
-- `npm test` – Run tests
-
-## Key Endpoints (examples)
-- `POST /api/auth/register` – Register user
-- `POST /api/auth/login` – Login and receive JWT
-- `GET /api/users/workers` – Search workers (supports search/filter/sort)
-- `GET /api/users/favorites` – Get favorites (customer)
-- `POST /api/users/favorites/:workerId` – Toggle favorite
-- `GET /api/users/worker/:id` – Worker profile
-
-## Notes
-- Keep `.env` files private. Do not commit production secrets.
-- Tailwind is configured via `frontend/tailwind.config.js` and `postcss.config.js`.
-- Realtime features require the frontend to connect to the backend Socket.io server.
-
-## Troubleshooting
-- CORS issues: ensure backend has CORS enabled and `REACT_APP_API_URL` matches origin.
-- Mongo connection: verify `MONGODB_URI` and network access rules (IP allowlist on Atlas).
-- JWT errors: confirm `Authorization: Bearer <token>` header is sent for protected routes.
+- `users`
+- `workers`
+- `bookings`
+- `services`
+- `packages`

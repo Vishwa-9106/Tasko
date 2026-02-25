@@ -1,36 +1,45 @@
-# Root .gitignore for cookie monorepo
-
-# Node
+# Dependencies
 node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+**/dist/
+**/build/
+**/coverage/
+
+# Runtime logs
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-store/
+pnpm-debug.log*
 
-# Env files
+# Env files and secrets
 .env
-backend/.env
-frontend/.env
+.env.*
+!.env.example
+!.env.sample
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
 
-# Build outputs
-frontend/build/
-backend/dist/
-backend/coverage/
-coverage/
+# Cache / temp
+.cache/
+.turbo/
+.vite/
+.parcel-cache/
+.eslintcache
+*.tsbuildinfo
+tmp/
+temp/
 
-# Logs
-logs/
-*.log
-
-# OS
+# IDE / OS files
 .DS_Store
 Thumbs.db
-
-# Editor
-.vscode/
 .idea/
-
-# Uploads (optional for dev, ensure persistent storage in prod)
-backend/uploads/
-
-.vercel
+.vscode/
