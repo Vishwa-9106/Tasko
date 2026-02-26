@@ -1,36 +1,16 @@
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import LandingPage from "./pages/Landing";
 import RegisterPage from "./pages/Register";
 import LoginPage from "./pages/Login";
 import TestPage from "./pages/Test";
 import WaitingApprovalPage from "./pages/WaitingApproval";
 import DashboardPage from "./pages/Dashboard";
-
-function TopNav() {
-  return (
-    <header className="border-b border-orange-200 bg-white">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3">
-        <h1 className="text-xl font-bold text-accent-700">Tasko Worker</h1>
-        <nav className="flex gap-3 text-sm font-medium text-slate-700">
-          <Link to="/">Landing</Link>
-          <Link to="/register">Register</Link>
-          <Link to="/test">Test</Link>
-          <Link to="/waiting">Waiting</Link>
-          <Link to="/dashboard">Dashboard</Link>
-        </nav>
-      </div>
-    </header>
-  );
-}
+import MyEarningsPage from "./pages/MyEarnings";
+import ProfilePage from "./pages/Profile";
 
 export default function App() {
-  const location = useLocation();
-  const hiddenTopNavRoutes = new Set(["/", "/register", "/login"]);
-  const showTopNav = !hiddenTopNavRoutes.has(location.pathname);
-
   return (
     <div className="min-h-screen">
-      {showTopNav ? <TopNav /> : null}
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -38,6 +18,8 @@ export default function App() {
         <Route path="/test" element={<TestPage />} />
         <Route path="/waiting" element={<WaitingApprovalPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/my-earnings" element={<MyEarningsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
