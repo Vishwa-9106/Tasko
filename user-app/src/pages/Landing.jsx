@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import "./Landing.css";
+import taskoLogo from "./tasko-logo.png";
 
 const services = [
   {
@@ -141,24 +142,7 @@ const testimonials = [
 ];
 
 function TaskoMark({ className = "" }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 48 48"
-      role="img"
-      aria-label="Tasko mark"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <circle cx="24" cy="24" r="22.5" stroke="currentColor" strokeWidth="2" />
-      <path
-        d="M29.7 14.3a6.5 6.5 0 0 0-7.7 8.4l-9.4 9.4a2.1 2.1 0 0 0 3 3l9.4-9.4a6.5 6.5 0 0 0 8.4-7.7l-3.7 3.7-3-0.8-0.8-3 3.8-3.6Z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <img className={className} src={taskoLogo} alt="Tasko logo" />;
 }
 
 function TaskoLogoLockup({ className = "" }) {
@@ -169,7 +153,7 @@ function TaskoLogoLockup({ className = "" }) {
       <div className={`logo-lockup ${className}`}>
         <img
           className="logo-lockup-image"
-          src="/tasko-logo.png"
+          src={taskoLogo}
           alt="Tasko logo"
           onError={() => setLogoFailed(true)}
         />
@@ -191,7 +175,7 @@ function TaskoLogoLockup({ className = "" }) {
 function BrandMark({ className = "" }) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const [useFallback, setUseFallback] = useState(false);
-  const sources = ["/tasko-logo-mark.png", "/tasko-logo.png"];
+  const sources = [taskoLogo, "/tasko-logo-mark.png", "/tasko-logo.png"];
 
   if (useFallback) {
     return <TaskoMark className={className} />;
@@ -342,7 +326,6 @@ export default function LandingPage() {
       <section className="hero-section">
         <div className="landing-shell hero-grid">
           <div className="hero-copy fade-up">
-            <TaskoLogoLockup className="hero-logo-lockup" />
             <p className="hero-tagline">PREMIUM SERVICE MARKETPLACE</p>
             <h1 className="hero-title">
               PROFESSIONAL HOME SERVICES.

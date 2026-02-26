@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { signInWithCustomToken, updateProfile } from "firebase/auth";
 import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../firebase";
 import { api } from "../api";
@@ -125,8 +125,16 @@ export default function RegisterPage() {
     const passed = percentage >= 60;
 
     try {
-      const credential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
-      await updateProfile(credential.user, { displayName: trimmedName });
+      const authRegistrationResponse = await api.post("/api/auth/register", {
+        email: trimmedEmail,
+        password,
+        displayName: trimmedName
+      });
+      const credential = await signInWithCustomToken(auth, authRegistrationResponse.data.customToken);
+
+      if (credential.user.displayName !== trimmedName) {
+        await updateProfile(credential.user, { displayName: trimmedName });
+      }
 
       const response = await api.post("/api/workers/register", {
         firebaseUid: credential.user.uid,
@@ -145,11 +153,10 @@ export default function RegisterPage() {
             return {
               questionId: question.id,
               question: question.prompt,
-              options: question.options,
               selectedOptionIndex,
-              selectedOption: question.options[selectedOptionIndex],
+              selectedOption: question.options[selectedOptionIndex] || "",
               correctOptionIndex: question.answerIndex,
-              correctOption: question.options[question.answerIndex],
+              correctOption: question.options[question.answerIndex] || "",
               isCorrect: selectedOptionIndex === question.answerIndex
             };
           }),

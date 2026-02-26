@@ -1,4 +1,8 @@
+import dotenv from "dotenv";
 import admin from "firebase-admin";
+import path from "path";
+
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;

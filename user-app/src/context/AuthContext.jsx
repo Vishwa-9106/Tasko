@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
-  createUserWithEmailAndPassword,
   GoogleAuthProvider,
   OAuthProvider,
   onAuthStateChanged,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -46,9 +46,18 @@ export function AuthProvider({ children }) {
   };
 
   const register = async ({ name, email, password }) => {
-    const credential = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(credential.user, { displayName: name });
-    await syncUserRecord(credential.user, name);
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedName = name.trim();
+    const response = await api.post("/api/auth/register", {
+      email: normalizedEmail,
+      password,
+      displayName: normalizedName
+    });
+    const credential = await signInWithCustomToken(auth, response.data.customToken);
+    if (normalizedName && credential.user.displayName !== normalizedName) {
+      await updateProfile(credential.user, { displayName: normalizedName });
+    }
+    await syncUserRecord(credential.user, normalizedName);
     await validateUserRole(credential.user);
     return credential;
   };

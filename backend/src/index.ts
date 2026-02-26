@@ -3,9 +3,10 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
+import path from "path";
 import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -24,6 +25,8 @@ const adminEmails = new Set(
 const adminPasswords = new Set([fixedAdminPassword, bootstrapAdminPassword]);
 const adminSessions = new Map<string, { email: string; createdAt: number }>();
 const adminSessionTtlMs = 1000 * 60 * 60 * 24;
+const inMemoryUsers = new Map<string, Record<string, unknown>>();
+const inMemoryWorkers = new Map<string, Record<string, unknown>>();
 
 app.use(
   cors({
@@ -76,6 +79,202 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function isFirestoreUnavailableError(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  return (
+    message.includes("5 NOT_FOUND") ||
+    message.includes("database (default) does not exist") ||
+    message.includes("The caller does not have permission")
+  );
+}
+
+function toInMemoryWorkerList(): Array<Record<string, unknown>> {
+  return Array.from(inMemoryWorkers.entries()).map(([id, worker]) => ({ id, ...worker }));
+}
+
+function toInMemoryUserList(): Array<Record<string, unknown>> {
+  return Array.from(inMemoryUsers.entries()).map(([id, user]) => ({ id, ...user }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const OMIT_FROM_FIRESTORE = Symbol("omit-from-firestore");
+type FirestoreSanitizedValue = unknown | typeof OMIT_FROM_FIRESTORE;
+
+function sanitizeForFirestore(value: unknown): FirestoreSanitizedValue {
+  if (value === undefined) {
+    return OMIT_FROM_FIRESTORE;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => sanitizeForFirestore(entry))
+      .filter((entry) => entry !== OMIT_FROM_FIRESTORE);
+  }
+
+  if (isRecord(value)) {
+    const cleanedEntries = Object.entries(value)
+      .map(([key, entry]) => [key, sanitizeForFirestore(entry)] as const)
+      .filter(([, entry]) => entry !== OMIT_FROM_FIRESTORE);
+    return Object.fromEntries(cleanedEntries);
+  }
+
+  return value;
+}
+
+function normalizeWorkerAssessment(assessment: unknown): Record<string, unknown> | null {
+  if (!isRecord(assessment)) {
+    return null;
+  }
+
+  const answers =
+    Array.isArray(assessment.answers) &&
+    assessment.answers
+      .filter((answer): answer is Record<string, unknown> => isRecord(answer))
+      .map((answer) => {
+        const sanitizedAnswer = sanitizeForFirestore({
+          questionId: answer.questionId,
+          question: answer.question,
+          selectedOptionIndex: answer.selectedOptionIndex,
+          selectedOption: answer.selectedOption,
+          correctOptionIndex: answer.correctOptionIndex,
+          correctOption: answer.correctOption,
+          isCorrect: answer.isCorrect
+        });
+
+        return isRecord(sanitizedAnswer) ? sanitizedAnswer : null;
+      })
+      .filter((answer): answer is Record<string, unknown> => answer !== null);
+
+  const sanitizedAssessment = sanitizeForFirestore({
+    category: assessment.category,
+    totalQuestions: assessment.totalQuestions,
+    score: assessment.score,
+    percentage: assessment.percentage,
+    passed: assessment.passed,
+    answers: Array.isArray(answers) ? answers : [],
+    submittedAt: assessment.submittedAt || new Date().toISOString(),
+    reviewedByAdmin: false
+  });
+
+  return isRecord(sanitizedAssessment) ? sanitizedAssessment : null;
+}
+
+function toWorkerAssessmentSummary(assessment: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!assessment) {
+    return null;
+  }
+
+  const summary = sanitizeForFirestore({
+    category: assessment.category,
+    totalQuestions: assessment.totalQuestions,
+    score: assessment.score,
+    percentage: assessment.percentage,
+    passed: assessment.passed,
+    submittedAt: assessment.submittedAt,
+    reviewedByAdmin: false
+  });
+
+  return isRecord(summary) ? summary : null;
+}
+
+async function upsertWorkerRegistration({
+  firebaseUid,
+  name,
+  mobile,
+  email,
+  categories,
+  assessment
+}: {
+  firebaseUid: string;
+  name: string;
+  mobile: string;
+  email: string;
+  categories: string[];
+  assessment: Record<string, unknown> | null;
+}): Promise<void> {
+  const workerPayload: Record<string, unknown> = {
+    firebaseUid,
+    name,
+    mobile,
+    email,
+    categories,
+    primaryCategory: categories[0] || "",
+    role: "worker",
+    status: "pending",
+    online: false,
+    createdAt: timestamp(),
+    updatedAt: timestamp()
+  };
+
+  if (assessment) {
+    workerPayload.assessment = assessment;
+  }
+
+  try {
+    await Promise.all([
+      db.collection("workers").doc(firebaseUid).set(workerPayload, { merge: true }),
+      db.collection("users").doc(firebaseUid).set(
+        {
+          uid: firebaseUid,
+          name,
+          mobile,
+          email,
+          role: "worker",
+          workerStatus: "pending",
+          createdAt: timestamp(),
+          updatedAt: timestamp()
+        },
+        { merge: true }
+      )
+    ]);
+    return;
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  const now = new Date().toISOString();
+  const memoryWorkerPayload: Record<string, unknown> = {
+    firebaseUid,
+    name,
+    mobile,
+    email,
+    categories,
+    primaryCategory: categories[0] || "",
+    role: "worker",
+    status: "pending",
+    online: false,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  if (assessment) {
+    memoryWorkerPayload.assessment = assessment;
+  }
+
+  inMemoryWorkers.set(firebaseUid, memoryWorkerPayload);
+
+  const existingUser = inMemoryUsers.get(firebaseUid);
+  const existingCreatedAt =
+    existingUser && Object.prototype.hasOwnProperty.call(existingUser, "createdAt") ? existingUser.createdAt : now;
+
+  inMemoryUsers.set(firebaseUid, {
+    ...(existingUser || {}),
+    uid: firebaseUid,
+    name,
+    mobile,
+    email,
+    role: "worker",
+    workerStatus: "pending",
+    createdAt: existingCreatedAt,
+    updatedAt: now
+  });
+}
+
 function sendDashboardReadFallback<T>(
   res: Response,
   route: string,
@@ -106,8 +305,6 @@ async function syncUserRoleRecord({
   name: string;
   role: WritableRole;
 }): Promise<void> {
-  const userRef = db.collection("users").doc(uid);
-  const userDoc = await userRef.get();
   const now = new Date().toISOString();
   const payload: Record<string, unknown> = {
     uid,
@@ -117,30 +314,81 @@ async function syncUserRoleRecord({
     updatedAt: now
   };
 
-  if (!userDoc.exists) {
-    payload.createdAt = now;
-  }
-
   if (role === "worker") {
-    const workerDoc = await db.collection("workers").doc(uid).get();
-    payload.workerStatus = workerDoc.data()?.status || "pending";
+    let workerStatus: unknown = "pending";
+    const memoryWorker = inMemoryWorkers.get(uid);
+
+    if (memoryWorker && typeof memoryWorker.status === "string") {
+      workerStatus = memoryWorker.status;
+    } else {
+      try {
+        const workerDoc = await db.collection("workers").doc(uid).get();
+        workerStatus = workerDoc.data()?.status || "pending";
+      } catch (error) {
+        if (!isFirestoreUnavailableError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    payload.workerStatus = workerStatus;
   }
 
-  await userRef.set(payload, { merge: true });
-}
-
-async function resolveRole(uid: string): Promise<RoleType> {
-  const userDoc = await db.collection("users").doc(uid).get();
-  if (userDoc.exists) {
-    const role = userDoc.data()?.role;
-    if (role === "user" || role === "worker" || role === "admin") {
-      return role;
+  try {
+    const userRef = db.collection("users").doc(uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      payload.createdAt = now;
+    }
+    await userRef.set(payload, { merge: true });
+    return;
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
     }
   }
 
-  const workerDoc = await db.collection("workers").doc(uid).get();
-  if (workerDoc.exists) {
+  const existingUser = inMemoryUsers.get(uid);
+  const existingCreatedAt =
+    existingUser && Object.prototype.hasOwnProperty.call(existingUser, "createdAt") ? existingUser.createdAt : now;
+
+  inMemoryUsers.set(uid, {
+    ...(existingUser || {}),
+    ...payload,
+    createdAt: existingCreatedAt
+  });
+}
+
+async function resolveRole(uid: string): Promise<RoleType> {
+  const memoryUser = inMemoryUsers.get(uid);
+  if (memoryUser) {
+    const memoryRole = memoryUser.role;
+    if (memoryRole === "user" || memoryRole === "worker" || memoryRole === "admin") {
+      return memoryRole;
+    }
+  }
+
+  if (inMemoryWorkers.has(uid)) {
     return "worker";
+  }
+
+  try {
+    const userDoc = await db.collection("users").doc(uid).get();
+    if (userDoc.exists) {
+      const role = userDoc.data()?.role;
+      if (role === "user" || role === "worker" || role === "admin") {
+        return role;
+      }
+    }
+
+    const workerDoc = await db.collection("workers").doc(uid).get();
+    if (workerDoc.exists) {
+      return "worker";
+    }
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
   }
 
   return "unknown";
@@ -285,6 +533,65 @@ app.post("/api/auth/sync-role", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/api/auth/register", async (req: Request, res: Response) => {
+  try {
+    const { email, password, displayName } = req.body as {
+      email?: string;
+      password?: string;
+      displayName?: string;
+    };
+
+    const normalizedEmail = (email || "").trim().toLowerCase();
+    const normalizedDisplayName = (displayName || "").trim();
+
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ message: "email and password are required" });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters." });
+    }
+
+    let createdUser;
+
+    try {
+      createdUser = await adminAuth.createUser({
+        email: normalizedEmail,
+        password,
+        displayName: normalizedDisplayName || undefined,
+        disabled: false
+      });
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === "auth/email-already-exists") {
+        return res.status(409).json({ message: "This email is already in use." });
+      }
+      if (code === "auth/invalid-email") {
+        return res.status(400).json({ message: "Please enter a valid email address." });
+      }
+      if (code === "auth/invalid-password") {
+        return res.status(400).json({ message: "Password must be at least 6 characters." });
+      }
+      throw error;
+    }
+
+    const customToken = await adminAuth.createCustomToken(createdUser.uid);
+
+    return res.status(201).json({
+      uid: createdUser.uid,
+      email: createdUser.email || normalizedEmail,
+      customToken
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`Failed to register auth account: ${getErrorMessage(error)}`);
+    return res.status(500).json({
+      message: "Failed to register auth account",
+      error: getErrorMessage(error)
+    });
+  }
+});
+
 app.post("/api/admin/login", async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body as { email?: string; password?: string };
@@ -384,6 +691,27 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
 
     return res.status(201).json({ message: "User saved", role: "user" });
   } catch (error) {
+    if (isFirestoreUnavailableError(error)) {
+      const now = new Date().toISOString();
+      const existingUser = inMemoryUsers.get(req.body.uid);
+      const existingCreatedAt =
+        existingUser && Object.prototype.hasOwnProperty.call(existingUser, "createdAt")
+          ? existingUser.createdAt
+          : now;
+
+      inMemoryUsers.set(req.body.uid, {
+        ...(existingUser || {}),
+        uid: req.body.uid,
+        name: req.body.name || "",
+        email: req.body.email,
+        role: "user",
+        createdAt: existingCreatedAt,
+        updatedAt: now
+      });
+
+      return res.status(201).json({ message: "User saved", role: "user" });
+    }
+
     // eslint-disable-next-line no-console
     console.error("Failed to register user:", error);
     return res.status(500).json({
@@ -399,7 +727,7 @@ app.get("/api/users", async (_req: Request, res: Response) => {
     const users = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return res.json(users);
   } catch (error) {
-    return sendDashboardReadFallback(res, "/api/users", [], error);
+    return sendDashboardReadFallback(res, "/api/users", toInMemoryUserList(), error);
   }
 });
 
@@ -455,53 +783,51 @@ app.post("/api/workers/register", async (req: Request, res: Response) => {
     }
 
     const normalizedCategories = Array.isArray(categories)
-      ? categories.filter((category) => typeof category === "string" && category.trim().length > 0)
+      ? categories
+          .filter((category): category is string => typeof category === "string" && category.trim().length > 0)
+          .map((category) => category.trim())
       : [];
 
-    const normalizedAssessment =
-      assessment && typeof assessment === "object"
-        ? {
-            ...assessment,
-            reviewedByAdmin: false
-          }
-        : null;
+    if (normalizedCategories.length === 0) {
+      return res.status(400).json({ message: "At least one category is required" });
+    }
 
-    await Promise.all([
-      db.collection("workers").doc(firebaseUid).set(
-        {
-          firebaseUid,
-          name,
-          mobile,
-          email,
-          categories: normalizedCategories,
-          primaryCategory: normalizedCategories[0] || "",
-          assessment: normalizedAssessment,
-          role: "worker",
-          status: "pending",
-          online: false,
-          createdAt: timestamp(),
-          updatedAt: timestamp()
-        },
-        { merge: true }
-      ),
-      db.collection("users").doc(firebaseUid).set(
-        {
-          uid: firebaseUid,
-          name,
-          mobile,
-          email,
-          role: "worker",
-          workerStatus: "pending",
-          createdAt: timestamp(),
-          updatedAt: timestamp()
-        },
-        { merge: true }
-      )
-    ]);
+    const normalizedAssessment = normalizeWorkerAssessment(assessment);
+
+    try {
+      await upsertWorkerRegistration({
+        firebaseUid,
+        name,
+        mobile,
+        email,
+        categories: normalizedCategories,
+        assessment: normalizedAssessment
+      });
+    } catch (detailedAssessmentError) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `Worker registration with full assessment failed for uid=${firebaseUid}. Retrying with summary only: ${getErrorMessage(
+          detailedAssessmentError
+        )}`
+      );
+      await upsertWorkerRegistration({
+        firebaseUid,
+        name,
+        mobile,
+        email,
+        categories: normalizedCategories,
+        assessment: toWorkerAssessmentSummary(normalizedAssessment)
+      });
+    }
 
     return res.status(201).json({ workerId: firebaseUid, status: "pending", role: "worker" });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to register worker", error });
+    // eslint-disable-next-line no-console
+    console.error(`Failed to register worker: ${getErrorMessage(error)}`);
+    return res.status(500).json({
+      message: "Failed to register worker",
+      error: getErrorMessage(error)
+    });
   }
 });
 
@@ -511,7 +837,7 @@ app.get("/api/workers", async (_req: Request, res: Response) => {
     const workers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return res.json(workers);
   } catch (error) {
-    return sendDashboardReadFallback(res, "/api/workers", [], error);
+    return sendDashboardReadFallback(res, "/api/workers", toInMemoryWorkerList(), error);
   }
 });
 
@@ -521,20 +847,29 @@ app.get("/api/admin/worker-requests", async (_req: Request, res: Response) => {
     const requests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return res.json(requests);
   } catch (error) {
-    return sendDashboardReadFallback(res, "/api/admin/worker-requests", [], error);
+    const fallbackRequests = toInMemoryWorkerList().filter((worker) => worker.status === "pending");
+    return sendDashboardReadFallback(res, "/api/admin/worker-requests", fallbackRequests, error);
   }
 });
 
 app.get("/api/workers/:workerId", async (req: Request, res: Response) => {
+  const workerId = readRouteParam(req.params.workerId);
+  const inMemoryWorker = inMemoryWorkers.get(workerId);
+
   try {
-    const workerId = readRouteParam(req.params.workerId);
     const workerDoc = await db.collection("workers").doc(workerId).get();
     if (!workerDoc.exists) {
+      if (inMemoryWorker) {
+        return res.json({ id: workerId, ...inMemoryWorker });
+      }
       return res.status(404).json({ message: "Worker not found" });
     }
 
     return res.json({ id: workerDoc.id, ...workerDoc.data() });
   } catch (error) {
+    if (inMemoryWorker) {
+      return res.json({ id: workerId, ...inMemoryWorker });
+    }
     return res.status(500).json({ message: "Failed to fetch worker", error });
   }
 });
@@ -562,8 +897,56 @@ app.patch("/api/workers/:workerId/approval", async (req: Request, res: Response)
       )
     ]);
 
+    const inMemoryWorker = inMemoryWorkers.get(workerId);
+    if (inMemoryWorker) {
+      inMemoryWorkers.set(workerId, {
+        ...inMemoryWorker,
+        status,
+        reviewedAt: new Date().toISOString()
+      });
+    }
+
+    const inMemoryUser = inMemoryUsers.get(workerId);
+    if (inMemoryUser) {
+      inMemoryUsers.set(workerId, {
+        ...inMemoryUser,
+        role: "worker",
+        workerStatus: status,
+        reviewedAt: new Date().toISOString()
+      });
+    }
+
     return res.json({ message: `Worker ${status}` });
   } catch (error) {
+    if (isFirestoreUnavailableError(error)) {
+      const workerId = readRouteParam(req.params.workerId);
+      const { status } = req.body as { status?: string };
+      const inMemoryWorker = inMemoryWorkers.get(workerId);
+
+      if (!inMemoryWorker) {
+        return res.status(404).json({ message: "Worker not found" });
+      }
+
+      const reviewedAt = new Date().toISOString();
+      inMemoryWorkers.set(workerId, {
+        ...inMemoryWorker,
+        status,
+        reviewedAt
+      });
+
+      const inMemoryUser = inMemoryUsers.get(workerId);
+      if (inMemoryUser) {
+        inMemoryUsers.set(workerId, {
+          ...inMemoryUser,
+          role: "worker",
+          workerStatus: status,
+          reviewedAt
+        });
+      }
+
+      return res.json({ message: `Worker ${status}` });
+    }
+
     return res.status(500).json({ message: "Failed to update worker approval", error });
   }
 });
@@ -581,8 +964,32 @@ app.patch("/api/workers/:workerId/status", async (req: Request, res: Response) =
       updatedAt: timestamp()
     });
 
+    const inMemoryWorker = inMemoryWorkers.get(workerId);
+    if (inMemoryWorker) {
+      inMemoryWorkers.set(workerId, {
+        ...inMemoryWorker,
+        online,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
     return res.json({ message: "Worker availability updated" });
   } catch (error) {
+    if (isFirestoreUnavailableError(error)) {
+      const workerId = readRouteParam(req.params.workerId);
+      const { online } = req.body as { online?: boolean };
+      const inMemoryWorker = inMemoryWorkers.get(workerId);
+      if (!inMemoryWorker) {
+        return res.status(404).json({ message: "Worker not found" });
+      }
+      inMemoryWorkers.set(workerId, {
+        ...inMemoryWorker,
+        online,
+        updatedAt: new Date().toISOString()
+      });
+      return res.json({ message: "Worker availability updated" });
+    }
+
     return res.status(500).json({ message: "Failed to update worker status", error });
   }
 });
@@ -637,10 +1044,13 @@ app.get("/api/admin/analytics", async (_req: Request, res: Response) => {
       pendingWorkers
     });
   } catch (error) {
+    const memoryWorkers = toInMemoryWorkerList();
+    const pendingWorkers = memoryWorkers.filter((worker) => worker.status === "pending").length;
+
     return sendDashboardReadFallback(
       res,
       "/api/admin/analytics",
-      { userCount: 0, workerCount: 0, bookingCount: 0, pendingWorkers: 0 },
+      { userCount: inMemoryUsers.size, workerCount: memoryWorkers.length, bookingCount: 0, pendingWorkers },
       error
     );
   }
