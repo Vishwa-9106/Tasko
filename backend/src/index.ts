@@ -198,6 +198,8 @@ async function upsertWorkerRegistration({
   const workerPayload: Record<string, unknown> = {
     firebaseUid,
     name,
+    mail: email,
+    number: mobile,
     mobile,
     email,
     categories,
@@ -220,6 +222,8 @@ async function upsertWorkerRegistration({
         {
           uid: firebaseUid,
           name,
+          mail: email,
+          number: mobile,
           mobile,
           email,
           role: "worker",
@@ -241,6 +245,8 @@ async function upsertWorkerRegistration({
   const memoryWorkerPayload: Record<string, unknown> = {
     firebaseUid,
     name,
+    mail: email,
+    number: mobile,
     mobile,
     email,
     categories,
@@ -266,6 +272,8 @@ async function upsertWorkerRegistration({
     ...(existingUser || {}),
     uid: firebaseUid,
     name,
+    mail: email,
+    number: mobile,
     mobile,
     email,
     role: "worker",
@@ -306,9 +314,15 @@ async function syncUserRoleRecord({
   role: WritableRole;
 }): Promise<void> {
   const now = new Date().toISOString();
+  const existingInMemoryUser = inMemoryUsers.get(uid);
+  const existingNumber =
+    existingInMemoryUser && typeof existingInMemoryUser.number === "string" ? existingInMemoryUser.number : "";
   const payload: Record<string, unknown> = {
     uid,
     email,
+    mail: email,
+    number: existingNumber,
+    mobile: existingNumber,
     name,
     role,
     updatedAt: now
@@ -320,10 +334,25 @@ async function syncUserRoleRecord({
 
     if (memoryWorker && typeof memoryWorker.status === "string") {
       workerStatus = memoryWorker.status;
+      if (typeof memoryWorker.number === "string") {
+        payload.number = memoryWorker.number;
+        payload.mobile = memoryWorker.number;
+      } else if (typeof memoryWorker.mobile === "string") {
+        payload.number = memoryWorker.mobile;
+        payload.mobile = memoryWorker.mobile;
+      }
     } else {
       try {
         const workerDoc = await db.collection("workers").doc(uid).get();
-        workerStatus = workerDoc.data()?.status || "pending";
+        const workerData = workerDoc.data();
+        workerStatus = workerData?.status || "pending";
+        if (typeof workerData?.number === "string") {
+          payload.number = workerData.number;
+          payload.mobile = workerData.number;
+        } else if (typeof workerData?.mobile === "string") {
+          payload.number = workerData.mobile;
+          payload.mobile = workerData.mobile;
+        }
       } catch (error) {
         if (!isFirestoreUnavailableError(error)) {
           throw error;
@@ -672,15 +701,24 @@ app.get("/api/packages", async (_req: Request, res: Response) => {
 
 app.post("/api/users/register", async (req: Request, res: Response) => {
   try {
-    const { uid, name, email } = req.body;
+    const { uid, name, email, mobile, number } = req.body;
     if (!uid || !email) {
       return res.status(400).json({ message: "uid and email are required" });
     }
+    const normalizedNumber =
+      typeof number === "string"
+        ? number.trim()
+        : typeof mobile === "string"
+          ? mobile.trim()
+          : "";
 
     await db.collection("users").doc(uid).set(
       {
         uid,
         name: name || "",
+        mail: email,
+        number: normalizedNumber,
+        mobile: normalizedNumber,
         email,
         role: "user",
         createdAt: new Date().toISOString(),
@@ -693,6 +731,12 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
   } catch (error) {
     if (isFirestoreUnavailableError(error)) {
       const now = new Date().toISOString();
+      const fallbackNumber =
+        typeof req.body.number === "string"
+          ? req.body.number.trim()
+          : typeof req.body.mobile === "string"
+            ? req.body.mobile.trim()
+            : "";
       const existingUser = inMemoryUsers.get(req.body.uid);
       const existingCreatedAt =
         existingUser && Object.prototype.hasOwnProperty.call(existingUser, "createdAt")
@@ -703,6 +747,9 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         ...(existingUser || {}),
         uid: req.body.uid,
         name: req.body.name || "",
+        mail: req.body.email,
+        number: fallbackNumber,
+        mobile: fallbackNumber,
         email: req.body.email,
         role: "user",
         createdAt: existingCreatedAt,
