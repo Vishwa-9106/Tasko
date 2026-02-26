@@ -43,18 +43,25 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedCategories, setSelectedCategories] = useState([]);
   const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const selectedQuestions = useMemo(
-    () => (selectedCategory ? categoryQuestionBank[selectedCategory] || [] : []),
-    [selectedCategory]
+    () =>
+      selectedCategories.flatMap((category) =>
+        (categoryQuestionBank[category] || []).map((question) => ({
+          ...question,
+          category,
+          uniqueId: `${category}::${question.id}`
+        }))
+      ),
+    [selectedCategories]
   );
 
   const completedAnswerCount = useMemo(
-    () => selectedQuestions.filter((question) => Number.isInteger(answers[question.id])).length,
+    () => selectedQuestions.filter((question) => Number.isInteger(answers[question.uniqueId])).length,
     [answers, selectedQuestions]
   );
 
@@ -84,8 +91,8 @@ export default function RegisterPage() {
       }
     }
 
-    if (step === 1 && !selectedCategory) {
-      setError("Please select one service category to continue.");
+    if (step === 1 && selectedCategories.length === 0) {
+      setError("Please select at least one service category to continue.");
       return;
     }
 
@@ -101,7 +108,7 @@ export default function RegisterPage() {
     const totalQuestions = selectedQuestions.length;
 
     if (totalQuestions === 0) {
-      setError("Question set is unavailable for the selected category.");
+      setError("Question set is unavailable for the selected categories.");
       return;
     }
 
@@ -116,9 +123,10 @@ export default function RegisterPage() {
     const trimmedName = name.trim();
     const trimmedMobile = mobile.trim();
     const trimmedEmail = email.trim().toLowerCase();
+    const assessmentCategoryLabel = selectedCategories.join(", ");
 
     const score = selectedQuestions.reduce((total, question) => {
-      return answers[question.id] === question.answerIndex ? total + 1 : total;
+      return answers[question.uniqueId] === question.answerIndex ? total + 1 : total;
     }, 0);
 
     const percentage = Math.round((score / totalQuestions) * 100);
@@ -141,17 +149,18 @@ export default function RegisterPage() {
         name: trimmedName,
         mobile: trimmedMobile,
         email: trimmedEmail,
-        categories: [selectedCategory],
+        categories: selectedCategories,
         assessment: {
-          category: selectedCategory,
+          category: assessmentCategoryLabel,
           totalQuestions,
           score,
           percentage,
           passed,
           answers: selectedQuestions.map((question) => {
-            const selectedOptionIndex = answers[question.id];
+            const selectedOptionIndex = answers[question.uniqueId];
             return {
-              questionId: question.id,
+              questionId: question.uniqueId,
+              category: question.category,
               question: question.prompt,
               selectedOptionIndex,
               selectedOption: question.options[selectedOptionIndex] || "",
@@ -249,29 +258,39 @@ export default function RegisterPage() {
 
     if (step === 1) {
       return (
-        <div className="category-grid">
-          {workerCategories.map((category) => {
-            const isSelected = selectedCategory === category.value;
+        <>
+          <div className="category-grid">
+            {workerCategories.map((category) => {
+              const isSelected = selectedCategories.includes(category.value);
 
-            return (
-              <button
-                key={category.value}
-                type="button"
-                className={`category-option ${isSelected ? "is-selected" : ""}`}
-                onClick={() => {
-                  setSelectedCategory(category.value);
-                  setAnswers({});
-                  setError("");
-                }}
-              >
-                <span className="icon-shell" aria-hidden="true">
-                  <LineIcon name={category.icon} />
-                </span>
-                <span>{category.value}</span>
-              </button>
-            );
-          })}
-        </div>
+              return (
+                <button
+                  key={category.value}
+                  type="button"
+                  className={`category-option ${isSelected ? "is-selected" : ""}`}
+                  onClick={() => {
+                    setSelectedCategories((current) => {
+                      const alreadySelected = current.includes(category.value);
+                      return alreadySelected
+                        ? current.filter((value) => value !== category.value)
+                        : [...current, category.value];
+                    });
+                    setAnswers({});
+                    setError("");
+                  }}
+                >
+                  <span className="icon-shell" aria-hidden="true">
+                    <LineIcon name={category.icon} />
+                  </span>
+                  <span>{category.value}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="auth-footnote">
+            You can select multiple categories. Assessment will include questions from all selected categories.
+          </p>
+        </>
       );
     }
 
@@ -279,7 +298,7 @@ export default function RegisterPage() {
       <div className="assessment-panel">
         <div className="assessment-header">
           <p>
-            Category: <strong>{selectedCategory}</strong>
+            Categories: <strong>{selectedCategories.join(", ")}</strong>
           </p>
           <p>
             Answered {completedAnswerCount}/{selectedQuestions.length}
@@ -288,20 +307,20 @@ export default function RegisterPage() {
 
         <div className="assessment-list">
           {selectedQuestions.map((question, index) => (
-            <article key={question.id} className="question-card">
+            <article key={question.uniqueId} className="question-card">
               <p className="question-title">
                 {index + 1}. {question.prompt}
               </p>
               <div className="question-options">
                 {question.options.map((option, optionIndex) => {
-                  const checked = answers[question.id] === optionIndex;
+                  const checked = answers[question.uniqueId] === optionIndex;
                   return (
                     <label key={option} className={`question-option ${checked ? "is-checked" : ""}`}>
                       <input
                         type="radio"
-                        name={question.id}
+                        name={question.uniqueId}
                         checked={checked}
-                        onChange={() => setAnswers((current) => ({ ...current, [question.id]: optionIndex }))}
+                        onChange={() => setAnswers((current) => ({ ...current, [question.uniqueId]: optionIndex }))}
                       />
                       <span>{option}</span>
                     </label>
