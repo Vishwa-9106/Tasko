@@ -4,9 +4,9 @@ import BrandLogo from "./BrandLogo";
 import NavLink from "./NavLink";
 
 const links = [
-  { href: "#how-it-works", label: "How It Works" },
+  { href: "#how-it-works", label: "How Hiring Works" },
   { href: "#services", label: "Services" },
-  { href: "#benefits", label: "Benefits" },
+  { href: "#benefits", label: "Why Tasko" },
   { href: "#testimonials", label: "Testimonials" }
 ];
 
@@ -49,10 +49,10 @@ export default function Navbar({ loginHref }) {
 
         <div className="worker-nav-actions">
           <Link to={loginHref} className="btn-login">
-            Login
+            Employee Login
           </Link>
-          <Link to="/register" className="btn-luxury-primary">
-            Join as Worker
+          <Link to="/apply" className="btn-luxury-primary">
+            Apply for Job
           </Link>
         </div>
 
@@ -88,10 +88,10 @@ export default function Navbar({ loginHref }) {
 
         <div className="mobile-drawer-actions">
           <Link to={loginHref} className="btn-login" onClick={() => setOpen(false)}>
-            Login
+            Employee Login
           </Link>
-          <Link to="/register" className="btn-luxury-primary" onClick={() => setOpen(false)}>
-            Join as Worker
+          <Link to="/apply" className="btn-luxury-primary" onClick={() => setOpen(false)}>
+            Apply for Job
           </Link>
         </div>
       </div>

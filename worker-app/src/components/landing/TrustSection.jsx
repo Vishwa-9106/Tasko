@@ -2,10 +2,10 @@ import ScrollReveal from "./ScrollReveal";
 import LineIcon from "./LineIcon";
 
 const checks = [
-  { text: "Category-based test", icon: "clipboard" },
-  { text: "Admin evaluation", icon: "user-shield" },
-  { text: "Only approved workers go live", icon: "check-circle" },
-  { text: "Quality-driven marketplace", icon: "medal" }
+  { text: "Document Verification", icon: "clipboard" },
+  { text: "Background Check", icon: "user-shield" },
+  { text: "In-Person Interaction", icon: "users" },
+  { text: "Professional Standards", icon: "medal" }
 ];
 
 export default function TrustSection() {
@@ -13,11 +13,11 @@ export default function TrustSection() {
     <section className="section-wrap trust-section">
       <div className="worker-shell">
         <ScrollReveal className="trust-card glass-card" direction="up">
-          <p className="section-eyebrow">Trust & Quality</p>
-          <h2>Skill-Based Verification System</h2>
+          <p className="section-eyebrow">Hiring Standards</p>
+          <h2>Trusted Hiring Process</h2>
           <p className="trust-copy">
-            Every Tasko worker is evaluated through a category-specific process before going live. This keeps the
-            marketplace reliable and quality-focused.
+            Every worker goes through document verification and in-person screening to ensure safety and service
+            quality.
           </p>
 
           <div className="trust-grid">

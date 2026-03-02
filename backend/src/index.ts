@@ -5,6 +5,7 @@ import express, { Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
+import { registerWorkerHiringRoutes } from "./workerHiringRoutes";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
@@ -33,7 +34,10 @@ app.use(
     origin: allowedOrigins
   })
 );
-app.use(express.json());
+// The apply form sends two base64 documents in one JSON payload.
+// 25mb allows both documents plus JSON overhead without tripping 413.
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ limit: "25mb", extended: true }));
 
 type RoleType = "user" | "worker" | "admin" | "unknown";
 type WritableRole = Exclude<RoleType, "unknown">;
@@ -487,6 +491,10 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
 
+app.get("/.well-known/appspecific/com.chrome.devtools.json", (_req: Request, res: Response) => {
+  res.type("application/json").json({});
+});
+
 app.get("/api/config/client", (_req: Request, res: Response) => {
   res.json({
     apiBaseUrl: "http://localhost:5000",
@@ -679,6 +687,10 @@ app.post("/api/admin/logout", (req: Request, res: Response) => {
   return res.json({ message: "Logged out" });
 });
 
+registerWorkerHiringRoutes(app, {
+  validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
+});
+
 app.get("/api/services", async (_req: Request, res: Response) => {
   try {
     const snapshot = await db.collection("services").get();
@@ -701,7 +713,7 @@ app.get("/api/packages", async (_req: Request, res: Response) => {
 
 app.post("/api/users/register", async (req: Request, res: Response) => {
   try {
-    const { uid, name, email, mobile, number } = req.body;
+    const { uid, name, email, mobile, number, address } = req.body;
     if (!uid || !email) {
       return res.status(400).json({ message: "uid and email are required" });
     }
@@ -711,6 +723,7 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         : typeof mobile === "string"
           ? mobile.trim()
           : "";
+    const normalizedAddress = typeof address === "string" ? address.trim() : "";
 
     await db.collection("users").doc(uid).set(
       {
@@ -719,6 +732,7 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         mail: email,
         number: normalizedNumber,
         mobile: normalizedNumber,
+        address: normalizedAddress,
         email,
         role: "user",
         createdAt: new Date().toISOString(),
@@ -750,6 +764,7 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         mail: req.body.email,
         number: fallbackNumber,
         mobile: fallbackNumber,
+        address: typeof req.body.address === "string" ? req.body.address.trim() : "",
         email: req.body.email,
         role: "user",
         createdAt: existingCreatedAt,
@@ -780,7 +795,7 @@ app.get("/api/users", async (_req: Request, res: Response) => {
 
 app.post("/api/bookings", async (req: Request, res: Response) => {
   try {
-    const { userId, category, date, time, notes } = req.body;
+    const { userId, category, date, time, notes, planType, packageId } = req.body;
     if (!userId || !category || !date || !time) {
       return res.status(400).json({ message: "userId, category, date and time are required" });
     }
@@ -791,6 +806,8 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       date,
       time,
       notes: notes || "",
+      planType: typeof planType === "string" ? planType : "one-time",
+      packageId: typeof packageId === "string" ? packageId : "",
       status: "pending",
       createdAt: timestamp()
     });
@@ -822,60 +839,38 @@ app.get("/api/bookings", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/workers/register", async (req: Request, res: Response) => {
+app.patch("/api/bookings/:bookingId/status", async (req: Request, res: Response) => {
   try {
-    const { firebaseUid, name, mobile, email, categories, assessment } = req.body;
-    if (!firebaseUid || !name || !mobile || !email) {
-      return res.status(400).json({ message: "firebaseUid, name, mobile and email are required" });
+    const bookingId = readRouteParam(req.params.bookingId);
+    const { status } = req.body as { status?: string };
+    const allowedStatuses = ["pending", "assigned", "in_progress", "completed", "cancelled"];
+
+    if (!bookingId) {
+      return res.status(400).json({ message: "bookingId is required" });
     }
 
-    const normalizedCategories = Array.isArray(categories)
-      ? categories
-          .filter((category): category is string => typeof category === "string" && category.trim().length > 0)
-          .map((category) => category.trim())
-      : [];
-
-    if (normalizedCategories.length === 0) {
-      return res.status(400).json({ message: "At least one category is required" });
+    if (!status || !allowedStatuses.includes(status)) {
+      return res.status(400).json({ message: "Invalid booking status" });
     }
 
-    const normalizedAssessment = normalizeWorkerAssessment(assessment);
+    await db.collection("bookings").doc(bookingId).set(
+      {
+        status,
+        updatedAt: timestamp()
+      },
+      { merge: true }
+    );
 
-    try {
-      await upsertWorkerRegistration({
-        firebaseUid,
-        name,
-        mobile,
-        email,
-        categories: normalizedCategories,
-        assessment: normalizedAssessment
-      });
-    } catch (detailedAssessmentError) {
-      // eslint-disable-next-line no-console
-      console.error(
-        `Worker registration with full assessment failed for uid=${firebaseUid}. Retrying with summary only: ${getErrorMessage(
-          detailedAssessmentError
-        )}`
-      );
-      await upsertWorkerRegistration({
-        firebaseUid,
-        name,
-        mobile,
-        email,
-        categories: normalizedCategories,
-        assessment: toWorkerAssessmentSummary(normalizedAssessment)
-      });
-    }
-
-    return res.status(201).json({ workerId: firebaseUid, status: "pending", role: "worker" });
+    return res.json({ message: "Booking status updated" });
   } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error(`Failed to register worker: ${getErrorMessage(error)}`);
-    return res.status(500).json({
-      message: "Failed to register worker",
-      error: getErrorMessage(error)
-    });
+    return res.status(500).json({ message: "Failed to update booking status", error });
   }
+});
+
+app.post("/api/workers/register", async (req: Request, res: Response) => {
+  return res.status(410).json({
+    message: "Worker self-registration is removed. Use /api/worker-applications to submit hiring applications."
+  });
 });
 
 app.get("/api/workers", async (_req: Request, res: Response) => {
@@ -889,14 +884,9 @@ app.get("/api/workers", async (_req: Request, res: Response) => {
 });
 
 app.get("/api/admin/worker-requests", async (_req: Request, res: Response) => {
-  try {
-    const snapshot = await db.collection("workers").where("status", "==", "pending").get();
-    const requests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    return res.json(requests);
-  } catch (error) {
-    const fallbackRequests = toInMemoryWorkerList().filter((worker) => worker.status === "pending");
-    return sendDashboardReadFallback(res, "/api/admin/worker-requests", fallbackRequests, error);
-  }
+  return res.status(410).json({
+    message: "Legacy worker request endpoint removed. Use /api/admin/worker-applications."
+  });
 });
 
 app.get("/api/workers/:workerId", async (req: Request, res: Response) => {
@@ -922,80 +912,9 @@ app.get("/api/workers/:workerId", async (req: Request, res: Response) => {
 });
 
 app.patch("/api/workers/:workerId/approval", async (req: Request, res: Response) => {
-  try {
-    const workerId = readRouteParam(req.params.workerId);
-    const { status } = req.body;
-    if (!["approved", "rejected"].includes(status)) {
-      return res.status(400).json({ message: "status must be approved or rejected" });
-    }
-
-    await Promise.all([
-      db.collection("workers").doc(workerId).update({
-        status,
-        reviewedAt: timestamp()
-      }),
-      db.collection("users").doc(workerId).set(
-        {
-          role: "worker",
-          workerStatus: status,
-          reviewedAt: timestamp()
-        },
-        { merge: true }
-      )
-    ]);
-
-    const inMemoryWorker = inMemoryWorkers.get(workerId);
-    if (inMemoryWorker) {
-      inMemoryWorkers.set(workerId, {
-        ...inMemoryWorker,
-        status,
-        reviewedAt: new Date().toISOString()
-      });
-    }
-
-    const inMemoryUser = inMemoryUsers.get(workerId);
-    if (inMemoryUser) {
-      inMemoryUsers.set(workerId, {
-        ...inMemoryUser,
-        role: "worker",
-        workerStatus: status,
-        reviewedAt: new Date().toISOString()
-      });
-    }
-
-    return res.json({ message: `Worker ${status}` });
-  } catch (error) {
-    if (isFirestoreUnavailableError(error)) {
-      const workerId = readRouteParam(req.params.workerId);
-      const { status } = req.body as { status?: string };
-      const inMemoryWorker = inMemoryWorkers.get(workerId);
-
-      if (!inMemoryWorker) {
-        return res.status(404).json({ message: "Worker not found" });
-      }
-
-      const reviewedAt = new Date().toISOString();
-      inMemoryWorkers.set(workerId, {
-        ...inMemoryWorker,
-        status,
-        reviewedAt
-      });
-
-      const inMemoryUser = inMemoryUsers.get(workerId);
-      if (inMemoryUser) {
-        inMemoryUsers.set(workerId, {
-          ...inMemoryUser,
-          role: "worker",
-          workerStatus: status,
-          reviewedAt
-        });
-      }
-
-      return res.json({ message: `Worker ${status}` });
-    }
-
-    return res.status(500).json({ message: "Failed to update worker approval", error });
-  }
+  return res.status(410).json({
+    message: "Legacy worker approval endpoint is removed. Use admin worker application review endpoints."
+  });
 });
 
 app.patch("/api/workers/:workerId/status", async (req: Request, res: Response) => {

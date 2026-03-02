@@ -1,74 +1,14 @@
 import { useState } from "react";
-import {
-  GoogleAuthProvider,
-  OAuthProvider,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut
-} from "firebase/auth";
 import { Link, useNavigate } from "react-router-dom";
-import { auth } from "../firebase";
-import { api } from "../api";
+import { api, WORKER_ID_KEY, WORKER_SESSION_TOKEN_KEY } from "../api";
 import BrandLogo from "../components/landing/BrandLogo";
-
-function getFirebaseLoginErrorMessage(error) {
-  const code = error?.code || "";
-  const fallback = error?.response?.data?.message || error?.message || "Login failed";
-
-  if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
-    return "Invalid email or password.";
-  }
-  if (code === "auth/wrong-password") {
-    return "Invalid email or password.";
-  }
-  if (code === "auth/too-many-requests") {
-    return "Too many attempts. Please try again in a few minutes.";
-  }
-  if (code === "auth/network-request-failed") {
-    return "Network error. Check your connection and retry.";
-  }
-  if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
-    return "Sign-in popup was closed before completion.";
-  }
-  if (code === "auth/account-exists-with-different-credential") {
-    return "Account exists with a different sign-in method for this email.";
-  }
-  if (code === "auth/unauthorized-domain") {
-    return "Current domain is not authorized in Firebase Authentication settings.";
-  }
-
-  return fallback;
-}
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState("");
   const [error, setError] = useState("");
-
-  const routeWorkerByStatus = async (uid, idToken) => {
-    // Some environments can return 401 from token verification even after successful Firebase sign-in.
-    // Do not block worker access on that specific backend token-check failure.
-    try {
-      await api.post("/api/auth/validate", { idToken, expectedRole: "worker" });
-    } catch (validationError) {
-      if (validationError?.response?.status !== 401) {
-        throw validationError;
-      }
-    }
-
-    const workerResponse = await api.get(`/api/workers/${uid}`);
-    localStorage.setItem("tasko_worker_id", uid);
-
-    if (workerResponse.data.status === "approved") {
-      navigate("/dashboard");
-      return;
-    }
-
-    navigate("/waiting");
-  };
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -76,49 +16,25 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-      const idToken = await credential.user.getIdToken();
-      await routeWorkerByStatus(credential.user.uid, idToken);
+      const response = await api.post("/api/workers/login", {
+        identifier: identifier.trim(),
+        password
+      });
+
+      const sessionToken = response.data?.sessionToken;
+      const workerId = response.data?.worker?.workerId;
+
+      if (!sessionToken || !workerId) {
+        throw new Error("Invalid login response.");
+      }
+
+      localStorage.setItem(WORKER_SESSION_TOKEN_KEY, sessionToken);
+      localStorage.setItem(WORKER_ID_KEY, workerId);
+      navigate("/dashboard", { replace: true });
     } catch (loginError) {
-      setError(getFirebaseLoginErrorMessage(loginError));
+      setError(loginError?.response?.data?.message || "Worker login failed.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSocialLogin = async (providerName) => {
-    setError("");
-    setSocialLoading(providerName);
-
-    try {
-      const provider =
-        providerName === "google"
-          ? (() => {
-              const googleProvider = new GoogleAuthProvider();
-              googleProvider.setCustomParameters({ prompt: "select_account" });
-              return googleProvider;
-            })()
-          : (() => {
-              const appleProvider = new OAuthProvider("apple.com");
-              appleProvider.addScope("email");
-              appleProvider.addScope("name");
-              return appleProvider;
-            })();
-
-      const credential = await signInWithPopup(auth, provider);
-      const idToken = await credential.user.getIdToken();
-      await routeWorkerByStatus(credential.user.uid, idToken);
-    } catch (socialError) {
-      const isMissingWorker = socialError?.response?.status === 404;
-
-      if (isMissingWorker) {
-        setError("No worker account found for this social login. Please register as worker first.");
-        await signOut(auth).catch(() => {});
-      } else {
-        setError(getFirebaseLoginErrorMessage(socialError));
-      }
-    } finally {
-      setSocialLoading("");
     }
   };
 
@@ -129,34 +45,31 @@ export default function LoginPage() {
           <Link to="/" className="auth-home-link" aria-label="Back to home">
             <BrandLogo compact />
           </Link>
-          <p className="auth-eyebrow">Worker Access</p>
-          <h1>Welcome Back to Tasko</h1>
-          <p>
-            Login to manage your availability, check assignments, and track your approval and earnings journey.
-          </p>
+          <p className="auth-eyebrow">Employee Access</p>
+          <h1>Tasko Worker Login</h1>
+          <p>Login using your Employee ID or registered mobile number and the password shared by Tasko admin.</p>
           <ul className="auth-highlight-list">
-            <li>Weekly payout visibility</li>
-            <li>Nearby assignment updates</li>
-            <li>Real-time worker status controls</li>
+            <li>Employee ID or mobile based login</li>
+            <li>Admin-approved account activation</li>
+            <li>Secure session-based access</li>
           </ul>
         </aside>
 
         <section className="auth-card glass-card auth-login-card">
           <header className="auth-card-head">
             <p className="section-eyebrow">Login</p>
-            <h2>Worker Sign In</h2>
+            <h2>Employee Sign In</h2>
           </header>
 
           <form className="auth-fields" onSubmit={onSubmit}>
             <label className="auth-field">
-              <span>Email ID</span>
+              <span>Employee ID or Mobile Number</span>
               <input
-                type="email"
                 className="auth-input"
-                placeholder="name@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
+                value={identifier}
+                onChange={(event) => setIdentifier(event.target.value)}
+                placeholder="TASKO-W-1001 or 9876543210"
+                autoComplete="username"
                 required
               />
             </label>
@@ -166,9 +79,9 @@ export default function LoginPage() {
               <input
                 type="password"
                 className="auth-input"
-                placeholder="Enter your password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                placeholder="Enter your password"
                 autoComplete="current-password"
                 required
               />
@@ -176,44 +89,15 @@ export default function LoginPage() {
 
             {error ? <p className="auth-error">{error}</p> : null}
 
-            <button
-              type="submit"
-              className="btn-luxury-primary btn-glow auth-submit-btn"
-              disabled={loading || socialLoading !== ""}
-            >
+            <button type="submit" className="btn-luxury-primary btn-glow auth-submit-btn" disabled={loading}>
               {loading ? "Signing in..." : "Login"}
             </button>
           </form>
 
-          <div className="worker-auth-divider">
-            <span />
-            <p>OR CONTINUE WITH</p>
-            <span />
-          </div>
-
-          <div className="worker-social-actions">
-            <button
-              type="button"
-              className="worker-social-btn"
-              onClick={() => handleSocialLogin("google")}
-              disabled={loading || socialLoading !== ""}
-            >
-              {socialLoading === "google" ? "SIGNING IN..." : "CONTINUE WITH GOOGLE"}
-            </button>
-            <button
-              type="button"
-              className="worker-social-btn dark"
-              onClick={() => handleSocialLogin("apple")}
-              disabled={loading || socialLoading !== ""}
-            >
-              {socialLoading === "apple" ? "SIGNING IN..." : "CONTINUE WITH APPLE"}
-            </button>
-          </div>
-
           <p className="auth-footnote">
-            New worker?{" "}
-            <Link to="/register" className="auth-inline-link">
-              Start your application
+            New applicant?{" "}
+            <Link to="/apply" className="auth-inline-link">
+              Submit hiring application
             </Link>
           </p>
         </section>

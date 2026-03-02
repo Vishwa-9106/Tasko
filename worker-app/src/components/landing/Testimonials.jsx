@@ -3,28 +3,25 @@ import ScrollReveal from "./ScrollReveal";
 const testimonials = [
   {
     name: "Rajesh Kumar",
-    category: "Electrician",
-    quote:
-      "Tasko transformed my work life. I now earn significantly more with predictable payouts and full schedule control."
+    category: "Electrical Team",
+    quote: "Tasko gave me stable income and structured growth."
   },
   {
     name: "Priya Sharma",
-    category: "Home Cleaning",
-    quote:
-      "The platform gives me nearby assignments and consistent demand. The verification process also builds real client trust."
+    category: "Housekeeping Team",
+    quote: "The fixed monthly salary and clear schedules helped me plan my family finances with confidence."
   },
   {
     name: "Amit Patel",
-    category: "AC Repair",
-    quote:
-      "Being a verified Tasko professional helped me attract premium clients and maintain steady monthly growth."
+    category: "Maintenance Team",
+    quote: "Office verification and strong team support made my work more professional, secure, and consistent."
   }
 ];
 
 function StarRating() {
   return (
-    <p className="stars" aria-label="5 star rating">
-      {"★★★★★"}
+    <p className="stars" aria-label="5 out of 5 rating">
+      5/5
     </p>
   );
 }
@@ -36,7 +33,7 @@ export default function Testimonials() {
         <ScrollReveal className="section-header" direction="up">
           <p className="section-eyebrow">Testimonials</p>
           <h2>Trusted by Thousands</h2>
-          <p>Hear from workers who elevated their earnings with Tasko.</p>
+          <p>Hear from employees building stable careers with Tasko.</p>
         </ScrollReveal>
 
         <div className="testimonials-grid">

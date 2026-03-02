@@ -20,8 +20,8 @@ export default function ServicesGrid() {
       <div className="worker-shell">
         <ScrollReveal className="section-header" direction="up">
           <p className="section-eyebrow">Categories</p>
-          <h2>Services We Offer</h2>
-          <p>Choose from a wide range of premium service categories.</p>
+          <h2>Service Categories</h2>
+          <p>Apply for the service category that matches your skills.</p>
         </ScrollReveal>
 
         <div className="services-grid">

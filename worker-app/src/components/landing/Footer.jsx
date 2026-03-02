@@ -10,22 +10,21 @@ export default function Footer() {
       <div className="worker-shell footer-grid">
         <div className="footer-brand">
           <BrandLogo compact />
-          <p>Premium marketplace for skilled, verified, and trusted professionals.</p>
+          <p>Verified employee hiring platform with secure process and professional support.</p>
         </div>
 
         <div className="footer-column">
           <p className="footer-title">Explore</p>
-          <NavLink href="#how-it-works">How It Works</NavLink>
+          <NavLink href="#how-it-works">How Hiring Works</NavLink>
           <NavLink href="#services">Services</NavLink>
-          <NavLink href="#benefits">Benefits</NavLink>
+          <NavLink href="#benefits">Why Tasko</NavLink>
           <NavLink href="#testimonials">Testimonials</NavLink>
         </div>
 
         <div className="footer-column">
-          <p className="footer-title">Worker Access</p>
-          <Link to="/register">Join as Worker</Link>
-          <Link to="/login">Login</Link>
-          <Link to="/waiting">Approval Status</Link>
+          <p className="footer-title">Employee Access</p>
+          <Link to="/apply">Apply for Job</Link>
+          <Link to="/login">Employee Login</Link>
         </div>
       </div>
 

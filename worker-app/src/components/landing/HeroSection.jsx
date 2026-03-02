@@ -4,22 +4,25 @@ import LineIcon from "./LineIcon";
 
 const stats = [
   {
-    key: "earnings",
-    label: "Earnings Weekly",
-    value: "₹8,000+",
-    icon: "rupee"
+    key: "salary",
+    label: "Employment Model",
+    value: "Monthly Salary Model",
+    icon: "wallet",
+    positionClass: "stat-earn"
   },
   {
     key: "verified",
-    label: "Verified Workers",
-    value: "12,000+",
-    icon: "users"
+    label: "Safety Standard",
+    value: "Verified & Secure",
+    icon: "shield-check",
+    positionClass: "stat-verified"
   },
   {
-    key: "hours",
-    label: "Flexible Hours",
-    value: "24/7",
-    icon: "clock"
+    key: "office",
+    label: "Hiring Process",
+    value: "Office-Based Hiring",
+    icon: "building",
+    positionClass: "stat-hours"
   }
 ];
 
@@ -30,14 +33,14 @@ function WorkerIllustration() {
       viewBox="0 0 560 640"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      aria-label="Professional worker illustration"
+      aria-label="Professional employee illustration"
     >
       <defs>
-        <linearGradient id="uniformMain" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#1E2D56" />
-          <stop offset="100%" stopColor="#101B3D" />
+        <linearGradient id="attireMain" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#22335F" />
+          <stop offset="100%" stopColor="#101A3A" />
         </linearGradient>
-        <linearGradient id="uniformAccent" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="attireAccent" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#E0C983" />
           <stop offset="100%" stopColor="#B99247" />
         </linearGradient>
@@ -49,36 +52,41 @@ function WorkerIllustration() {
 
       <ellipse cx="285" cy="570" rx="170" ry="40" fill="url(#groundGlow)" />
 
-      <rect x="210" y="150" width="150" height="175" rx="38" fill="url(#uniformMain)" stroke="#22355F" strokeWidth="3" />
-      <rect x="235" y="190" width="35" height="10" rx="4" fill="url(#uniformAccent)" />
-      <rect x="298" y="190" width="35" height="10" rx="4" fill="url(#uniformAccent)" />
+      <ellipse cx="285" cy="128" rx="54" ry="58" fill="#C58C66" />
+      <path d="M235 123c18-38 70-40 96-5v17h-96v-12Z" fill="#0D1735" />
+      <path d="M245 162c10 14 22 21 40 21s30-7 40-21v32h-80Z" fill="#F1F4FA" />
+      <path d="M280 162h10v60h-10z" fill="#C6A75E" />
+      <path d="M262 221h46l-23 30z" fill="#0F1A3C" />
 
-      <rect x="230" y="315" width="45" height="150" rx="20" fill="url(#uniformMain)" stroke="#22355F" strokeWidth="3" />
-      <rect x="292" y="315" width="45" height="150" rx="20" fill="url(#uniformMain)" stroke="#22355F" strokeWidth="3" />
+      <path d="M206 168h158v158H206z" fill="url(#attireMain)" stroke="#22355F" strokeWidth="3" />
+      <path d="M206 171 258 251h54l52-80" fill="none" stroke="#2D4378" strokeWidth="3" />
+      <rect x="250" y="255" width="70" height="22" rx="7" fill="url(#attireAccent)" />
+      <rect x="263" y="260" width="14" height="8" rx="3" fill="#0B122A" />
+      <rect x="292" y="260" width="14" height="8" rx="3" fill="#0B122A" />
+
+      <rect x="206" y="178" width="36" height="132" rx="18" fill="url(#attireMain)" stroke="#22355F" strokeWidth="3" />
+      <rect x="328" y="178" width="36" height="132" rx="18" fill="url(#attireMain)" stroke="#22355F" strokeWidth="3" />
+      <rect x="200" y="297" width="48" height="18" rx="8" fill="#202B4A" />
+      <rect x="322" y="297" width="48" height="18" rx="8" fill="#202B4A" />
+
+      <rect x="230" y="315" width="45" height="150" rx="20" fill="url(#attireMain)" stroke="#22355F" strokeWidth="3" />
+      <rect x="292" y="315" width="45" height="150" rx="20" fill="url(#attireMain)" stroke="#22355F" strokeWidth="3" />
 
       <rect x="225" y="462" width="58" height="80" rx="20" fill="#0C142E" />
       <rect x="286" y="462" width="58" height="80" rx="20" fill="#0C142E" />
       <path d="M223 535h62a10 10 0 0 1-10 10h-42a10 10 0 0 1-10-10Z" fill="#060C1E" />
       <path d="M284 535h62a10 10 0 0 1-10 10h-42a10 10 0 0 1-10-10Z" fill="#060C1E" />
 
-      <rect x="178" y="177" width="38" height="138" rx="18" fill="url(#uniformMain)" stroke="#22355F" strokeWidth="3" />
-      <rect x="354" y="177" width="38" height="138" rx="18" fill="url(#uniformMain)" stroke="#22355F" strokeWidth="3" />
+      <rect x="360" y="325" width="52" height="78" rx="12" fill="#8C9AAF" />
+      <rect x="365" y="335" width="42" height="50" rx="8" fill="#5D6E8A" />
+      <path d="M380 318h12v16h-12z" fill="#5D6E8A" />
 
-      <rect x="172" y="300" width="50" height="18" rx="8" fill="#202B4A" />
-      <rect x="347" y="300" width="50" height="18" rx="8" fill="#202B4A" />
+      <rect x="162" y="320" width="34" height="66" rx="9" fill="#B7482C" />
+      <rect x="168" y="385" width="22" height="42" rx="8" fill="#252D40" />
 
-      <rect x="204" y="150" width="162" height="20" rx="10" fill="#0D1735" />
-      <ellipse cx="285" cy="127" rx="54" ry="57" fill="#C58C66" />
-      <path d="M235 123c18-38 70-40 96-5v17h-96v-12Z" fill="#0E1736" />
-
-      <rect x="250" y="311" width="70" height="18" rx="6" fill="url(#uniformAccent)" />
-      <rect x="260" y="316" width="16" height="8" rx="3" fill="#0C1124" />
-      <rect x="293" y="316" width="16" height="8" rx="3" fill="#0C1124" />
-
-      <rect x="180" y="318" width="32" height="70" rx="10" fill="#B7482C" />
-      <rect x="188" y="387" width="16" height="44" rx="8" fill="#202838" />
-      <rect x="358" y="320" width="28" height="68" rx="10" fill="#8A9AAC" />
-      <rect x="364" y="384" width="15" height="44" rx="8" fill="#202838" />
+      <rect x="265" y="287" width="40" height="62" rx="8" fill="#E7EEF9" />
+      <rect x="272" y="296" width="26" height="16" rx="4" fill="#C6A75E" />
+      <rect x="272" y="317" width="26" height="22" rx="5" fill="#2C3B63" />
     </svg>
   );
 }
@@ -88,19 +96,20 @@ export default function HeroSection({ loginHref }) {
     <section className="hero-section">
       <div className="worker-shell hero-grid">
         <ScrollReveal className="hero-copy" direction="up">
-          <p className="hero-eyebrow">Premium Service Platform</p>
+          <p className="hero-eyebrow">Employee Hiring Program</p>
           <h1 className="hero-title">
-            Turn Your Skills Into <span className="gold-gradient-text">Premium Earnings</span> with Tasko
+            Build Your Career With <span className="gold-gradient-text">Tasko</span>
           </h1>
           <p className="hero-subtitle">
-            Join a verified network of professional service providers and grow your income with flexible work.
+            Join Tasko as a verified company employee and work with structured salary, professional growth, and secure
+            job assignments.
           </p>
           <div className="hero-actions">
-            <Link to="/register" className="btn-luxury-primary btn-glow">
-              Join as a Worker
+            <Link to="/apply" className="btn-luxury-primary btn-glow">
+              Apply for Job
             </Link>
             <Link to={loginHref} className="btn-luxury-secondary">
-              Login
+              Employee Login
             </Link>
           </div>
 
@@ -123,35 +132,17 @@ export default function HeroSection({ loginHref }) {
             <WorkerIllustration />
           </div>
 
-          <article className="hero-floating-card stat-earn">
-            <span className="stat-icon" aria-hidden="true">
-              <LineIcon name="rupee" />
-            </span>
-            <div>
-              <p className="stat-label">Earnings Weekly</p>
-              <p className="stat-value">₹8,000+</p>
-            </div>
-          </article>
-
-          <article className="hero-floating-card stat-verified">
-            <span className="stat-icon" aria-hidden="true">
-              <LineIcon name="users" />
-            </span>
-            <div>
-              <p className="stat-label">Verified Workers</p>
-              <p className="stat-value">12,000+</p>
-            </div>
-          </article>
-
-          <article className="hero-floating-card stat-hours">
-            <span className="stat-icon" aria-hidden="true">
-              <LineIcon name="clock" />
-            </span>
-            <div>
-              <p className="stat-label">Flexible Hours</p>
-              <p className="stat-value">24/7</p>
-            </div>
-          </article>
+          {stats.map((item) => (
+            <article className={`hero-floating-card ${item.positionClass}`} key={`floating-${item.key}`}>
+              <span className="stat-icon" aria-hidden="true">
+                <LineIcon name={item.icon} />
+              </span>
+              <div>
+                <p className="stat-label">{item.label}</p>
+                <p className="stat-value">{item.value}</p>
+              </div>
+            </article>
+          ))}
         </ScrollReveal>
       </div>
     </section>

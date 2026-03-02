@@ -3,23 +3,23 @@ import LineIcon from "./LineIcon";
 
 const steps = [
   {
-    title: "Create Account",
-    description: "Sign up with your profile and service details in minutes.",
-    icon: "user-plus"
+    title: "Submit Application",
+    description: "Fill out your details and upload required documents.",
+    icon: "clipboard"
   },
   {
-    title: "Select Service Category",
-    description: "Choose your specialization to match premium demand.",
-    icon: "checklist"
+    title: "Admin Verification",
+    description: "Our team verifies your documents and eligibility.",
+    icon: "user-shield"
   },
   {
-    title: "Complete Skill Test",
-    description: "Show your expertise through category-specific evaluation.",
-    icon: "clipboard-check"
+    title: "Visit & Interview",
+    description: "Visit Tasko office for final verification and interaction.",
+    icon: "building"
   },
   {
-    title: "Get Admin Approval & Start Earning",
-    description: "Go live once verified and begin receiving quality jobs.",
+    title: "Get Employee Account",
+    description: "Receive your Employee ID and start working with Tasko.",
     icon: "badge-check"
   }
 ];
@@ -29,9 +29,9 @@ export default function HowItWorks() {
     <section id="how-it-works" className="section-wrap section-soft">
       <div className="worker-shell">
         <ScrollReveal className="section-header" direction="up">
-          <p className="section-eyebrow">Process</p>
-          <h2>How It Works</h2>
-          <p>Four clear steps to start your premium earning journey.</p>
+          <p className="section-eyebrow">Hiring Process</p>
+          <h2>How Hiring Works</h2>
+          <p>A clear four-step process from application to onboarding.</p>
         </ScrollReveal>
 
         <div className="timeline-grid">

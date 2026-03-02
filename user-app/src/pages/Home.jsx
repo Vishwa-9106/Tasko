@@ -1,17 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api";
-import { useAuth } from "../context/AuthContext";
+import UserDashboardShell from "../components/UserDashboardShell";
 
 export default function HomePage() {
-  const { user } = useAuth();
+  const navigate = useNavigate();
   const [services, setServices] = useState([]);
-  const [formData, setFormData] = useState({
-    category: "",
-    date: "",
-    time: "",
-    notes: ""
-  });
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     const loadServices = async () => {
@@ -33,77 +27,51 @@ export default function HomePage() {
     return services.map((service) => ({ value: service.name || service.id, label: service.name || service.id }));
   }, [services]);
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (!user) return;
-
-    try {
-      await api.post("/api/bookings", {
-        userId: user.uid,
-        ...formData
-      });
-      setMessage("Booking submitted successfully.");
-      setFormData({ category: "", date: "", time: "", notes: "" });
-    } catch (error) {
-      setMessage(error.response?.data?.message || "Booking failed");
-    }
-  };
-
   return (
-    <div className="space-y-6">
-      <section className="card">
-        <h2 className="mb-3 text-2xl font-bold">Service Categories</h2>
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-          {categoryOptions.map((service) => (
-            <div key={service.value} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-medium">
-              {service.label}
-            </div>
-          ))}
-        </div>
+    <UserDashboardShell
+      activeTab="home"
+      title="Book Trusted Services"
+      subtitle="Explore premium categories and continue to booking with your date, time, and preferred plan."
+    >
+      <section className="user-grid cards">
+        {categoryOptions.length === 0 ? (
+          <article className="user-card">
+            <h2>Categories</h2>
+            <p>Service categories are currently unavailable.</p>
+          </article>
+        ) : (
+          categoryOptions.map((service) => (
+            <article
+              key={service.value}
+              className="user-card user-category-card"
+              onClick={() => navigate(`/booking?category=${encodeURIComponent(service.value)}`)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  navigate(`/booking?category=${encodeURIComponent(service.value)}`);
+                }
+              }}
+            >
+              <h3>{service.label}</h3>
+              <p>Choose your preferred slot and booking plan.</p>
+              <div className="user-actions">
+                <button
+                  type="button"
+                  className="user-btn primary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate(`/booking?category=${encodeURIComponent(service.value)}`);
+                  }}
+                >
+                  Book Now
+                </button>
+              </div>
+            </article>
+          ))
+        )}
       </section>
-
-      <section className="card">
-        <h3 className="mb-3 text-xl font-semibold">Book a Service</h3>
-        <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSubmit}>
-          <select
-            className="input"
-            value={formData.category}
-            onChange={(event) => setFormData((prev) => ({ ...prev, category: event.target.value }))}
-            required
-          >
-            <option value="">Select Category</option>
-            {categoryOptions.map((service) => (
-              <option key={service.value} value={service.value}>
-                {service.label}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            className="input"
-            value={formData.date}
-            onChange={(event) => setFormData((prev) => ({ ...prev, date: event.target.value }))}
-            required
-          />
-          <input
-            type="time"
-            className="input"
-            value={formData.time}
-            onChange={(event) => setFormData((prev) => ({ ...prev, time: event.target.value }))}
-            required
-          />
-          <input
-            className="input"
-            placeholder="Additional notes"
-            value={formData.notes}
-            onChange={(event) => setFormData((prev) => ({ ...prev, notes: event.target.value }))}
-          />
-          <button type="submit" className="btn btn-primary md:col-span-2">
-            Confirm Booking
-          </button>
-        </form>
-        {message ? <p className="mt-3 text-sm text-brand-700">{message}</p> : null}
-      </section>
-    </div>
+    </UserDashboardShell>
   );
 }

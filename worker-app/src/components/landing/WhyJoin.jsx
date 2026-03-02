@@ -3,34 +3,34 @@ import LineIcon from "./LineIcon";
 
 const benefits = [
   {
-    title: "Flexible Working Hours",
-    description: "Work when it suits your schedule with full control.",
-    icon: "calendar-clock"
-  },
-  {
-    title: "Nearby Job Assignments",
-    description: "Receive bookings close to your preferred work zones.",
-    icon: "pin"
-  },
-  {
-    title: "Weekly Payouts",
-    description: "Get timely weekly settlements directly to your account.",
+    title: "Fixed Monthly Salary",
+    description: "Receive consistent monthly compensation as a verified Tasko employee.",
     icon: "wallet"
   },
   {
-    title: "Incentive Bonuses",
-    description: "Earn extra rewards for consistency and top-quality service.",
+    title: "Performance Incentives",
+    description: "Earn additional rewards based on quality, discipline, and outcomes.",
     icon: "gift"
   },
   {
-    title: "Rating-Based Growth",
-    description: "Higher ratings unlock premium and recurring assignments.",
+    title: "Structured Work Schedule",
+    description: "Follow defined shifts and assignment planning for better work balance.",
+    icon: "calendar-clock"
+  },
+  {
+    title: "Verified Company Environment",
+    description: "Work within a secure, document-verified, and professionally managed setup.",
+    icon: "shield-check"
+  },
+  {
+    title: "Growth Opportunities",
+    description: "Access career advancement paths through performance and responsibility.",
     icon: "growth"
   },
   {
-    title: "Secure & Verified Platform",
-    description: "Operate on a trusted, quality-controlled marketplace.",
-    icon: "shield-check"
+    title: "Professional Support Team",
+    description: "Get guidance from dedicated supervisors and operations support staff.",
+    icon: "users"
   }
 ];
 
@@ -39,9 +39,9 @@ export default function WhyJoin() {
     <section id="benefits" className="section-wrap section-benefits">
       <div className="worker-shell">
         <ScrollReveal className="section-header" direction="up">
-          <p className="section-eyebrow">Benefits</p>
-          <h2>Why Join Tasko</h2>
-          <p>Premium benefits designed for professional service providers.</p>
+          <p className="section-eyebrow">Employee Benefits</p>
+          <h2>Why Work With Tasko?</h2>
+          <p>Built for long-term careers, salary stability, and professional development.</p>
         </ScrollReveal>
 
         <div className="benefits-grid">

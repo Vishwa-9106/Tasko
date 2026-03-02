@@ -833,11 +833,32 @@ body.menu-open {
   max-width: 35ch;
 }
 
-.cta-button {
+.cta-actions {
   margin-top: 1.7rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.cta-button {
+  margin-top: 0;
   min-height: 58px;
   padding-inline: clamp(1.3rem, 3vw, 2.7rem);
   animation: pulseGlow 2.8s ease-in-out infinite;
+}
+
+.cta-secondary-link {
+  color: #d4e0fb;
+  text-decoration: none;
+  font-size: 0.98rem;
+  font-weight: 600;
+  transition: color 220ms ease;
+}
+
+.cta-secondary-link:hover,
+.cta-secondary-link:focus-visible {
+  color: #eef4ff;
 }
 
 .worker-footer {
@@ -1181,6 +1202,13 @@ body.menu-open {
 .auth-error {
   margin: 0.85rem 0 0;
   color: #ffb7bd;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.auth-success {
+  margin: 0.85rem 0 0;
+  color: #a7f4cb;
   font-size: 0.9rem;
   font-weight: 500;
 }

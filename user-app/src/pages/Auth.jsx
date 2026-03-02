@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import "./Auth.css";
@@ -43,15 +43,21 @@ function getFirebaseAuthErrorMessage(error) {
 }
 
 export default function AuthPage() {
-  const { register, login, loginWithGoogle, loginWithApple } = useAuth();
+  const { register, login, loginWithGoogle, loginWithApple, user } = useAuth();
   const navigate = useNavigate();
-  const [isRegister, setIsRegister] = useState(true);
+  const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [socialLoading, setSocialLoading] = useState("");
+
+  useEffect(() => {
+    if (user) {
+      navigate("/home", { replace: true });
+    }
+  }, [navigate, user]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -156,7 +162,7 @@ export default function AuthPage() {
               <input
                 type="email"
                 className="auth-input"
-                placeholder="Email"
+                placeholder="Mobile / Gmail"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 required

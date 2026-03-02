@@ -9,8 +9,8 @@ import CTASection from "../components/landing/CTASection";
 import Footer from "../components/landing/Footer";
 
 export default function LandingPage() {
-  const workerId = localStorage.getItem("tasko_worker_id");
-  const loginHref = workerId ? "/waiting" : "/login";
+  const workerSession = localStorage.getItem("tasko_worker_session_token");
+  const loginHref = workerSession ? "/dashboard" : "/login";
 
   return (
     <div className="worker-landing" id="top">
@@ -22,7 +22,7 @@ export default function LandingPage() {
         <WhyJoin />
         <TrustSection />
         <Testimonials />
-        <CTASection />
+        <CTASection loginHref={loginHref} />
       </main>
       <Footer />
     </div>

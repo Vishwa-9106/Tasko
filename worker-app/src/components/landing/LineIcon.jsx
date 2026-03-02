@@ -33,6 +33,13 @@ export default function LineIcon({ name, className = "", strokeWidth = 1.75 }) {
           <path d="M12 8.2V12l2.6 1.7" />
         </svg>
       );
+    case "building":
+      return (
+        <svg {...shared}>
+          <rect x="4.5" y="4.5" width="15" height="15" rx="2" />
+          <path d="M8 8h2M12 8h2M8 12h2M12 12h2M11 19.5v-3h2v3" />
+        </svg>
+      );
     case "user-plus":
       return (
         <svg {...shared}>

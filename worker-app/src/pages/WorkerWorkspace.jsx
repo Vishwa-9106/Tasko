@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, WORKER_ID_KEY, WORKER_SESSION_TOKEN_KEY } from "../api";
 import BrandLogo from "../components/landing/BrandLogo";
 
 const tabs = [
@@ -27,7 +27,6 @@ function normalizeDateKey(value) {
 
 export default function WorkerWorkspacePage({ activeTab }) {
   const navigate = useNavigate();
-  const workerId = localStorage.getItem("tasko_worker_id");
   const [worker, setWorker] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,8 +37,14 @@ export default function WorkerWorkspacePage({ activeTab }) {
   const workerName = worker?.name || "Worker";
   const workerInitial = workerName.trim().charAt(0).toUpperCase() || "W";
 
+  const clearWorkerSession = () => {
+    localStorage.removeItem(WORKER_SESSION_TOKEN_KEY);
+    localStorage.removeItem(WORKER_ID_KEY);
+  };
+
   const loadWorkerWorkspace = useCallback(async () => {
-    if (!workerId) {
+    const sessionToken = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
+    if (!sessionToken) {
       navigate("/login", { replace: true });
       return;
     }
@@ -50,14 +55,19 @@ export default function WorkerWorkspacePage({ activeTab }) {
     setError("");
 
     try {
-      const workerRequest = api.get(`/api/workers/${workerId}`);
-      const jobsRequest = activeTab === "dashboard" ? api.get(`/api/workers/${workerId}/jobs`) : Promise.resolve(null);
+      const workerRequest = api.get("/api/workers/me");
+      const jobsRequest = activeTab === "dashboard" ? api.get("/api/workers/my-jobs") : Promise.resolve(null);
       const [workerResponse, jobsResponse] = await Promise.all([workerRequest, jobsRequest]);
       const workerPayload = workerResponse.data;
 
-      if (workerPayload.status !== "approved") {
-        navigate("/waiting", { replace: true });
+      if (workerPayload.status !== "Active") {
+        clearWorkerSession();
+        navigate("/login", { replace: true });
         return;
+      }
+
+      if (workerPayload.worker_id) {
+        localStorage.setItem(WORKER_ID_KEY, workerPayload.worker_id);
       }
 
       setWorker(workerPayload);
@@ -65,32 +75,41 @@ export default function WorkerWorkspacePage({ activeTab }) {
         setJobs(Array.isArray(jobsResponse.data) ? jobsResponse.data : []);
       }
     } catch (loadError) {
+      if (loadError?.response?.status === 401 || loadError?.response?.status === 403) {
+        clearWorkerSession();
+        navigate("/login", { replace: true });
+        return;
+      }
+
       setError(loadError?.response?.data?.message || "Failed to load worker dashboard.");
     } finally {
       setLoading(false);
     }
-  }, [activeTab, navigate, worker, workerId]);
+  }, [activeTab, navigate, worker]);
 
   useEffect(() => {
     loadWorkerWorkspace().catch(() => {});
   }, [loadWorkerWorkspace]);
 
   useEffect(() => {
-    if (!workerId) return undefined;
+    const sessionToken = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
+    if (!sessionToken) return undefined;
+
     const poll = setInterval(() => {
       loadWorkerWorkspace().catch(() => {});
     }, 10000);
+
     return () => clearInterval(poll);
-  }, [loadWorkerWorkspace, workerId]);
+  }, [loadWorkerWorkspace]);
 
   const toggleOnlineStatus = async () => {
-    if (!workerId || !worker) return;
+    if (!worker) return;
 
     const nextOnline = !online;
     setStatusUpdating(true);
 
     try {
-      await api.patch(`/api/workers/${workerId}/status`, { online: nextOnline });
+      await api.patch("/api/workers/me/status", { online: nextOnline });
       setWorker((current) => (current ? { ...current, online: nextOnline } : current));
     } catch (toggleError) {
       setError(toggleError?.response?.data?.message || "Failed to update availability.");
@@ -100,7 +119,11 @@ export default function WorkerWorkspacePage({ activeTab }) {
   };
 
   const logout = async () => {
-    localStorage.removeItem("tasko_worker_id");
+    const sessionToken = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
+    clearWorkerSession();
+    if (sessionToken) {
+      await api.post("/api/workers/logout", { sessionToken }).catch(() => {});
+    }
     navigate("/login", { replace: true });
   };
 
@@ -157,7 +180,11 @@ export default function WorkerWorkspacePage({ activeTab }) {
 
           <nav className="worker-console-menu" aria-label="Worker dashboard navigation">
             {tabs.map((tab) => (
-              <Link key={tab.id} to={tab.href} className={`worker-console-menu-link ${activeTab === tab.id ? "is-active" : ""}`}>
+              <Link
+                key={tab.id}
+                to={tab.href}
+                className={`worker-console-menu-link ${activeTab === tab.id ? "is-active" : ""}`}
+              >
                 {tab.label}
               </Link>
             ))}
@@ -170,7 +197,10 @@ export default function WorkerWorkspacePage({ activeTab }) {
               onClick={toggleOnlineStatus}
               disabled={statusUpdating}
             >
-              <span className={`worker-availability-dot ${online ? "is-online" : "is-offline"}`} aria-hidden="true" />
+              <span
+                className={`worker-availability-dot ${online ? "is-online" : "is-offline"}`}
+                aria-hidden="true"
+              />
               {statusUpdating ? "Updating..." : online ? "Online" : "Offline"}
             </button>
 
@@ -192,11 +222,9 @@ export default function WorkerWorkspacePage({ activeTab }) {
         <section className="worker-hero-panel">
           <p className="section-eyebrow">Worker Console</p>
           <h1>Welcome, {workerName}</h1>
-          <p>
-            Manage assignments, track your progress, and control availability from one premium workspace.
-          </p>
+          <p>Manage assignments, track your progress, and control availability from one premium workspace.</p>
           <div className="worker-meta-row">
-            <span className="worker-meta-pill">Primary Category: {worker?.primaryCategory || worker?.categories?.[0] || "-"}</span>
+            <span className="worker-meta-pill">Primary Category: {worker?.category || "-"}</span>
             <span className={`worker-meta-pill ${online ? "is-online" : "is-offline"}`}>
               Status: {online ? "Available for jobs" : "Unavailable"}
             </span>
@@ -272,7 +300,7 @@ export default function WorkerWorkspacePage({ activeTab }) {
           <section className="worker-placeholder-card">
             <p className="section-eyebrow">Profile</p>
             <h2>Profile management is coming soon</h2>
-            <p>This page will include your professional details, service categories, and account settings.</p>
+            <p>This page will include your professional details and account settings.</p>
           </section>
         )}
       </main>
