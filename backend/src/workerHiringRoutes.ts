@@ -52,7 +52,19 @@ const workerSessions = new Map<string, SessionRecord>();
 const workerSessionTtlMs = 1000 * 60 * 60 * 24;
 const inMemoryWorkerApplications = new Map<string, WorkerApplicationRecord>();
 const inMemoryWorkers = new Map<string, WorkerRecord>();
-let inMemoryWorkerSequence = 1000;
+const defaultServiceCategories = [
+  "Cleaning",
+  "Washing",
+  "Maintenance",
+  "Mechanic",
+  "Plumbing",
+  "Technical & Installation Services",
+  "Caring",
+  "Barber & Makeup Services",
+  "Cooking",
+  "AC Repair"
+];
+let inMemoryServiceCategories = [...defaultServiceCategories];
 
 const uploadsRoot = path.resolve(__dirname, "../uploads");
 const workerDocumentsRoot = path.join(uploadsRoot, "worker-documents");
@@ -90,6 +102,24 @@ function normalizePhone(value: unknown): string {
   return readTrimmedString(value).replace(/\D/g, "");
 }
 
+function normalizeCategoryName(value: unknown): string {
+  return readTrimmedString(value).replace(/\s+/g, " ");
+}
+
+function uniqueCategories(input: string[]): string[] {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  input.forEach((value) => {
+    const normalized = normalizeCategoryName(value);
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(normalized);
+  });
+  return deduped;
+}
+
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -101,6 +131,11 @@ function isFirestoreUnavailableError(error: unknown): boolean {
     message.includes("database (default) does not exist") ||
     message.includes("The caller does not have permission")
   );
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  return message.includes("6 ALREADY_EXISTS") || message.toLowerCase().includes("already exists");
 }
 
 function normalizeWorkerApplicationStatus(value: unknown): WorkerApplicationStatus {
@@ -201,15 +236,12 @@ function verifyPassword(password: string, storedHash: string): boolean {
   }
 }
 
-function generateTemporaryPassword(length = 12): string {
-  // Keep temporary passwords copy-friendly (no symbols/ambiguous chars).
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  const bytes = crypto.randomBytes(length);
-  let password = "";
-  for (let index = 0; index < length; index += 1) {
-    password += alphabet[bytes[index] % alphabet.length];
-  }
-  return password;
+function normalizeWorkerId(value: unknown): string {
+  return readTrimmedString(value).toUpperCase();
+}
+
+function isValidWorkerId(workerId: string): boolean {
+  return /^[A-Z0-9_-]{4,32}$/.test(workerId);
 }
 
 function normalizeWorkerRecord(workerId: string, data: Record<string, unknown>): WorkerRecord {
@@ -308,27 +340,6 @@ async function sendEmail(to: string, subject: string, text: string): Promise<voi
     // eslint-disable-next-line no-console
     console.error(`Email delivery failed: ${getErrorMessage(error)}`);
   }
-}
-
-async function reserveNextWorkerId(): Promise<string> {
-  try {
-    const sequence = await db.runTransaction(async (transaction) => {
-      const reference = db.collection("meta").doc("worker_id_counter");
-      const snapshot = await transaction.get(reference);
-      const current = Number(snapshot.data()?.value || 1000);
-      const next = current + 1;
-      transaction.set(reference, { value: next, updated_at: new Date().toISOString() }, { merge: true });
-      return next;
-    });
-    return `TASKO-W-${String(sequence).padStart(4, "0")}`;
-  } catch (error) {
-    if (!isFirestoreUnavailableError(error)) {
-      throw error;
-    }
-  }
-
-  inMemoryWorkerSequence += 1;
-  return `TASKO-W-${String(inMemoryWorkerSequence).padStart(4, "0")}`;
 }
 
 function normalizeWorkerApplicationRecord(
@@ -446,6 +457,58 @@ async function listWorkers(): Promise<WorkerRecord[]> {
     }
   }
   return Array.from(inMemoryWorkers.values());
+}
+
+async function listServiceCategories(): Promise<string[]> {
+  try {
+    const document = await db.collection("meta").doc("service_categories").get();
+    if (document.exists) {
+      const storedItems = Array.isArray(document.data()?.items)
+        ? (document.data()?.items as unknown[])
+        : [];
+      const parsed = uniqueCategories(storedItems.map((item) => readTrimmedString(item)));
+      if (parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return [...inMemoryServiceCategories];
+}
+
+async function addServiceCategory(categoryName: string): Promise<{ categories: string[]; created: boolean }> {
+  const normalizedCategory = normalizeCategoryName(categoryName);
+  if (!normalizedCategory) {
+    throw new Error("Category name is required.");
+  }
+
+  const existing = await listServiceCategories();
+  if (existing.some((item) => item.toLowerCase() === normalizedCategory.toLowerCase())) {
+    return { categories: existing, created: false };
+  }
+
+  const next = [...existing, normalizedCategory];
+  const now = new Date().toISOString();
+  try {
+    await db.collection("meta").doc("service_categories").set(
+      {
+        items: next,
+        updated_at: now
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemoryServiceCategories = next;
+  return { categories: next, created: true };
 }
 
 function buildDocumentUrl(
@@ -567,6 +630,42 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
     }
   });
 
+  app.get("/api/admin/categories", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const categories = await listServiceCategories();
+      return res.json({ categories });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to load categories", error: getErrorMessage(error) });
+    }
+  });
+
+  app.post("/api/admin/categories", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const name = normalizeCategoryName((req.body as { name?: unknown }).name);
+      if (!name) {
+        return res.status(400).json({ message: "Category name is required." });
+      }
+
+      const { categories, created } = await addServiceCategory(name);
+      if (!created) {
+        return res.status(409).json({ message: "Category already exists.", categories });
+      }
+      return res.status(201).json({ message: "Category added successfully.", categories });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to add category", error: getErrorMessage(error) });
+    }
+  });
+
   app.get("/api/admin/worker-applications/:applicationId", async (req: Request, res: Response) => {
     const sessionToken = getAdminSessionToken(req);
     if (!sessionToken || !options.validateAdminSession(sessionToken)) {
@@ -660,9 +759,30 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(409).json({ message: "A worker account already exists with this phone or email." });
       }
 
-      const workerId = await reserveNextWorkerId();
-      const temporaryPassword = generateTemporaryPassword();
-      const passwordHash = hashPassword(temporaryPassword);
+      const workerId = normalizeWorkerId((req.body as { workerId?: unknown }).workerId);
+      const accountPassword = readTrimmedString((req.body as { password?: unknown }).password);
+      if (!workerId) {
+        return res.status(400).json({ message: "workerId is required." });
+      }
+      if (!isValidWorkerId(workerId)) {
+        return res
+          .status(400)
+          .json({ message: "workerId must be 4-32 characters (A-Z, 0-9, _ or -)." });
+      }
+      if (!accountPassword) {
+        return res.status(400).json({ message: "password is required." });
+      }
+      if (accountPassword.length < 6) {
+        return res.status(400).json({ message: "password must be at least 6 characters long." });
+      }
+      if (
+        inMemoryWorkers.has(workerId) ||
+        allWorkers.some((worker) => worker.worker_id.toUpperCase() === workerId)
+      ) {
+        return res.status(409).json({ message: "This workerId is already in use." });
+      }
+
+      const passwordHash = hashPassword(accountPassword);
       const now = new Date().toISOString();
       const salary = Number.isFinite(Number((req.body as { salary?: unknown }).salary))
         ? Math.max(0, Number((req.body as { salary?: unknown }).salary))
@@ -684,8 +804,11 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
       };
 
       try {
-        await db.collection("workers").doc(workerId).set(workerPayload);
+        await db.collection("workers").doc(workerId).create(workerPayload);
       } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          return res.status(409).json({ message: "This workerId is already in use." });
+        }
         if (!isFirestoreUnavailableError(error)) {
           throw error;
         }
@@ -704,13 +827,12 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
       await sendEmail(
         application.email,
         "Tasko Worker Account Activated",
-        `Employee ID: ${workerId}\nTemporary password: ${temporaryPassword}\nLogin: ${workerLoginLink}`
+        `Employee ID: ${workerId}\nPassword: ${accountPassword}\nLogin: ${workerLoginLink}`
       );
 
       return res.status(201).json({
         message: "Worker account created successfully.",
         workerId,
-        temporaryPassword,
         application: updatedApplication ? toApplicationResponse(req, sessionToken, updatedApplication) : null
       });
     } catch (error) {

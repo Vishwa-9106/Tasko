@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
 
-const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management"];
+const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management", "Category"];
 
 const defaultRequestNotes = {};
 const defaultSalaryDraft = {};
+const defaultCategories = [
+  "Cleaning",
+  "Washing",
+  "Maintenance",
+  "Mechanic",
+  "Plumbing",
+  "Technical & Installation Services",
+  "Caring",
+  "Barber & Makeup Services",
+  "Cooking",
+  "AC Repair"
+];
 
 const date = (value) => {
   const parsed = new Date(value || "");
@@ -89,18 +101,24 @@ export default function AdminApp() {
   const [workers, setWorkers] = useState([]);
   const [users, setUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [categories, setCategories] = useState(defaultCategories);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [addingCategory, setAddingCategory] = useState(false);
   const [drawer, setDrawer] = useState(null);
   const [requestNotes, setRequestNotes] = useState(defaultRequestNotes);
   const [salaryDraft, setSalaryDraft] = useState(defaultSalaryDraft);
+  const [createAccountModal, setCreateAccountModal] = useState(null);
+  const [creatingAccount, setCreatingAccount] = useState(false);
 
   const loadData = async () => {
     setLoadingData(true);
     try {
-      const [applicationsRes, workersRes, usersRes, bookingsRes] = await Promise.allSettled([
+      const [applicationsRes, workersRes, usersRes, bookingsRes, categoriesRes] = await Promise.allSettled([
         api.get("/api/admin/worker-applications", { params: { sessionToken } }),
         api.get("/api/workers"),
         api.get("/api/users"),
-        api.get("/api/bookings")
+        api.get("/api/bookings"),
+        api.get("/api/admin/categories", { params: { sessionToken } })
       ]);
 
       const nextApplications =
@@ -111,11 +129,19 @@ export default function AdminApp() {
         workersRes.status === "fulfilled" && Array.isArray(workersRes.value.data)
           ? workersRes.value.data.map(normalizeWorker)
           : [];
+      const nextCategoriesRaw =
+        categoriesRes.status === "fulfilled" && Array.isArray(categoriesRes.value.data?.categories)
+          ? categoriesRes.value.data.categories
+          : [];
+      const nextCategories = nextCategoriesRaw
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
 
       setApplications(nextApplications);
       setWorkers(nextWorkers);
       setUsers(usersRes.status === "fulfilled" && Array.isArray(usersRes.value.data) ? usersRes.value.data : []);
       setBookings(bookingsRes.status === "fulfilled" && Array.isArray(bookingsRes.value.data) ? bookingsRes.value.data : []);
+      setCategories(nextCategories.length > 0 ? nextCategories : defaultCategories);
       setError("");
     } catch (loadError) {
       setError(loadError?.response?.data?.message || "Failed to load admin data.");
@@ -198,10 +224,30 @@ export default function AdminApp() {
     }
   };
 
-  const approveAndCreateAccount = async (applicationId) => {
+  const openCreateAccountModal = (application) => {
+    if (!application?.id) return;
+    setError("");
+    setCreateAccountModal({
+      applicationId: application.id,
+      applicantName: application.fullName || "-",
+      workerId: "",
+      password: "",
+      salary: String(salaryDraft[application.id] ?? 18000)
+    });
+  };
+
+  const closeCreateAccountModal = () => {
+    if (creatingAccount) return;
+    setCreateAccountModal(null);
+  };
+
+  const approveAndCreateAccount = async ({ applicationId, workerId, password, salary }) => {
+    setCreatingAccount(true);
     try {
       const response = await api.post(`/api/admin/worker-applications/${applicationId}/approve-create-account`, {
-        salary: Number(salaryDraft[applicationId] || 18000),
+        workerId,
+        password,
+        salary: Number.isFinite(Number(salary)) ? Number(salary) : Number(salaryDraft[applicationId] || 18000),
         adminNotes: requestNotes[applicationId] || "",
         sessionToken
       });
@@ -213,16 +259,101 @@ export default function AdminApp() {
       }
       await loadData();
 
-      const workerId = response.data?.workerId || "-";
-      const temporaryPassword = response.data?.temporaryPassword || "-";
-      setBanner(`Account created for ${workerId}. Temporary password: ${temporaryPassword}`);
+      const createdWorkerId = response.data?.workerId || "-";
+      setSalaryDraft((current) => ({ ...current, [applicationId]: Number.isFinite(Number(salary)) ? Number(salary) : 18000 }));
+      setCreateAccountModal(null);
+      setBanner(`Account created for ${createdWorkerId}.`);
     } catch (approveError) {
       if (approveError?.response?.status === 401) {
         setError("Admin session expired. Please login again.");
         await logout();
         return;
       }
-      setError(approveError?.response?.data?.message || "Failed to approve and create worker account.");
+      setError(
+        approveError?.response?.data?.message ||
+          approveError?.response?.data?.error ||
+          approveError?.message ||
+          "Failed to approve and create worker account."
+      );
+    } finally {
+      setCreatingAccount(false);
+    }
+  };
+
+  const submitCreateAccount = async (event) => {
+    event.preventDefault();
+    if (!createAccountModal) return;
+
+    const workerId = createAccountModal.workerId.trim().toUpperCase();
+    const password = createAccountModal.password.trim();
+    const salary = Number(createAccountModal.salary);
+
+    if (!workerId) {
+      setError("Worker ID is required.");
+      return;
+    }
+    if (!/^[A-Z0-9_-]{4,32}$/.test(workerId)) {
+      setError("Worker ID must be 4-32 characters and can contain A-Z, 0-9, _ and -.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (!Number.isFinite(salary) || salary < 0) {
+      setError("Salary must be a valid positive number.");
+      return;
+    }
+
+    setError("");
+    await approveAndCreateAccount({
+      applicationId: createAccountModal.applicationId,
+      workerId,
+      password,
+      salary
+    });
+  };
+
+  const addCategory = async (event) => {
+    event.preventDefault();
+    const normalizedCategory = newCategoryName.trim().replace(/\s+/g, " ");
+    if (!normalizedCategory) {
+      setError("Category name is required.");
+      return;
+    }
+
+    if (categories.some((item) => item.toLowerCase() === normalizedCategory.toLowerCase())) {
+      setError("Category already exists.");
+      return;
+    }
+
+    setAddingCategory(true);
+    setError("");
+    try {
+      const response = await api.post("/api/admin/categories", {
+        name: normalizedCategory,
+        sessionToken
+      });
+      const updatedCategories = Array.isArray(response.data?.categories)
+        ? response.data.categories.map((item) => String(item || "").trim()).filter(Boolean)
+        : [...categories, normalizedCategory];
+      setCategories(updatedCategories);
+      setNewCategoryName("");
+      setBanner(`Category "${normalizedCategory}" added.`);
+    } catch (addCategoryError) {
+      if (addCategoryError?.response?.status === 401) {
+        setError("Admin session expired. Please login again.");
+        await logout();
+        return;
+      }
+      setError(
+        addCategoryError?.response?.data?.message ||
+          addCategoryError?.response?.data?.error ||
+          addCategoryError?.message ||
+          "Failed to add category."
+      );
+    } finally {
+      setAddingCategory(false);
     }
   };
 
@@ -367,7 +498,13 @@ export default function AdminApp() {
                               <button type="button" className="erp-btn erp-btn-soft" onClick={() => setDrawer(application)}>View Details</button>
                               <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(application.id, "Visit Required")}>Mark as Visit Required</button>
                               <button type="button" className="erp-btn erp-btn-danger" onClick={() => updateApplicationStatus(application.id, "Rejected")}>Reject</button>
-                              <button type="button" className="erp-btn erp-btn-primary" onClick={() => approveAndCreateAccount(application.id)}>Approve & Create Account</button>
+                              <button
+                                type="button"
+                                className="erp-btn erp-btn-primary"
+                                onClick={() => openCreateAccountModal(application)}
+                              >
+                                Approve & Create Account
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -413,6 +550,62 @@ export default function AdminApp() {
                     )}
                   </tbody>
                 </table>
+              </section>
+            ) : null}
+
+            {active === "Category" ? (
+              <section className="erp-card p-5">
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">Category</h2>
+                    <p className="text-sm text-slate-500">
+                      Manage worker service categories. You can add new categories here.
+                    </p>
+                  </div>
+                  <span className="erp-badge">{categories.length} categories</span>
+                </div>
+
+                <form className="mb-5 flex flex-wrap items-end gap-2" onSubmit={addCategory}>
+                  <label className="block flex-1 min-w-[220px]">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Add Category</span>
+                    <input
+                      type="text"
+                      className="erp-input"
+                      value={newCategoryName}
+                      onChange={(event) => setNewCategoryName(event.target.value)}
+                      placeholder="Enter category name"
+                      maxLength={80}
+                    />
+                  </label>
+                  <button type="submit" className="erp-btn erp-btn-primary" disabled={addingCategory}>
+                    {addingCategory ? "Adding..." : "Add Category"}
+                  </button>
+                </form>
+
+                <div className="overflow-x-auto">
+                  <table className="erp-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Category Name</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categories.length === 0 ? (
+                        <tr>
+                          <td colSpan={2} className="text-center text-slate-500">No categories found.</td>
+                        </tr>
+                      ) : (
+                        categories.map((category, index) => (
+                          <tr key={`${category}-${index}`}>
+                            <td>{index + 1}</td>
+                            <td>{category}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </section>
             ) : null}
           </main>
@@ -487,10 +680,93 @@ export default function AdminApp() {
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(drawer.id, drawer.status)}>Save Review</button>
                 <button type="button" className="erp-btn erp-btn-danger" onClick={() => updateApplicationStatus(drawer.id, "Rejected")}>Reject</button>
-                <button type="button" className="erp-btn erp-btn-primary" onClick={() => approveAndCreateAccount(drawer.id)}>Approve & Create Account</button>
+                <button
+                  type="button"
+                  className="erp-btn erp-btn-primary"
+                  onClick={() => openCreateAccountModal(drawer)}
+                >
+                  Approve & Create Account
+                </button>
               </div>
             </div>
           </aside>
+        </div>
+      ) : null}
+
+      {createAccountModal ? (
+        <div className="erp-drawer-overlay items-center justify-center" onClick={closeCreateAccountModal}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Create Worker Account</h3>
+                <p className="text-sm text-slate-500">{createAccountModal.applicantName}</p>
+              </div>
+              <button type="button" className="erp-icon-btn" onClick={closeCreateAccountModal} disabled={creatingAccount}>
+                X
+              </button>
+            </div>
+
+            <form className="space-y-3" onSubmit={submitCreateAccount}>
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Worker ID</span>
+                <input
+                  type="text"
+                  className="erp-input"
+                  value={createAccountModal.workerId}
+                  onChange={(event) =>
+                    setCreateAccountModal((current) =>
+                      current
+                        ? { ...current, workerId: event.target.value.toUpperCase().replace(/\s+/g, "") }
+                        : current
+                    )
+                  }
+                  placeholder="TASKO-W-1001"
+                  required
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Password</span>
+                <input
+                  type="password"
+                  className="erp-input"
+                  value={createAccountModal.password}
+                  onChange={(event) =>
+                    setCreateAccountModal((current) => (current ? { ...current, password: event.target.value } : current))
+                  }
+                  placeholder="Minimum 6 characters"
+                  minLength={6}
+                  required
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Salary</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="erp-input"
+                  value={createAccountModal.salary}
+                  onChange={(event) =>
+                    setCreateAccountModal((current) => (current ? { ...current, salary: event.target.value } : current))
+                  }
+                  required
+                />
+              </label>
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button type="button" className="erp-btn erp-btn-soft" onClick={closeCreateAccountModal} disabled={creatingAccount}>
+                  Cancel
+                </button>
+                <button type="submit" className="erp-btn erp-btn-primary" disabled={creatingAccount}>
+                  {creatingAccount ? "Creating..." : "Create Account"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       ) : null}
     </div>
