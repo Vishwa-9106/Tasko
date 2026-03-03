@@ -2,21 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
 
 const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management", "Category"];
+const CATEGORY_LIST_PATH = "/admin/categories";
 
 const defaultRequestNotes = {};
 const defaultSalaryDraft = {};
-const defaultCategories = [
-  "Cleaning",
-  "Washing",
-  "Maintenance",
-  "Mechanic",
-  "Plumbing",
-  "Technical & Installation Services",
-  "Caring",
-  "Barber & Makeup Services",
-  "Cooking",
-  "AC Repair"
-];
 
 const date = (value) => {
   const parsed = new Date(value || "");
@@ -87,28 +76,89 @@ function normalizeWorker(record) {
   };
 }
 
+function normalizeCategory(record) {
+  return {
+    id: String(record?.id || "").trim(),
+    name: String(record?.name || "").trim(),
+    createdAt: record?.createdAt || "",
+    updatedAt: record?.updatedAt || "",
+    subcategoryCount: Number.isFinite(Number(record?.subcategoryCount)) ? Number(record.subcategoryCount) : 0
+  };
+}
+
+function normalizeSubcategory(record) {
+  return {
+    id: String(record?.id || "").trim(),
+    categoryId: String(record?.categoryId || record?.category_id || "").trim(),
+    name: String(record?.name || "").trim(),
+    createdAt: record?.createdAt || "",
+    updatedAt: record?.updatedAt || ""
+  };
+}
+
+function parseSubcategoryRoute(pathname) {
+  const match = String(pathname || "").match(/^\/admin\/category\/([^/]+)\/subcategories\/?$/i);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 export default function AdminApp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [sessionToken, setSessionToken] = useState(localStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || "");
-  const [active, setActive] = useState("Dashboard");
+  const [active, setActive] = useState(() =>
+    window.location.pathname === CATEGORY_LIST_PATH || window.location.pathname.startsWith("/admin/category/")
+      ? "Category"
+      : "Dashboard"
+  );
+  const [locationPath, setLocationPath] = useState(() => window.location.pathname);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
+  const [loadingSubcategories, setLoadingSubcategories] = useState(false);
   const [error, setError] = useState("");
   const [banner, setBanner] = useState("");
+  const [toasts, setToasts] = useState([]);
 
   const [applications, setApplications] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [users, setUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
-  const [categories, setCategories] = useState(defaultCategories);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [subcategories, setSubcategories] = useState([]);
+  const [loadedSubcategoryCategoryId, setLoadedSubcategoryCategoryId] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newSubcategoryName, setNewSubcategoryName] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
+  const [addingSubcategory, setAddingSubcategory] = useState(false);
+  const [categoryEditModal, setCategoryEditModal] = useState(null);
+  const [subcategoryEditModal, setSubcategoryEditModal] = useState(null);
+  const [savingCategoryEdit, setSavingCategoryEdit] = useState(false);
+  const [savingSubcategoryEdit, setSavingSubcategoryEdit] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmingAction, setConfirmingAction] = useState(false);
   const [drawer, setDrawer] = useState(null);
   const [requestNotes, setRequestNotes] = useState(defaultRequestNotes);
   const [salaryDraft, setSalaryDraft] = useState(defaultSalaryDraft);
   const [createAccountModal, setCreateAccountModal] = useState(null);
   const [creatingAccount, setCreatingAccount] = useState(false);
+  const subcategoryRouteCategoryId = useMemo(() => parseSubcategoryRoute(locationPath), [locationPath]);
+
+  const pushToast = (type, message) => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((current) => [...current, { id, type, message }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 3600);
+  };
+
+  const navigateToPath = (nextPath) => {
+    if (window.location.pathname === nextPath) {
+      setLocationPath(nextPath);
+      return;
+    }
+    window.history.pushState({}, "", nextPath);
+    setLocationPath(nextPath);
+  };
 
   const loadData = async () => {
     setLoadingData(true);
@@ -134,14 +184,15 @@ export default function AdminApp() {
           ? categoriesRes.value.data.categories
           : [];
       const nextCategories = nextCategoriesRaw
-        .map((item) => String(item || "").trim())
-        .filter(Boolean);
+        .map(normalizeCategory)
+        .filter((item) => item.id && item.name)
+        .sort((left, right) => left.name.localeCompare(right.name));
 
       setApplications(nextApplications);
       setWorkers(nextWorkers);
       setUsers(usersRes.status === "fulfilled" && Array.isArray(usersRes.value.data) ? usersRes.value.data : []);
       setBookings(bookingsRes.status === "fulfilled" && Array.isArray(bookingsRes.value.data) ? bookingsRes.value.data : []);
-      setCategories(nextCategories.length > 0 ? nextCategories : defaultCategories);
+      setCategories(nextCategories);
       setError("");
     } catch (loadError) {
       setError(loadError?.response?.data?.message || "Failed to load admin data.");
@@ -160,6 +211,54 @@ export default function AdminApp() {
     }
   };
 
+  const loadSubcategories = async (categoryId) => {
+    if (!categoryId) return;
+    setLoadingSubcategories(true);
+    try {
+      const response = await api.get(`/api/admin/categories/${categoryId}/subcategories`, {
+        params: { sessionToken }
+      });
+      const nextCategory = normalizeCategory(response.data?.category || {});
+      const nextSubcategories = Array.isArray(response.data?.subcategories)
+        ? response.data.subcategories.map(normalizeSubcategory).filter((item) => item.id && item.name)
+        : [];
+
+      if (nextCategory.id) {
+        setSelectedCategory(nextCategory);
+        setCategories((current) =>
+          current.map((item) => (item.id === nextCategory.id ? { ...item, ...nextCategory } : item))
+        );
+      }
+      setSubcategories(nextSubcategories);
+      setLoadedSubcategoryCategoryId(categoryId);
+      setError("");
+    } catch (loadError) {
+      if (loadError?.response?.status === 401) {
+        setError("Admin session expired. Please login again.");
+        await logout();
+        return;
+      }
+      const message =
+        loadError?.response?.data?.message || loadError?.response?.data?.error || "Failed to load subcategories.";
+      setError(message);
+      pushToast("error", message);
+    } finally {
+      setLoadingSubcategories(false);
+    }
+  };
+
+  useEffect(() => {
+    const onPopState = () => setLocationPath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    if (locationPath === CATEGORY_LIST_PATH || subcategoryRouteCategoryId) {
+      setActive("Category");
+    }
+  }, [locationPath, subcategoryRouteCategoryId]);
+
   useEffect(() => {
     if (!sessionToken) return;
     const initialize = async () => {
@@ -172,6 +271,31 @@ export default function AdminApp() {
       logout().catch(() => {});
     });
   }, [sessionToken]);
+
+  useEffect(() => {
+    if (!sessionToken) return;
+    if (!subcategoryRouteCategoryId) {
+      setSelectedCategory(null);
+      setSubcategories([]);
+      setLoadedSubcategoryCategoryId("");
+      return;
+    }
+
+    setActive("Category");
+    const found = categories.find((item) => item.id === subcategoryRouteCategoryId);
+    if (!found) {
+      if (categories.length > 0) {
+        pushToast("error", "Category not found.");
+        navigateToPath(CATEGORY_LIST_PATH);
+      }
+      return;
+    }
+
+    setSelectedCategory(found);
+    if (loadedSubcategoryCategoryId !== found.id) {
+      loadSubcategories(found.id).catch(() => {});
+    }
+  }, [sessionToken, subcategoryRouteCategoryId, categories, loadedSubcategoryCategoryId]);
 
   const login = async (event) => {
     event.preventDefault();
@@ -322,7 +446,7 @@ export default function AdminApp() {
       return;
     }
 
-    if (categories.some((item) => item.toLowerCase() === normalizedCategory.toLowerCase())) {
+    if (categories.some((item) => item.name.toLowerCase() === normalizedCategory.toLowerCase())) {
       setError("Category already exists.");
       return;
     }
@@ -330,30 +454,264 @@ export default function AdminApp() {
     setAddingCategory(true);
     setError("");
     try {
-      const response = await api.post("/api/admin/categories", {
+      await api.post("/api/admin/categories", {
         name: normalizedCategory,
         sessionToken
       });
-      const updatedCategories = Array.isArray(response.data?.categories)
-        ? response.data.categories.map((item) => String(item || "").trim()).filter(Boolean)
-        : [...categories, normalizedCategory];
-      setCategories(updatedCategories);
+      await loadData();
       setNewCategoryName("");
-      setBanner(`Category "${normalizedCategory}" added.`);
+      pushToast("success", `Category "${normalizedCategory}" added.`);
     } catch (addCategoryError) {
       if (addCategoryError?.response?.status === 401) {
         setError("Admin session expired. Please login again.");
         await logout();
         return;
       }
-      setError(
+      const message =
         addCategoryError?.response?.data?.message ||
           addCategoryError?.response?.data?.error ||
           addCategoryError?.message ||
-          "Failed to add category."
-      );
+          "Failed to add category.";
+      setError(message);
+      pushToast("error", message);
     } finally {
       setAddingCategory(false);
+    }
+  };
+
+  const handleNavClick = (item) => {
+    setActive(item);
+    if (item === "Category") {
+      navigateToPath(CATEGORY_LIST_PATH);
+      return;
+    }
+    if (subcategoryRouteCategoryId || locationPath === CATEGORY_LIST_PATH) {
+      navigateToPath("/");
+    }
+    setSelectedCategory(null);
+    setSubcategories([]);
+    setLoadedSubcategoryCategoryId("");
+  };
+
+  const openManageSubcategories = (category) => {
+    if (!category?.id) return;
+    setActive("Category");
+    setSelectedCategory(category);
+    navigateToPath(`/admin/category/${encodeURIComponent(category.id)}/subcategories`);
+    loadSubcategories(category.id).catch(() => {});
+  };
+
+  const goBackToCategoryList = () => {
+    setSelectedCategory(null);
+    setSubcategories([]);
+    setLoadedSubcategoryCategoryId("");
+    navigateToPath(CATEGORY_LIST_PATH);
+  };
+
+  const openCategoryEdit = (category) => {
+    setCategoryEditModal({ id: category.id, name: category.name });
+  };
+
+  const saveCategoryEdit = async (event) => {
+    event.preventDefault();
+    if (!categoryEditModal?.id) return;
+    const normalizedName = categoryEditModal.name.trim().replace(/\s+/g, " ");
+    if (!normalizedName) {
+      setError("Category name is required.");
+      return;
+    }
+
+    setSavingCategoryEdit(true);
+    setError("");
+    try {
+      await api.patch(`/api/admin/categories/${categoryEditModal.id}`, {
+        name: normalizedName,
+        sessionToken
+      });
+      await loadData();
+      if (selectedCategory?.id === categoryEditModal.id) {
+        setSelectedCategory((current) => (current ? { ...current, name: normalizedName } : current));
+      }
+      setCategoryEditModal(null);
+      pushToast("success", "Category updated successfully.");
+    } catch (updateError) {
+      if (updateError?.response?.status === 401) {
+        setError("Admin session expired. Please login again.");
+        await logout();
+        return;
+      }
+      const message =
+        updateError?.response?.data?.message ||
+          updateError?.response?.data?.error ||
+          updateError?.message ||
+          "Failed to update category.";
+      setError(message);
+      pushToast("error", message);
+    } finally {
+      setSavingCategoryEdit(false);
+    }
+  };
+
+  const requestCategoryDelete = (category) => {
+    setConfirmDialog({
+      kind: "delete-category",
+      title: "Delete Category",
+      message: `Are you sure you want to delete "${category.name}"?`,
+      warning:
+        category.subcategoryCount > 0
+          ? `This category has ${category.subcategoryCount} subcategories. Deleting it will also delete those subcategories.`
+          : "",
+      categoryId: category.id
+    });
+  };
+
+  const requestSubcategoryDelete = (subcategory) => {
+    setConfirmDialog({
+      kind: "delete-subcategory",
+      title: "Delete Sub Category",
+      message: `Are you sure you want to delete "${subcategory.name}"?`,
+      warning: "",
+      categoryId: selectedCategory?.id || "",
+      subcategoryId: subcategory.id
+    });
+  };
+
+  const executeConfirmAction = async () => {
+    if (!confirmDialog) return;
+    setConfirmingAction(true);
+    try {
+      if (confirmDialog.kind === "delete-category") {
+        const response = await api.delete(`/api/admin/categories/${confirmDialog.categoryId}`, {
+          data: { sessionToken }
+        });
+        const deletedSubCount = Number(response?.data?.deletedSubcategoryCount || 0);
+        await loadData();
+        if (selectedCategory?.id === confirmDialog.categoryId) {
+          goBackToCategoryList();
+        }
+        pushToast(
+          "success",
+          deletedSubCount > 0
+            ? `Category deleted with ${deletedSubCount} subcategories.`
+            : "Category deleted successfully."
+        );
+      } else if (confirmDialog.kind === "delete-subcategory") {
+        await api.delete(
+          `/api/admin/categories/${confirmDialog.categoryId}/subcategories/${confirmDialog.subcategoryId}`,
+          {
+            data: { sessionToken }
+          }
+        );
+        if (confirmDialog.categoryId) {
+          await loadSubcategories(confirmDialog.categoryId);
+        }
+        await loadData();
+        pushToast("success", "Subcategory deleted successfully.");
+      }
+      setConfirmDialog(null);
+    } catch (deleteError) {
+      if (deleteError?.response?.status === 401) {
+        setError("Admin session expired. Please login again.");
+        await logout();
+        return;
+      }
+      const message =
+        deleteError?.response?.data?.message ||
+          deleteError?.response?.data?.error ||
+          deleteError?.message ||
+          "Delete action failed.";
+      setError(message);
+      pushToast("error", message);
+    } finally {
+      setConfirmingAction(false);
+    }
+  };
+
+  const addSubcategory = async (event) => {
+    event.preventDefault();
+    if (!selectedCategory?.id) return;
+    const normalizedName = newSubcategoryName.trim().replace(/\s+/g, " ");
+    if (!normalizedName) {
+      setError("Subcategory name is required.");
+      return;
+    }
+
+    if (subcategories.some((item) => item.name.toLowerCase() === normalizedName.toLowerCase())) {
+      setError("Subcategory already exists in this category.");
+      return;
+    }
+
+    setAddingSubcategory(true);
+    setError("");
+    try {
+      await api.post(`/api/admin/categories/${selectedCategory.id}/subcategories`, {
+        name: normalizedName,
+        sessionToken
+      });
+      setNewSubcategoryName("");
+      await loadSubcategories(selectedCategory.id);
+      await loadData();
+      pushToast("success", "Subcategory added successfully.");
+    } catch (addSubError) {
+      if (addSubError?.response?.status === 401) {
+        setError("Admin session expired. Please login again.");
+        await logout();
+        return;
+      }
+      const message =
+        addSubError?.response?.data?.message ||
+          addSubError?.response?.data?.error ||
+          addSubError?.message ||
+          "Failed to add subcategory.";
+      setError(message);
+      pushToast("error", message);
+    } finally {
+      setAddingSubcategory(false);
+    }
+  };
+
+  const openSubcategoryEdit = (subcategory) => {
+    setSubcategoryEditModal({ id: subcategory.id, name: subcategory.name });
+  };
+
+  const saveSubcategoryEdit = async (event) => {
+    event.preventDefault();
+    if (!selectedCategory?.id || !subcategoryEditModal?.id) return;
+    const normalizedName = subcategoryEditModal.name.trim().replace(/\s+/g, " ");
+    if (!normalizedName) {
+      setError("Subcategory name is required.");
+      return;
+    }
+
+    setSavingSubcategoryEdit(true);
+    setError("");
+    try {
+      await api.patch(
+        `/api/admin/categories/${selectedCategory.id}/subcategories/${subcategoryEditModal.id}`,
+        {
+          name: normalizedName,
+          sessionToken
+        }
+      );
+      await loadSubcategories(selectedCategory.id);
+      await loadData();
+      setSubcategoryEditModal(null);
+      pushToast("success", "Subcategory updated successfully.");
+    } catch (updateSubError) {
+      if (updateSubError?.response?.status === 401) {
+        setError("Admin session expired. Please login again.");
+        await logout();
+        return;
+      }
+      const message =
+        updateSubError?.response?.data?.message ||
+          updateSubError?.response?.data?.error ||
+          updateSubError?.message ||
+          "Failed to update subcategory.";
+      setError(message);
+      pushToast("error", message);
+    } finally {
+      setSavingSubcategoryEdit(false);
     }
   };
 
@@ -441,7 +799,7 @@ export default function AdminApp() {
                   key={item}
                   type="button"
                   className={`erp-sidebar-item ${active === item ? "erp-sidebar-item-active" : ""}`}
-                  onClick={() => setActive(item)}
+                  onClick={() => handleNavClick(item)}
                 >
                   {item}
                 </button>
@@ -557,55 +915,155 @@ export default function AdminApp() {
               <section className="erp-card p-5">
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold text-slate-900">Category</h2>
+                    <h2 className="text-lg font-semibold text-slate-900">
+                      {subcategoryRouteCategoryId ? "Sub Category Management" : "Category Management"}
+                    </h2>
                     <p className="text-sm text-slate-500">
-                      Manage worker service categories. You can add new categories here.
+                      {subcategoryRouteCategoryId
+                        ? `Manage sub categories for ${selectedCategory?.name || "selected category"}.`
+                        : "Manage main categories and navigate to sub category management."}
                     </p>
                   </div>
-                  <span className="erp-badge">{categories.length} categories</span>
+                  <span className="erp-badge">
+                    {subcategoryRouteCategoryId ? `${subcategories.length} sub categories` : `${categories.length} categories`}
+                  </span>
                 </div>
 
-                <form className="mb-5 flex flex-wrap items-end gap-2" onSubmit={addCategory}>
-                  <label className="block flex-1 min-w-[220px]">
-                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Add Category</span>
-                    <input
-                      type="text"
-                      className="erp-input"
-                      value={newCategoryName}
-                      onChange={(event) => setNewCategoryName(event.target.value)}
-                      placeholder="Enter category name"
-                      maxLength={80}
-                    />
-                  </label>
-                  <button type="submit" className="erp-btn erp-btn-primary" disabled={addingCategory}>
-                    {addingCategory ? "Adding..." : "Add Category"}
-                  </button>
-                </form>
+                {!subcategoryRouteCategoryId ? (
+                  <>
+                    <form className="mb-5 flex flex-wrap items-end gap-2" onSubmit={addCategory}>
+                      <label className="block flex-1 min-w-[220px]">
+                        <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Add Category</span>
+                        <input
+                          type="text"
+                          className="erp-input"
+                          value={newCategoryName}
+                          onChange={(event) => setNewCategoryName(event.target.value)}
+                          placeholder="Enter category name"
+                          maxLength={80}
+                        />
+                      </label>
+                      <button type="submit" className="erp-btn erp-btn-primary" disabled={addingCategory}>
+                        {addingCategory ? "Adding..." : "Add Category"}
+                      </button>
+                    </form>
 
-                <div className="overflow-x-auto">
-                  <table className="erp-table">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Category Name</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {categories.length === 0 ? (
-                        <tr>
-                          <td colSpan={2} className="text-center text-slate-500">No categories found.</td>
-                        </tr>
-                      ) : (
-                        categories.map((category, index) => (
-                          <tr key={`${category}-${index}`}>
-                            <td>{index + 1}</td>
-                            <td>{category}</td>
+                    <div className="overflow-x-auto">
+                      <table className="erp-table">
+                        <thead>
+                          <tr>
+                            <th>Serial Number</th>
+                            <th>Category Name</th>
+                            <th>Actions</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {categories.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="text-center text-slate-500">No categories found.</td>
+                            </tr>
+                          ) : (
+                            categories.map((category, index) => (
+                              <tr key={category.id}>
+                                <td>{index + 1}</td>
+                                <td>
+                                  <div className="font-medium text-slate-900">{category.name}</div>
+                                  <div className="text-xs text-slate-500">{category.subcategoryCount} sub categories</div>
+                                </td>
+                                <td>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button type="button" className="erp-btn erp-btn-soft" onClick={() => openCategoryEdit(category)}>
+                                      Edit
+                                    </button>
+                                    <button type="button" className="erp-btn erp-btn-danger" onClick={() => requestCategoryDelete(category)}>
+                                      Delete
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="erp-btn erp-btn-primary"
+                                      onClick={() => openManageSubcategories(category)}
+                                    >
+                                      Manage Sub Categories
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Selected Category</p>
+                        <p className="font-semibold text-slate-900">{selectedCategory?.name || "-"}</p>
+                      </div>
+                      <button type="button" className="erp-btn erp-btn-soft" onClick={goBackToCategoryList}>
+                        Back to Categories
+                      </button>
+                    </div>
+
+                    <form className="mb-5 flex flex-wrap items-end gap-2" onSubmit={addSubcategory}>
+                      <label className="block flex-1 min-w-[220px]">
+                        <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Add Sub Category</span>
+                        <input
+                          type="text"
+                          className="erp-input"
+                          value={newSubcategoryName}
+                          onChange={(event) => setNewSubcategoryName(event.target.value)}
+                          placeholder="Enter sub category name"
+                          maxLength={80}
+                        />
+                      </label>
+                      <button type="submit" className="erp-btn erp-btn-primary" disabled={addingSubcategory}>
+                        {addingSubcategory ? "Adding..." : "Add Sub Category"}
+                      </button>
+                    </form>
+
+                    <div className="overflow-x-auto">
+                      <table className="erp-table">
+                        <thead>
+                          <tr>
+                            <th>Serial Number</th>
+                            <th>Sub Category Name</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {loadingSubcategories ? (
+                            <tr>
+                              <td colSpan={3} className="text-center text-slate-500">Loading sub categories...</td>
+                            </tr>
+                          ) : subcategories.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="text-center text-slate-500">No sub categories found.</td>
+                            </tr>
+                          ) : (
+                            subcategories.map((subcategory, index) => (
+                              <tr key={subcategory.id}>
+                                <td>{index + 1}</td>
+                                <td>{subcategory.name}</td>
+                                <td>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button type="button" className="erp-btn erp-btn-soft" onClick={() => openSubcategoryEdit(subcategory)}>
+                                      Edit
+                                    </button>
+                                    <button type="button" className="erp-btn erp-btn-danger" onClick={() => requestSubcategoryDelete(subcategory)}>
+                                      Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </section>
             ) : null}
           </main>
@@ -767,6 +1225,132 @@ export default function AdminApp() {
               </div>
             </form>
           </div>
+        </div>
+      ) : null}
+
+      {categoryEditModal ? (
+        <div className="erp-drawer-overlay items-center justify-center" onClick={() => setCategoryEditModal(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Edit Category</h3>
+                <p className="text-sm text-slate-500">Update category name</p>
+              </div>
+              <button type="button" className="erp-icon-btn" onClick={() => setCategoryEditModal(null)} disabled={savingCategoryEdit}>
+                X
+              </button>
+            </div>
+
+            <form className="space-y-3" onSubmit={saveCategoryEdit}>
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Category Name</span>
+                <input
+                  type="text"
+                  className="erp-input"
+                  value={categoryEditModal.name}
+                  onChange={(event) =>
+                    setCategoryEditModal((current) => (current ? { ...current, name: event.target.value } : current))
+                  }
+                  maxLength={80}
+                  required
+                />
+              </label>
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button type="button" className="erp-btn erp-btn-soft" onClick={() => setCategoryEditModal(null)} disabled={savingCategoryEdit}>
+                  Cancel
+                </button>
+                <button type="submit" className="erp-btn erp-btn-primary" disabled={savingCategoryEdit}>
+                  {savingCategoryEdit ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {subcategoryEditModal ? (
+        <div className="erp-drawer-overlay items-center justify-center" onClick={() => setSubcategoryEditModal(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Edit Sub Category</h3>
+                <p className="text-sm text-slate-500">Update sub category name</p>
+              </div>
+              <button type="button" className="erp-icon-btn" onClick={() => setSubcategoryEditModal(null)} disabled={savingSubcategoryEdit}>
+                X
+              </button>
+            </div>
+
+            <form className="space-y-3" onSubmit={saveSubcategoryEdit}>
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Sub Category Name</span>
+                <input
+                  type="text"
+                  className="erp-input"
+                  value={subcategoryEditModal.name}
+                  onChange={(event) =>
+                    setSubcategoryEditModal((current) => (current ? { ...current, name: event.target.value } : current))
+                  }
+                  maxLength={80}
+                  required
+                />
+              </label>
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button type="button" className="erp-btn erp-btn-soft" onClick={() => setSubcategoryEditModal(null)} disabled={savingSubcategoryEdit}>
+                  Cancel
+                </button>
+                <button type="submit" className="erp-btn erp-btn-primary" disabled={savingSubcategoryEdit}>
+                  {savingSubcategoryEdit ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmDialog ? (
+        <div className="erp-drawer-overlay items-center justify-center" onClick={() => setConfirmDialog(null)}>
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-slate-900">{confirmDialog.title}</h3>
+            <p className="mt-2 text-sm text-slate-700">{confirmDialog.message}</p>
+            {confirmDialog.warning ? (
+              <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">{confirmDialog.warning}</p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button type="button" className="erp-btn erp-btn-soft" onClick={() => setConfirmDialog(null)} disabled={confirmingAction}>
+                Cancel
+              </button>
+              <button type="button" className="erp-btn erp-btn-danger" onClick={executeConfirmAction} disabled={confirmingAction}>
+                {confirmingAction ? "Deleting..." : "Confirm Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toasts.length > 0 ? (
+        <div className="fixed right-4 top-4 z-[80] flex w-full max-w-sm flex-col gap-2">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`rounded-xl border px-3 py-2 text-sm shadow-lg ${
+                toast.type === "error"
+                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {toast.message}
+            </div>
+          ))}
         </div>
       ) : null}
     </div>

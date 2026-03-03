@@ -65,6 +65,7 @@ function isValidAdminSession(sessionToken: string): boolean {
 
   if (Date.now() - session.createdAt > adminSessionTtlMs) {
     adminSessions.delete(sessionToken);
+    void removePersistedAdminSession(sessionToken);
     return false;
   }
 
@@ -73,6 +74,7 @@ function isValidAdminSession(sessionToken: string): boolean {
 
 function clearAdminSession(sessionToken: string): void {
   adminSessions.delete(sessionToken);
+  void removePersistedAdminSession(sessionToken);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -452,20 +454,121 @@ async function ensureAdminAccountRecord(email: string, password: string): Promis
     disabled: false
   });
 
-  await db
-    .collection("users")
-    .doc(adminUser.uid)
-    .set(
-      {
-        uid: adminUser.uid,
-        email: normalizedEmail,
-        name: "Tasko Admin",
-        role: "admin",
-        updatedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString()
-      },
-      { merge: true }
-    );
+  const now = new Date().toISOString();
+  await Promise.all([
+    db
+      .collection("users")
+      .doc(adminUser.uid)
+      .set(
+        {
+          uid: adminUser.uid,
+          email: normalizedEmail,
+          name: "Tasko Admin",
+          role: "admin",
+          updatedAt: now,
+          createdAt: now
+        },
+        { merge: true }
+      ),
+    db
+      .collection("admin_accounts")
+      .doc(normalizedEmail)
+      .set(
+        {
+          uid: adminUser.uid,
+          email: normalizedEmail,
+          role: "admin",
+          status: "active",
+          updatedAt: now,
+          createdAt: now
+        },
+        { merge: true }
+      )
+  ]);
+}
+
+async function persistAdminSession(sessionToken: string, email: string, createdAt: number): Promise<void> {
+  const now = new Date().toISOString();
+  const expiresAt = createdAt + adminSessionTtlMs;
+  await db.collection("admin_sessions").doc(sessionToken).set(
+    {
+      token: sessionToken,
+      email: email.trim().toLowerCase(),
+      createdAt,
+      created_at: new Date(createdAt).toISOString(),
+      expiresAt,
+      expires_at: new Date(expiresAt).toISOString(),
+      updatedAt: now
+    },
+    { merge: true }
+  );
+}
+
+async function removePersistedAdminSession(sessionToken: string): Promise<void> {
+  try {
+    await db.collection("admin_sessions").doc(sessionToken).delete();
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      // eslint-disable-next-line no-console
+      console.error(`Failed to remove admin session ${sessionToken}: ${getErrorMessage(error)}`);
+    }
+  }
+}
+
+async function loadPersistedAdminSessions(): Promise<void> {
+  try {
+    const snapshot = await db.collection("admin_sessions").get();
+    const now = Date.now();
+    const staleSessionTokens: string[] = [];
+
+    snapshot.docs.forEach((document) => {
+      const data = document.data() || {};
+      const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
+      const createdAtNumber = Number(data.createdAt);
+      const expiresAtNumber = Number(data.expiresAt);
+      const createdAtIso =
+        typeof data.created_at === "string" ? Date.parse(data.created_at) : Number.NaN;
+      const expiresAtIso =
+        typeof data.expires_at === "string" ? Date.parse(data.expires_at) : Number.NaN;
+      const createdAt = Number.isFinite(createdAtNumber)
+        ? createdAtNumber
+        : Number.isFinite(createdAtIso)
+          ? createdAtIso
+          : now;
+      const expiresAt = Number.isFinite(expiresAtNumber)
+        ? expiresAtNumber
+        : Number.isFinite(expiresAtIso)
+          ? expiresAtIso
+          : createdAt + adminSessionTtlMs;
+
+      if (!email || expiresAt <= now) {
+        staleSessionTokens.push(document.id);
+        return;
+      }
+
+      adminSessions.set(document.id, {
+        email,
+        createdAt
+      });
+    });
+
+    if (staleSessionTokens.length > 0) {
+      await Promise.all(
+        staleSessionTokens.map((token) =>
+          db
+            .collection("admin_sessions")
+            .doc(token)
+            .delete()
+            .catch(() => {})
+        )
+      );
+    }
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to load persisted admin sessions:", error);
+    }
+  }
 }
 
 async function ensureAdminAccount(): Promise<void> {
@@ -656,6 +759,15 @@ app.post("/api/admin/login", async (req: Request, res: Response) => {
     }
 
     const sessionToken = createAdminSession(normalizedEmail);
+    const createdAt = adminSessions.get(sessionToken)?.createdAt || Date.now();
+    try {
+      await persistAdminSession(sessionToken, normalizedEmail, createdAt);
+    } catch (error) {
+      if (!isFirestoreUnavailableError(error)) {
+        // eslint-disable-next-line no-console
+        console.error("Failed to persist admin session:", error);
+      }
+    }
 
     return res.json({
       sessionToken,
@@ -1023,6 +1135,7 @@ app.get("/api/admin/analytics", async (_req: Request, res: Response) => {
 });
 
 async function startServer() {
+  await loadPersistedAdminSessions();
   await ensureAdminAccount();
 
   app.listen(port, () => {

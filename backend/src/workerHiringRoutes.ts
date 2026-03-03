@@ -39,6 +39,21 @@ type WorkerRecord = {
   rating: number;
 };
 
+type CategoryRecord = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SubcategoryRecord = {
+  id: string;
+  categoryId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type SessionRecord = {
   workerId: string;
   createdAt: number;
@@ -52,6 +67,8 @@ const workerSessions = new Map<string, SessionRecord>();
 const workerSessionTtlMs = 1000 * 60 * 60 * 24;
 const inMemoryWorkerApplications = new Map<string, WorkerApplicationRecord>();
 const inMemoryWorkers = new Map<string, WorkerRecord>();
+const inMemoryCategories = new Map<string, CategoryRecord>();
+const inMemorySubcategories = new Map<string, SubcategoryRecord>();
 const defaultServiceCategories = [
   "Cleaning",
   "Washing",
@@ -64,7 +81,73 @@ const defaultServiceCategories = [
   "Cooking",
   "AC Repair"
 ];
-let inMemoryServiceCategories = [...defaultServiceCategories];
+const defaultSubcategoriesByCategoryName: Record<string, string[]> = {
+  cleaning: [
+    "House Cleaning",
+    "Deep Cleaning",
+    "Kitchen Cleaninng",
+    "Bathroom Cleaning",
+    "Office Cleaning"
+  ],
+  washing: [
+    "Dish Washing",
+    "Clothes Washing",
+    "Bike Washing",
+    "Car Washing",
+    "Sofa / Carpet Washing"
+  ],
+  maintenance: [
+    "Garden Maintenance",
+    "Lawn Cutting",
+    "Water Tank Cleaning",
+    "General Home Maintenance",
+    "Minor Repair Work"
+  ],
+  mechanic: [
+    "Bike Repair",
+    "Car Repair",
+    "Puncture Fix",
+    "Engine Check",
+    "Battery Replacement"
+  ],
+  plumbing: [
+    "Pipe Leakage Fix",
+    "Tap Installation",
+    "Drain Block Cleaning",
+    "Bathroom Fitting Repair",
+    "Water Motor Repair"
+  ],
+  "technical & installation services": [
+    "Fan Installation",
+    "Light Installation",
+    "TV Installation",
+    "CCTV Installation",
+    "Washing Machine Installation",
+    "Inverter Installation"
+  ],
+  caring: ["Babysitting", "Elder Care", "Patient Care", "Full Day Care", "Night Care"],
+  "barber & makeup services": [
+    "Hair Cutting",
+    "Beard Styling",
+    "Facial",
+    "Bridal Makeup",
+    "Party Makeup"
+  ],
+  cooking: [
+    "Home Cook (Daily)",
+    "Event Cooking",
+    "Veg Cooking",
+    "Non-Veg Cooking",
+    "Temporary Cook"
+  ],
+  "ac repair": [
+    "AC Installation",
+    "AC Gas Refill",
+    "AC General Service",
+    "AC Not Cooling Issue",
+    "AC Water Leakage Fix"
+  ]
+};
 
 const uploadsRoot = path.resolve(__dirname, "../uploads");
 const workerDocumentsRoot = path.join(uploadsRoot, "worker-documents");
@@ -118,6 +201,14 @@ function uniqueCategories(input: string[]): string[] {
     deduped.push(normalized);
   });
   return deduped;
+}
+
+function toSlug(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "category";
 }
 
 function isValidEmail(email: string): boolean {
@@ -459,17 +550,208 @@ async function listWorkers(): Promise<WorkerRecord[]> {
   return Array.from(inMemoryWorkers.values());
 }
 
-async function listServiceCategories(): Promise<string[]> {
-  try {
-    const document = await db.collection("meta").doc("service_categories").get();
-    if (document.exists) {
-      const storedItems = Array.isArray(document.data()?.items)
-        ? (document.data()?.items as unknown[])
-        : [];
-      const parsed = uniqueCategories(storedItems.map((item) => readTrimmedString(item)));
-      if (parsed.length > 0) {
-        return parsed;
+function normalizeCategoryRecord(categoryId: string, data: Record<string, unknown>): CategoryRecord {
+  const now = new Date().toISOString();
+  return {
+    id: categoryId,
+    name: normalizeCategoryName(data.name),
+    createdAt:
+      readTrimmedString(data.createdAt) || readTrimmedString(data.created_at) || now,
+    updatedAt:
+      readTrimmedString(data.updatedAt) || readTrimmedString(data.updated_at) || now
+  };
+}
+
+function normalizeSubcategoryRecord(subcategoryId: string, data: Record<string, unknown>): SubcategoryRecord {
+  const now = new Date().toISOString();
+  return {
+    id: subcategoryId,
+    categoryId: readTrimmedString(data.categoryId) || readTrimmedString(data.category_id),
+    name: normalizeCategoryName(data.name),
+    createdAt:
+      readTrimmedString(data.createdAt) || readTrimmedString(data.created_at) || now,
+    updatedAt:
+      readTrimmedString(data.updatedAt) || readTrimmedString(data.updated_at) || now
+  };
+}
+
+function toCategoryResponse(category: CategoryRecord, subcategoryCount: number): Record<string, unknown> {
+  return {
+    id: category.id,
+    name: category.name,
+    createdAt: category.createdAt,
+    updatedAt: category.updatedAt,
+    subcategoryCount
+  };
+}
+
+function toSubcategoryResponse(subcategory: SubcategoryRecord): Record<string, unknown> {
+  return {
+    id: subcategory.id,
+    categoryId: subcategory.categoryId,
+    category_id: subcategory.categoryId,
+    name: subcategory.name,
+    createdAt: subcategory.createdAt,
+    updatedAt: subcategory.updatedAt
+  };
+}
+
+function ensureInMemoryDefaultCategories(): CategoryRecord[] {
+  if (inMemoryCategories.size > 0) {
+    return Array.from(inMemoryCategories.values());
+  }
+
+  const now = new Date().toISOString();
+  const usedIds = new Set<string>();
+  uniqueCategories(defaultServiceCategories).forEach((name) => {
+    const baseId = `cat-${toSlug(name)}`;
+    let nextId = baseId;
+    let suffix = 1;
+    while (usedIds.has(nextId)) {
+      suffix += 1;
+      nextId = `${baseId}-${suffix}`;
+    }
+    usedIds.add(nextId);
+    inMemoryCategories.set(nextId, {
+      id: nextId,
+      name,
+      createdAt: now,
+      updatedAt: now
+    });
+  });
+
+  return Array.from(inMemoryCategories.values());
+}
+
+async function ensureDefaultSubcategoriesForCategories(categories: CategoryRecord[]): Promise<void> {
+  if (categories.length === 0) {
+    return;
+  }
+
+  const existing = await listSubcategories();
+  const existingByCategoryId = new Map<string, Set<string>>();
+  existing.forEach((subcategory) => {
+    const key = subcategory.categoryId;
+    const current = existingByCategoryId.get(key) || new Set<string>();
+    current.add(subcategory.name.toLowerCase());
+    existingByCategoryId.set(key, current);
+  });
+
+  const now = new Date().toISOString();
+  const recordsToSeed: SubcategoryRecord[] = [];
+  categories.forEach((category) => {
+    const defaults =
+      defaultSubcategoriesByCategoryName[category.name.trim().toLowerCase()] || [];
+    if (defaults.length === 0) {
+      return;
+    }
+
+    const existingNames = existingByCategoryId.get(category.id) || new Set<string>();
+    uniqueCategories(defaults).forEach((name) => {
+      const normalizedName = normalizeCategoryName(name);
+      if (!normalizedName) {
+        return;
       }
+      if (existingNames.has(normalizedName.toLowerCase())) {
+        return;
+      }
+      existingNames.add(normalizedName.toLowerCase());
+      recordsToSeed.push({
+        id: `sub-${crypto.randomUUID()}`,
+        categoryId: category.id,
+        name: normalizedName,
+        createdAt: now,
+        updatedAt: now
+      });
+    });
+  });
+
+  if (recordsToSeed.length === 0) {
+    return;
+  }
+
+  try {
+    await Promise.all(
+      recordsToSeed.map((record) =>
+        db.collection("subcategories").doc(record.id).set(
+          {
+            categoryId: record.categoryId,
+            name: record.name,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt
+          },
+          { merge: true }
+        )
+      )
+    );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  recordsToSeed.forEach((record) => inMemorySubcategories.set(record.id, record));
+}
+
+async function listCategories(): Promise<CategoryRecord[]> {
+  try {
+    const snapshot = await db.collection("categories").get();
+    if (!snapshot.empty) {
+      const categories = snapshot.docs
+        .map((document) => normalizeCategoryRecord(document.id, document.data()))
+        .filter((record) => Boolean(record.name))
+        .sort((left, right) => left.name.localeCompare(right.name));
+
+      categories.forEach((record) => inMemoryCategories.set(record.id, record));
+      await ensureDefaultSubcategoriesForCategories(categories);
+      return categories;
+    }
+
+    const now = new Date().toISOString();
+    const seedRecords = ensureInMemoryDefaultCategories().map((record) => ({
+      ...record,
+      createdAt: record.createdAt || now,
+      updatedAt: now
+    }));
+    await Promise.all(
+      seedRecords.map((record) =>
+        db.collection("categories").doc(record.id).set(
+          {
+            name: record.name,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt
+          },
+          { merge: true }
+        )
+      )
+    );
+    await ensureDefaultSubcategoriesForCategories(seedRecords);
+    return seedRecords.sort((left, right) => left.name.localeCompare(right.name));
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  const fallbackCategories = ensureInMemoryDefaultCategories().sort((left, right) =>
+    left.name.localeCompare(right.name)
+  );
+  await ensureDefaultSubcategoriesForCategories(fallbackCategories);
+  return fallbackCategories;
+}
+
+async function getCategoryById(categoryId: string): Promise<CategoryRecord | null> {
+  const fromMemory = inMemoryCategories.get(categoryId);
+  if (fromMemory) {
+    return fromMemory;
+  }
+
+  try {
+    const document = await db.collection("categories").doc(categoryId).get();
+    if (document.exists) {
+      const normalized = normalizeCategoryRecord(document.id, document.data() || {});
+      inMemoryCategories.set(normalized.id, normalized);
+      return normalized;
     }
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
@@ -477,27 +759,84 @@ async function listServiceCategories(): Promise<string[]> {
     }
   }
 
-  return [...inMemoryServiceCategories];
+  return null;
 }
 
-async function addServiceCategory(categoryName: string): Promise<{ categories: string[]; created: boolean }> {
-  const normalizedCategory = normalizeCategoryName(categoryName);
-  if (!normalizedCategory) {
+async function listSubcategories(categoryId?: string): Promise<SubcategoryRecord[]> {
+  try {
+    const snapshot = categoryId
+      ? await db.collection("subcategories").where("categoryId", "==", categoryId).get()
+      : await db.collection("subcategories").get();
+    const subcategories = snapshot.docs
+      .map((document) => normalizeSubcategoryRecord(document.id, document.data()))
+      .filter(
+        (record) =>
+          Boolean(record.name) &&
+          Boolean(record.categoryId) &&
+          (!categoryId || record.categoryId === categoryId)
+      )
+      .sort((left, right) => left.name.localeCompare(right.name));
+    subcategories.forEach((record) => inMemorySubcategories.set(record.id, record));
+    return subcategories;
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return Array.from(inMemorySubcategories.values())
+    .filter((record) => !categoryId || record.categoryId === categoryId)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function getSubcategoryById(subcategoryId: string): Promise<SubcategoryRecord | null> {
+  const fromMemory = inMemorySubcategories.get(subcategoryId);
+  if (fromMemory) {
+    return fromMemory;
+  }
+
+  try {
+    const document = await db.collection("subcategories").doc(subcategoryId).get();
+    if (document.exists) {
+      const normalized = normalizeSubcategoryRecord(document.id, document.data() || {});
+      inMemorySubcategories.set(normalized.id, normalized);
+      return normalized;
+    }
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return null;
+}
+
+async function createCategory(name: string): Promise<{ category: CategoryRecord | null; created: boolean }> {
+  const normalizedName = normalizeCategoryName(name);
+  if (!normalizedName) {
     throw new Error("Category name is required.");
   }
 
-  const existing = await listServiceCategories();
-  if (existing.some((item) => item.toLowerCase() === normalizedCategory.toLowerCase())) {
-    return { categories: existing, created: false };
+  const existing = await listCategories();
+  if (existing.some((record) => record.name.toLowerCase() === normalizedName.toLowerCase())) {
+    return { category: null, created: false };
   }
 
-  const next = [...existing, normalizedCategory];
   const now = new Date().toISOString();
+  const categoryId = `cat-${crypto.randomUUID()}`;
+  const category: CategoryRecord = {
+    id: categoryId,
+    name: normalizedName,
+    createdAt: now,
+    updatedAt: now
+  };
+
   try {
-    await db.collection("meta").doc("service_categories").set(
+    await db.collection("categories").doc(categoryId).set(
       {
-        items: next,
-        updated_at: now
+        name: category.name,
+        createdAt: category.createdAt,
+        updatedAt: category.updatedAt
       },
       { merge: true }
     );
@@ -507,8 +846,202 @@ async function addServiceCategory(categoryName: string): Promise<{ categories: s
     }
   }
 
-  inMemoryServiceCategories = next;
-  return { categories: next, created: true };
+  inMemoryCategories.set(category.id, category);
+  return { category, created: true };
+}
+
+async function updateCategory(
+  categoryId: string,
+  name: string
+): Promise<{ category: CategoryRecord | null; updated: boolean }> {
+  const normalizedName = normalizeCategoryName(name);
+  if (!normalizedName) {
+    throw new Error("Category name is required.");
+  }
+
+  const current = await getCategoryById(categoryId);
+  if (!current) {
+    return { category: null, updated: false };
+  }
+
+  const allCategories = await listCategories();
+  const duplicate = allCategories.find(
+    (record) =>
+      record.id !== categoryId &&
+      record.name.toLowerCase() === normalizedName.toLowerCase()
+  );
+  if (duplicate) {
+    return { category: null, updated: false };
+  }
+
+  const next: CategoryRecord = {
+    ...current,
+    name: normalizedName,
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    await db.collection("categories").doc(categoryId).set(
+      {
+        name: next.name,
+        updatedAt: next.updatedAt
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemoryCategories.set(categoryId, next);
+  return { category: next, updated: true };
+}
+
+async function deleteCategory(
+  categoryId: string
+): Promise<{ deleted: boolean; deletedSubcategoryCount: number }> {
+  const current = await getCategoryById(categoryId);
+  if (!current) {
+    return { deleted: false, deletedSubcategoryCount: 0 };
+  }
+
+  const subcategories = await listSubcategories(categoryId);
+  try {
+    await Promise.all([
+      db.collection("categories").doc(categoryId).delete(),
+      ...subcategories.map((subcategory) =>
+        db.collection("subcategories").doc(subcategory.id).delete()
+      )
+    ]);
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemoryCategories.delete(categoryId);
+  subcategories.forEach((subcategory) => inMemorySubcategories.delete(subcategory.id));
+  return { deleted: true, deletedSubcategoryCount: subcategories.length };
+}
+
+async function createSubcategory(
+  categoryId: string,
+  name: string
+): Promise<{ subcategory: SubcategoryRecord | null; created: boolean }> {
+  const normalizedName = normalizeCategoryName(name);
+  if (!normalizedName) {
+    throw new Error("Subcategory name is required.");
+  }
+
+  const category = await getCategoryById(categoryId);
+  if (!category) {
+    return { subcategory: null, created: false };
+  }
+
+  const existing = await listSubcategories(categoryId);
+  if (existing.some((record) => record.name.toLowerCase() === normalizedName.toLowerCase())) {
+    return { subcategory: null, created: false };
+  }
+
+  const now = new Date().toISOString();
+  const subcategoryId = `sub-${crypto.randomUUID()}`;
+  const subcategory: SubcategoryRecord = {
+    id: subcategoryId,
+    categoryId,
+    name: normalizedName,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  try {
+    await db.collection("subcategories").doc(subcategoryId).set(
+      {
+        categoryId: subcategory.categoryId,
+        name: subcategory.name,
+        createdAt: subcategory.createdAt,
+        updatedAt: subcategory.updatedAt
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemorySubcategories.set(subcategory.id, subcategory);
+  return { subcategory, created: true };
+}
+
+async function updateSubcategory(
+  categoryId: string,
+  subcategoryId: string,
+  name: string
+): Promise<{ subcategory: SubcategoryRecord | null; updated: boolean }> {
+  const normalizedName = normalizeCategoryName(name);
+  if (!normalizedName) {
+    throw new Error("Subcategory name is required.");
+  }
+
+  const current = await getSubcategoryById(subcategoryId);
+  if (!current || current.categoryId !== categoryId) {
+    return { subcategory: null, updated: false };
+  }
+
+  const allInCategory = await listSubcategories(categoryId);
+  const duplicate = allInCategory.find(
+    (record) =>
+      record.id !== subcategoryId &&
+      record.name.toLowerCase() === normalizedName.toLowerCase()
+  );
+  if (duplicate) {
+    return { subcategory: null, updated: false };
+  }
+
+  const next: SubcategoryRecord = {
+    ...current,
+    name: normalizedName,
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    await db.collection("subcategories").doc(subcategoryId).set(
+      {
+        name: next.name,
+        updatedAt: next.updatedAt
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemorySubcategories.set(subcategoryId, next);
+  return { subcategory: next, updated: true };
+}
+
+async function deleteSubcategory(
+  categoryId: string,
+  subcategoryId: string
+): Promise<{ deleted: boolean }> {
+  const current = await getSubcategoryById(subcategoryId);
+  if (!current || current.categoryId !== categoryId) {
+    return { deleted: false };
+  }
+
+  try {
+    await db.collection("subcategories").doc(subcategoryId).delete();
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemorySubcategories.delete(subcategoryId);
+  return { deleted: true };
 }
 
 function buildDocumentUrl(
@@ -637,8 +1170,20 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
     }
 
     try {
-      const categories = await listServiceCategories();
-      return res.json({ categories });
+      const categories = await listCategories();
+      const subcategories = await listSubcategories();
+      const subcategoryCountByCategory = new Map<string, number>();
+      subcategories.forEach((subcategory) => {
+        subcategoryCountByCategory.set(
+          subcategory.categoryId,
+          (subcategoryCountByCategory.get(subcategory.categoryId) || 0) + 1
+        );
+      });
+      return res.json({
+        categories: categories.map((category) =>
+          toCategoryResponse(category, subcategoryCountByCategory.get(category.id) || 0)
+        )
+      });
     } catch (error) {
       return res.status(500).json({ message: "Failed to load categories", error: getErrorMessage(error) });
     }
@@ -656,13 +1201,205 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(400).json({ message: "Category name is required." });
       }
 
-      const { categories, created } = await addServiceCategory(name);
-      if (!created) {
-        return res.status(409).json({ message: "Category already exists.", categories });
+      const { category, created } = await createCategory(name);
+      if (!created || !category) {
+        return res.status(409).json({ message: "Category already exists." });
       }
-      return res.status(201).json({ message: "Category added successfully.", categories });
+
+      return res.status(201).json({
+        message: "Category added successfully.",
+        category: toCategoryResponse(category, 0)
+      });
     } catch (error) {
       return res.status(500).json({ message: "Failed to add category", error: getErrorMessage(error) });
+    }
+  });
+
+  app.patch("/api/admin/categories/:categoryId", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const categoryId = readTrimmedString(req.params.categoryId);
+      if (!categoryId) {
+        return res.status(400).json({ message: "categoryId is required." });
+      }
+
+      const name = normalizeCategoryName((req.body as { name?: unknown }).name);
+      if (!name) {
+        return res.status(400).json({ message: "Category name is required." });
+      }
+
+      const { category, updated } = await updateCategory(categoryId, name);
+      if (!updated || !category) {
+        const exists = await getCategoryById(categoryId);
+        if (!exists) {
+          return res.status(404).json({ message: "Category not found." });
+        }
+        return res.status(409).json({ message: "Category name already exists." });
+      }
+
+      const subcategories = await listSubcategories(categoryId);
+      return res.json({
+        message: "Category updated successfully.",
+        category: toCategoryResponse(category, subcategories.length)
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to update category", error: getErrorMessage(error) });
+    }
+  });
+
+  app.delete("/api/admin/categories/:categoryId", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const categoryId = readTrimmedString(req.params.categoryId);
+      if (!categoryId) {
+        return res.status(400).json({ message: "categoryId is required." });
+      }
+
+      const { deleted, deletedSubcategoryCount } = await deleteCategory(categoryId);
+      if (!deleted) {
+        return res.status(404).json({ message: "Category not found." });
+      }
+
+      return res.json({
+        message: "Category deleted successfully.",
+        deletedSubcategoryCount
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to delete category", error: getErrorMessage(error) });
+    }
+  });
+
+  app.get("/api/admin/categories/:categoryId/subcategories", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const categoryId = readTrimmedString(req.params.categoryId);
+      if (!categoryId) {
+        return res.status(400).json({ message: "categoryId is required." });
+      }
+
+      const category = await getCategoryById(categoryId);
+      if (!category) {
+        return res.status(404).json({ message: "Category not found." });
+      }
+
+      const subcategories = await listSubcategories(categoryId);
+      return res.json({
+        category: toCategoryResponse(category, subcategories.length),
+        subcategories: subcategories.map((subcategory) => toSubcategoryResponse(subcategory))
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to load subcategories", error: getErrorMessage(error) });
+    }
+  });
+
+  app.post("/api/admin/categories/:categoryId/subcategories", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const categoryId = readTrimmedString(req.params.categoryId);
+      if (!categoryId) {
+        return res.status(400).json({ message: "categoryId is required." });
+      }
+
+      const name = normalizeCategoryName((req.body as { name?: unknown }).name);
+      if (!name) {
+        return res.status(400).json({ message: "Subcategory name is required." });
+      }
+
+      const { subcategory, created } = await createSubcategory(categoryId, name);
+      if (!created || !subcategory) {
+        const category = await getCategoryById(categoryId);
+        if (!category) {
+          return res.status(404).json({ message: "Category not found." });
+        }
+        return res.status(409).json({ message: "Subcategory name already exists in this category." });
+      }
+
+      return res.status(201).json({
+        message: "Subcategory added successfully.",
+        subcategory: toSubcategoryResponse(subcategory)
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to add subcategory", error: getErrorMessage(error) });
+    }
+  });
+
+  app.patch("/api/admin/categories/:categoryId/subcategories/:subcategoryId", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const categoryId = readTrimmedString(req.params.categoryId);
+      const subcategoryId = readTrimmedString(req.params.subcategoryId);
+      if (!categoryId || !subcategoryId) {
+        return res.status(400).json({ message: "categoryId and subcategoryId are required." });
+      }
+
+      const name = normalizeCategoryName((req.body as { name?: unknown }).name);
+      if (!name) {
+        return res.status(400).json({ message: "Subcategory name is required." });
+      }
+
+      const { subcategory, updated } = await updateSubcategory(categoryId, subcategoryId, name);
+      if (!updated || !subcategory) {
+        const category = await getCategoryById(categoryId);
+        if (!category) {
+          return res.status(404).json({ message: "Category not found." });
+        }
+        const existingSubcategory = await getSubcategoryById(subcategoryId);
+        if (!existingSubcategory || existingSubcategory.categoryId !== categoryId) {
+          return res.status(404).json({ message: "Subcategory not found." });
+        }
+        return res.status(409).json({ message: "Subcategory name already exists in this category." });
+      }
+
+      return res.json({
+        message: "Subcategory updated successfully.",
+        subcategory: toSubcategoryResponse(subcategory)
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to update subcategory", error: getErrorMessage(error) });
+    }
+  });
+
+  app.delete("/api/admin/categories/:categoryId/subcategories/:subcategoryId", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const categoryId = readTrimmedString(req.params.categoryId);
+      const subcategoryId = readTrimmedString(req.params.subcategoryId);
+      if (!categoryId || !subcategoryId) {
+        return res.status(400).json({ message: "categoryId and subcategoryId are required." });
+      }
+
+      const { deleted } = await deleteSubcategory(categoryId, subcategoryId);
+      if (!deleted) {
+        return res.status(404).json({ message: "Subcategory not found." });
+      }
+
+      return res.json({ message: "Subcategory deleted successfully." });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to delete subcategory", error: getErrorMessage(error) });
     }
   });
 
