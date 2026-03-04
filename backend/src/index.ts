@@ -905,24 +905,98 @@ app.get("/api/users", async (_req: Request, res: Response) => {
 
 app.post("/api/bookings", async (req: Request, res: Response) => {
   try {
-    const { userId, category, date, time, notes, planType, packageId } = req.body;
-    if (!userId || !category || !date || !time) {
-      return res.status(400).json({ message: "userId, category, date and time are required" });
+    const readText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+    const userId = readText(req.body.userId);
+    const serviceCategory = readText(req.body.serviceCategory) || readText(req.body.category);
+    const subCategory = readText(req.body.subCategory) || readText(req.body.category);
+    const serviceDate = readText(req.body.serviceDate) || readText(req.body.date);
+    const preferredTimeSlot = readText(req.body.preferredTimeSlot) || readText(req.body.time);
+    const workDescription = readText(req.body.workDescription);
+    const duration = readText(req.body.duration);
+    const normalizedServiceType = (readText(req.body.serviceType) || readText(req.body.planType) || "one-time").toLowerCase();
+    const serviceType = normalizedServiceType === "package" ? "package" : "one-time";
+    const packageId = readText(req.body.packageId);
+    const recurringDays = serviceType === "package" ? readText(req.body.recurringDays) : "";
+    const specialInstructions = readText(req.body.specialInstructions) || readText(req.body.notes);
+    const directAddress = readText(req.body.address) || readText(req.body.serviceAddress);
+
+    if (!userId || !serviceCategory || !subCategory || !serviceDate || !preferredTimeSlot) {
+      return res
+        .status(400)
+        .json({ message: "userId, serviceCategory, subCategory, serviceDate and preferredTimeSlot are required" });
     }
 
-    const bookingRef = await db.collection("bookings").add({
+    if (serviceType === "package" && !packageId) {
+      return res.status(400).json({ message: "packageId is required when serviceType is package" });
+    }
+
+    if (serviceType === "package" && !recurringDays) {
+      return res.status(400).json({ message: "recurringDays is required when serviceType is package" });
+    }
+
+    let address = directAddress;
+    if (!address && userId) {
+      try {
+        const userDoc = await db.collection("users").doc(userId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data() || {};
+          address = readText(userData.address);
+        }
+      } catch (error) {
+        if (!isFirestoreUnavailableError(error)) {
+          // eslint-disable-next-line no-console
+          console.warn("Failed to fetch user address for booking:", error);
+        }
+      }
+
+      if (!address) {
+        const inMemoryUser = inMemoryUsers.get(userId);
+        if (inMemoryUser) {
+          address = readText(inMemoryUser.address);
+        }
+      }
+    }
+
+    const bookingRef = db.collection("bookings").doc();
+    await bookingRef.set({
+      booking_id: bookingRef.id,
+      user_id: userId,
+      service_category_id: serviceCategory,
+      sub_category_id: subCategory,
+      booking_date: serviceDate,
+      time_slot: preferredTimeSlot,
+      address,
+      booking_type: serviceType,
+      assigned_worker_id: "",
+      created_at: timestamp(),
       userId,
-      category,
-      date,
-      time,
-      notes: notes || "",
-      planType: typeof planType === "string" ? planType : "one-time",
-      packageId: typeof packageId === "string" ? packageId : "",
+      serviceCategory,
+      subCategory,
+      serviceType,
+      workDescription,
+      serviceDate,
+      preferredTimeSlot,
+      duration,
+      recurringDays,
+      specialInstructions,
+      category: subCategory || serviceCategory,
+      date: serviceDate,
+      time: preferredTimeSlot,
+      notes: specialInstructions,
+      planType: serviceType,
+      packageId: serviceType === "package" ? packageId : "",
+      bookingId: bookingRef.id,
+      bookingDate: serviceDate,
+      timeSlot: preferredTimeSlot,
+      bookingType: serviceType,
+      assignedWorkerId: "",
+      userName: readText(req.body.userName),
       status: "pending",
       createdAt: timestamp()
     });
 
-    return res.status(201).json({ id: bookingRef.id, message: "Booking created" });
+    return res.status(201).json({ id: bookingRef.id, bookingId: bookingRef.id, message: "Booking created" });
   } catch (error) {
     return res.status(500).json({ message: "Failed to create booking", error });
   }
@@ -942,7 +1016,22 @@ app.get("/api/bookings", async (req: Request, res: Response) => {
     }
 
     const snapshot = await query.get();
-    const bookings = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const bookings = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      const bookingId =
+        typeof data.booking_id === "string" && data.booking_id.trim()
+          ? data.booking_id.trim()
+          : typeof data.bookingId === "string" && data.bookingId.trim()
+            ? data.bookingId.trim()
+            : doc.id;
+
+      return {
+        id: doc.id,
+        ...data,
+        booking_id: bookingId,
+        bookingId
+      };
+    });
     return res.json(bookings);
   } catch (error) {
     return sendDashboardReadFallback(res, "/api/bookings", [], error);
@@ -953,20 +1042,28 @@ app.patch("/api/bookings/:bookingId/status", async (req: Request, res: Response)
   try {
     const bookingId = readRouteParam(req.params.bookingId);
     const { status } = req.body as { status?: string };
+    const normalizedStatus =
+      typeof status === "string"
+        ? status
+            .trim()
+            .toLowerCase()
+            .replace(/[\s-]+/g, "_")
+        : "";
     const allowedStatuses = ["pending", "assigned", "in_progress", "completed", "cancelled"];
 
     if (!bookingId) {
       return res.status(400).json({ message: "bookingId is required" });
     }
 
-    if (!status || !allowedStatuses.includes(status)) {
+    if (!normalizedStatus || !allowedStatuses.includes(normalizedStatus)) {
       return res.status(400).json({ message: "Invalid booking status" });
     }
 
     await db.collection("bookings").doc(bookingId).set(
       {
-        status,
-        updatedAt: timestamp()
+        status: normalizedStatus,
+        updatedAt: timestamp(),
+        updated_at: timestamp()
       },
       { merge: true }
     );
@@ -1086,16 +1183,24 @@ app.get("/api/workers/:workerId/jobs", async (req: Request, res: Response) => {
 
 app.post("/api/jobs/assign", async (req: Request, res: Response) => {
   try {
-    const { bookingId, workerId } = req.body;
+    const bookingId = typeof req.body.bookingId === "string" ? req.body.bookingId.trim() : "";
+    const workerId = typeof req.body.workerId === "string" ? req.body.workerId.trim() : "";
     if (!bookingId || !workerId) {
       return res.status(400).json({ message: "bookingId and workerId are required" });
     }
 
-    await db.collection("bookings").doc(bookingId).update({
-      assignedWorkerId: workerId,
-      status: "assigned",
-      assignedAt: timestamp()
-    });
+    await db.collection("bookings").doc(bookingId).set(
+      {
+        assignedWorkerId: workerId,
+        assigned_worker_id: workerId,
+        status: "assigned",
+        assignedAt: timestamp(),
+        assigned_at: timestamp(),
+        updatedAt: timestamp(),
+        updated_at: timestamp()
+      },
+      { merge: true }
+    );
 
     return res.json({ message: "Job assigned" });
   } catch (error) {

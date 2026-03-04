@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import UserDashboardShell from "../components/UserDashboardShell";
+import UserPortalShell from "../components/UserPortalShell";
 import { useAuth } from "../context/AuthContext";
+import "./Profile.css";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -10,6 +11,7 @@ export default function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("info");
   const [profile, setProfile] = useState({
     name: "",
     mobile: "",
@@ -46,6 +48,7 @@ export default function ProfilePage() {
     if (!user) return;
     setSaving(true);
     setMessage("");
+    setMessageType("info");
     try {
       await api.post("/api/users/register", {
         uid: user.uid,
@@ -57,8 +60,10 @@ export default function ProfilePage() {
       });
       setEditing(false);
       setMessage("Profile updated successfully.");
+      setMessageType("success");
     } catch (error) {
       setMessage(error?.response?.data?.message || "Failed to update profile.");
+      setMessageType("error");
     } finally {
       setSaving(false);
     }
@@ -75,110 +80,131 @@ export default function ProfilePage() {
     return Math.round((completed / fields.length) * 100);
   }, [profile]);
 
+  const initials = useMemo(() => {
+    return String(profile.name || profile.email || "User")
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+  }, [profile.email, profile.name]);
+
   return (
-    <UserDashboardShell
-      activeTab=""
-      theme="landing"
-      eyebrow="Service Console"
-      title="Profile & Account"
-      subtitle="Manage your identity and contact details used for bookings, assignments, and support."
-    >
-      <section className="sync-overview-grid sync-profile-overview">
-        <article className="user-card sync-stat-card">
-          <p className="sync-stat-label">Profile Completion</p>
+    <UserPortalShell activeNav="">
+      <section className="tasko-page-header">
+        <p>Profile</p>
+        <h1>Profile & Account</h1>
+        <p>Manage your contact details and account preferences used across Tasko services.</p>
+      </section>
+
+      <section className="tasko-profile-overview-grid">
+        <article className="tasko-card tasko-profile-stat-card">
+          <p className="tasko-profile-stat-label">Profile Completion</p>
           <h2>{profileCompletion}%</h2>
           <p>Complete all fields to improve booking coordination.</p>
         </article>
-        <article className="user-card sync-stat-card">
-          <p className="sync-stat-label">Account Email</p>
+        <article className="tasko-card tasko-profile-stat-card">
+          <p className="tasko-profile-stat-label">Account Email</p>
           <h2>{profile.email || "Not Set"}</h2>
           <p>Primary contact used for updates and service alerts.</p>
         </article>
-        <article className="user-card sync-stat-card">
-          <p className="sync-stat-label">Edit Mode</p>
-          <h2>{editing ? "Enabled" : "Locked"}</h2>
-          <p>{editing ? "You can update fields before saving." : "Enable edit to make profile changes."}</p>
+        <article className="tasko-card tasko-profile-stat-card">
+          <p className="tasko-profile-stat-label">Mode</p>
+          <h2>{editing ? "Editing" : "Read Only"}</h2>
+          <p>{editing ? "You can edit and save your details now." : "Enable edit mode to update profile."}</p>
         </article>
       </section>
 
-      <section className="sync-profile-layout">
-        <article className="user-profile-card sync-profile-panel">
-          <div className="sync-profile-head">
-            <h2>Personal Details</h2>
-            <span className={`user-status-tag${editing ? "" : " is-muted"}`}>{editing ? "Editing" : "Read only"}</span>
-          </div>
-          <div className="user-profile-row sync-profile-fields">
+      <section className="tasko-profile-layout">
+        <article className="tasko-content-panel tasko-profile-panel-main">
+          <div className="tasko-profile-panel-head">
             <div>
-              <p className="user-field-label">Name</p>
+              <p className="tasko-profile-eyebrow">Personal Details</p>
+              <h2>Update Your Information</h2>
+            </div>
+            <span className={`tasko-profile-mode-chip${editing ? " is-editing" : ""}`}>
+              {editing ? "Editing" : "Read only"}
+            </span>
+          </div>
+
+          <div className="tasko-profile-form-grid">
+            <label className="tasko-profile-field">
+              <span>Name</span>
               <input
-                className="user-input"
+                className="tasko-profile-input"
                 value={profile.name}
                 readOnly={!editing}
                 onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))}
               />
-            </div>
+            </label>
 
-            <div>
-              <p className="user-field-label">Mobile Number</p>
+            <label className="tasko-profile-field">
+              <span>Mobile Number</span>
               <input
-                className="user-input"
+                className="tasko-profile-input"
                 value={profile.mobile}
                 readOnly={!editing}
                 onChange={(event) => setProfile((current) => ({ ...current, mobile: event.target.value }))}
               />
-            </div>
+            </label>
 
-            <div>
-              <p className="user-field-label">Gmail</p>
+            <label className="tasko-profile-field">
+              <span>Email</span>
               <input
                 type="email"
-                className="user-input"
+                className="tasko-profile-input"
                 value={profile.email}
                 readOnly={!editing}
                 onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))}
               />
-            </div>
+            </label>
 
-            <div>
-              <p className="user-field-label">Address</p>
+            <label className="tasko-profile-field tasko-profile-field-full">
+              <span>Address</span>
               <textarea
-                className="user-textarea"
+                className="tasko-profile-input tasko-profile-textarea"
                 value={profile.address}
                 readOnly={!editing}
                 onChange={(event) => setProfile((current) => ({ ...current, address: event.target.value }))}
               />
-            </div>
+            </label>
           </div>
 
-          <div className="user-actions">
+          <div className="tasko-profile-actions">
             {editing ? (
               <>
-                <button type="button" className="user-btn primary" onClick={saveProfile} disabled={saving}>
+                <button type="button" className="tasko-profile-btn primary" onClick={saveProfile} disabled={saving}>
                   {saving ? "Saving..." : "Save"}
                 </button>
-                <button type="button" className="user-btn secondary" onClick={() => setEditing(false)}>
+                <button type="button" className="tasko-profile-btn secondary" onClick={() => setEditing(false)}>
                   Cancel
                 </button>
               </>
             ) : (
-              <button type="button" className="user-btn primary" onClick={() => setEditing(true)}>
+              <button type="button" className="tasko-profile-btn primary" onClick={() => setEditing(true)}>
                 Edit
               </button>
             )}
           </div>
-          {message ? <p className="user-empty">{message}</p> : null}
+
+          {message ? <p className={`tasko-profile-message ${messageType}`}>{message}</p> : null}
         </article>
 
-        <aside className="user-card sync-profile-side">
-          <h3>Account Actions</h3>
-          <p>Need to switch accounts? You can safely sign out at any time.</p>
-          <div className="user-actions">
-            <button type="button" className="user-btn danger" onClick={handleLogout}>
+        <aside className="tasko-content-panel tasko-profile-side-panel">
+          <div className="tasko-profile-avatar" aria-hidden="true">
+            {initials}
+          </div>
+          <h3>{profile.name || "Tasko User"}</h3>
+          <p>{profile.mobile || "Add your mobile number for faster assignment updates."}</p>
+          <p className="tasko-profile-side-note">Need to switch accounts? You can safely sign out at any time.</p>
+          <div className="tasko-profile-actions">
+            <button type="button" className="tasko-profile-btn danger" onClick={handleLogout}>
               Logout
             </button>
           </div>
         </aside>
       </section>
-    </UserDashboardShell>
+    </UserPortalShell>
   );
 }

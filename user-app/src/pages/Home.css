@@ -75,6 +75,9 @@
 }
 
 .tasko-nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 38px;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -85,6 +88,9 @@
   font-family: "Montserrat", sans-serif;
   font-size: 0.7rem;
   font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   transition: color 0.22s ease, background-color 0.22s ease, border-color 0.22s ease;

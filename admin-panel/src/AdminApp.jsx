@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
+import BookingsManagement from "./BookingsManagement";
 import TaskoMartManagement from "./TaskoMartManagement";
 
-const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management", "Category", "TaskoMart Management"];
+const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management", "Bookings", "Category", "TaskoMart Management"];
 const CATEGORY_LIST_PATH = "/admin/categories";
 
 const defaultRequestNotes = {};
@@ -73,7 +74,10 @@ function normalizeWorker(record) {
     category: record.category || "-",
     salary: Number.isFinite(Number(record.salary)) ? Number(record.salary) : 0,
     status: String(record.status || "Active"),
-    joiningDate: record.joining_date || record.created_at || ""
+    joiningDate: record.joining_date || record.created_at || "",
+    online: Boolean(record.online),
+    rating: Number.isFinite(Number(record.rating)) ? Number(record.rating) : 0,
+    experience: record.experience ?? record.yearsOfExperience ?? record.experienceYears ?? ""
   };
 }
 
@@ -910,6 +914,16 @@ export default function AdminApp() {
                   </tbody>
                 </table>
               </section>
+            ) : null}
+
+            {active === "Bookings" ? (
+              <BookingsManagement
+                bookings={bookings}
+                workers={workers}
+                users={users}
+                setBookings={setBookings}
+                pushToast={pushToast}
+              />
             ) : null}
 
             {active === "TaskoMart Management" ? (

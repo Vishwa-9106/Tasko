@@ -1,0 +1,272 @@
+.tasko-profile-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.tasko-profile-stat-card {
+  display: grid;
+  align-content: start;
+  gap: 0.42rem;
+}
+
+.tasko-profile-stat-label {
+  margin: 0;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-stat-card h2 {
+  margin: 0;
+  color: #161616;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.2rem, 2.4vw, 1.85rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-stat-card p {
+  margin: 0;
+  color: #5d5d5d;
+}
+
+.tasko-profile-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
+  gap: 0.8rem;
+}
+
+.tasko-profile-panel-main {
+  padding: 1rem;
+}
+
+.tasko-profile-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.tasko-profile-eyebrow {
+  margin: 0;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-panel-head h2 {
+  margin: 0.5rem 0 0;
+  color: #181818;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.08rem, 2vw, 1.45rem);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-mode-chip {
+  min-height: 30px;
+  border-radius: 999px;
+  border: 1px solid #cfcfcf;
+  background: #f2f2f2;
+  color: #474747;
+  padding: 0 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-mode-chip.is-editing {
+  border-color: rgba(58, 58, 58, 0.45);
+  background: rgba(198, 167, 94, 0.24);
+  color: #1d1d1d;
+}
+
+.tasko-profile-form-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.tasko-profile-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.tasko-profile-field span {
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-input {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  color: #1f1f1f;
+  padding: 0 0.82rem;
+  font-size: 0.92rem;
+  font-family: "Manrope", sans-serif;
+}
+
+.tasko-profile-input:focus {
+  outline: none;
+  border-color: rgba(58, 58, 58, 0.45);
+  box-shadow: 0 0 0 3px rgba(198, 167, 94, 0.14);
+}
+
+.tasko-profile-input[readonly] {
+  background: #f5f5f5;
+  color: #515151;
+}
+
+.tasko-profile-textarea {
+  min-height: 100px;
+  padding-top: 0.62rem;
+  resize: vertical;
+}
+
+.tasko-profile-field-full {
+  grid-column: 1 / -1;
+}
+
+.tasko-profile-actions {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.tasko-profile-btn {
+  min-height: 42px;
+  border: 1px solid #b7974d;
+  background: #c6a75e;
+  color: #fdfdfd;
+  cursor: pointer;
+  padding: 0 1rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.tasko-profile-btn:hover {
+  background: #b7974d;
+}
+
+.tasko-profile-btn.secondary {
+  border-color: #d0d0d0;
+  background: #f2f2f2;
+  color: #454545;
+}
+
+.tasko-profile-btn.secondary:hover {
+  background: #e8e8e8;
+}
+
+.tasko-profile-btn.danger {
+  border-color: rgba(146, 57, 57, 0.35);
+  background: rgba(146, 57, 57, 0.08);
+  color: #6f2222;
+}
+
+.tasko-profile-btn.danger:hover {
+  background: rgba(146, 57, 57, 0.18);
+}
+
+.tasko-profile-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.tasko-profile-message {
+  margin: 0.8rem 0 0;
+  font-size: 0.9rem;
+}
+
+.tasko-profile-message.success {
+  color: #1f6f4e;
+}
+
+.tasko-profile-message.error {
+  color: #8f2c2c;
+}
+
+.tasko-profile-side-panel {
+  padding: 1rem;
+  display: grid;
+  align-content: start;
+  gap: 0.6rem;
+}
+
+.tasko-profile-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 1px solid rgba(58, 58, 58, 0.35);
+  background: rgba(198, 167, 94, 0.24);
+  color: #1f1f1f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-side-panel h3 {
+  margin: 0.1rem 0 0;
+  color: #161616;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1.02rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tasko-profile-side-panel p {
+  margin: 0;
+  color: #585858;
+}
+
+.tasko-profile-side-note {
+  margin-top: 0.2rem;
+}
+
+@media (max-width: 1080px) {
+  .tasko-profile-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tasko-profile-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .tasko-profile-overview-grid,
+  .tasko-profile-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import UserPortalShell from "../components/UserPortalShell";
+import { serviceCategories } from "./homeData";
 
 const tabs = [
   { id: "current", label: "Current" },
@@ -12,8 +13,54 @@ const tabs = [
 
 const oldStatuses = new Set(["completed", "cancelled"]);
 
+const fallbackServiceCatalog = serviceCategories.flatMap((category) =>
+  category.subcategories.map((subCategoryName) => ({
+    categoryName: category.name,
+    subCategoryName
+  }))
+);
+
 function formatTodayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function toCatalogKey(categoryName, subCategoryName) {
+  return `${normalizeText(categoryName)}||${normalizeText(subCategoryName)}`;
+}
+
+function resolveServiceSelection(queryValue, catalog) {
+  const normalizedQuery = normalizeText(queryValue);
+  if (!normalizedQuery) {
+    return { serviceCategory: "", subCategory: "" };
+  }
+
+  const categoryMatch = catalog.find((item) => normalizeText(item.categoryName) === normalizedQuery);
+  if (categoryMatch) {
+    return {
+      serviceCategory: categoryMatch.categoryName,
+      subCategory: ""
+    };
+  }
+
+  const subCategoryMatch = catalog.find((item) => normalizeText(item.subCategoryName) === normalizedQuery);
+  if (subCategoryMatch) {
+    return {
+      serviceCategory: subCategoryMatch.categoryName,
+      subCategory: subCategoryMatch.subCategoryName
+    };
+  }
+
+  return {
+    serviceCategory: "",
+    subCategory: String(queryValue || "").trim()
+  };
 }
 
 function toStatusLabel(status) {
@@ -55,8 +102,8 @@ function toDateValue(value) {
 }
 
 function parseBookingSlot(booking) {
-  const rawDate = String(booking?.date || "").trim();
-  const rawTime = String(booking?.time || "").trim();
+  const rawDate = String(booking?.serviceDate || booking?.date || "").trim();
+  const rawTime = String(booking?.preferredTimeSlot || booking?.time || "").trim();
 
   if (!rawDate) return null;
 
@@ -84,12 +131,12 @@ function getBookingBucket(booking) {
 
 function formatSlotDate(booking) {
   const slot = parseBookingSlot(booking);
-  if (!slot) return booking?.date || "-";
+  if (!slot) return booking?.serviceDate || booking?.date || "-";
   return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(slot);
 }
 
 function formatSlotTime(booking) {
-  const rawTime = String(booking?.time || "").trim();
+  const rawTime = String(booking?.preferredTimeSlot || booking?.time || "").trim();
   if (!rawTime) return "-";
 
   const parsed = new Date(`1970-01-01T${rawTime}`);
@@ -131,12 +178,16 @@ export default function BookingPage() {
   const [updatingBookingId, setUpdatingBookingId] = useState("");
 
   const [formData, setFormData] = useState({
-    category: searchParams.get("category") || "",
-    date: "",
-    time: "",
-    planType: "one-time",
+    serviceCategory: "",
+    subCategory: searchParams.get("category") || "",
+    serviceType: "one-time",
     packageId: "",
-    notes: ""
+    workDescription: "",
+    serviceDate: "",
+    preferredTimeSlot: "",
+    duration: "",
+    recurringDays: "",
+    specialInstructions: ""
   });
 
   useEffect(() => {
@@ -148,23 +199,44 @@ export default function BookingPage() {
 
     loadCatalogs().catch(() => {
       setServices([
-        { id: "home-cleaning", name: "Home Cleaning" },
-        { id: "plumbing", name: "Plumbing" },
-        { id: "electrical", name: "Electrical" }
+        { id: "home-cleaning", category: "Cleaning", name: "House Cleaning" },
+        { id: "plumbing", category: "Plumbing", name: "Pipe Leakage Fix" },
+        { id: "ac-repair", category: "Technical & Installation Services", name: "AC Repair" }
       ]);
       setPackages([]);
     });
   }, []);
 
+  const serviceCatalog = useMemo(() => {
+    const fromApi = services
+      .map((service) => ({
+        categoryName: String(service?.category || "").trim(),
+        subCategoryName: String(service?.name || service?.category || "").trim()
+      }))
+      .filter((item) => item.categoryName && item.subCategoryName);
+
+    const merged = new Map();
+
+    [...fallbackServiceCatalog, ...fromApi].forEach((item) => {
+      const key = toCatalogKey(item.categoryName, item.subCategoryName);
+      if (!key || merged.has(key)) return;
+      merged.set(key, item);
+    });
+
+    return Array.from(merged.values());
+  }, [services]);
+
   useEffect(() => {
     const categoryFromQuery = searchParams.get("category");
     if (!categoryFromQuery) return;
 
+    const selection = resolveServiceSelection(categoryFromQuery, serviceCatalog);
     setFormData((current) => ({
       ...current,
-      category: categoryFromQuery
+      serviceCategory: selection.serviceCategory,
+      subCategory: selection.subCategory
     }));
-  }, [searchParams]);
+  }, [searchParams, serviceCatalog]);
 
   const loadBookings = useCallback(async () => {
     if (!user?.uid) {
@@ -226,10 +298,23 @@ export default function BookingPage() {
     });
   }, [bookings]);
 
-  const serviceOptions = useMemo(
-    () => services.map((service) => ({ value: service.name || service.id, label: service.name || service.id })),
-    [services]
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(serviceCatalog.map((item) => item.categoryName))),
+    [serviceCatalog]
   );
+
+  const subCategoryOptions = useMemo(() => {
+    const normalizedCategory = normalizeText(formData.serviceCategory);
+    if (!normalizedCategory) return [];
+
+    return Array.from(
+      new Set(
+        serviceCatalog
+          .filter((item) => normalizeText(item.categoryName) === normalizedCategory)
+          .map((item) => item.subCategoryName)
+      )
+    );
+  }, [formData.serviceCategory, serviceCatalog]);
 
   const packageOptions = useMemo(
     () =>
@@ -284,8 +369,18 @@ export default function BookingPage() {
     event.preventDefault();
     if (!user) return;
 
-    if (formData.planType === "package" && !formData.packageId) {
+    if (!formData.serviceCategory || !formData.subCategory || !formData.serviceDate || !formData.preferredTimeSlot) {
+      setFormMessage("Please provide category, sub category, service date and preferred time slot.");
+      return;
+    }
+
+    if (formData.serviceType === "package" && !formData.packageId) {
       setFormMessage("Please choose a package plan before submitting.");
+      return;
+    }
+
+    if (formData.serviceType === "package" && !formData.recurringDays.trim()) {
+      setFormMessage("Please enter recurring days for package bookings.");
       return;
     }
 
@@ -295,20 +390,33 @@ export default function BookingPage() {
     try {
       await api.post("/api/bookings", {
         userId: user.uid,
-        category: formData.category,
-        date: formData.date,
-        time: formData.time,
-        notes: formData.notes,
-        planType: formData.planType,
-        packageId: formData.planType === "package" ? formData.packageId : ""
+        serviceCategory: formData.serviceCategory,
+        subCategory: formData.subCategory,
+        serviceType: formData.serviceType,
+        workDescription: formData.workDescription,
+        serviceDate: formData.serviceDate,
+        preferredTimeSlot: formData.preferredTimeSlot,
+        duration: formData.duration,
+        recurringDays: formData.serviceType === "package" ? formData.recurringDays : "",
+        specialInstructions: formData.specialInstructions,
+        category: formData.subCategory || formData.serviceCategory,
+        date: formData.serviceDate,
+        time: formData.preferredTimeSlot,
+        notes: formData.specialInstructions,
+        planType: formData.serviceType,
+        packageId: formData.serviceType === "package" ? formData.packageId : ""
       });
 
       setFormData((current) => ({
         ...current,
-        date: "",
-        time: "",
+        serviceType: "one-time",
         packageId: "",
-        notes: ""
+        workDescription: "",
+        serviceDate: "",
+        preferredTimeSlot: "",
+        duration: "",
+        recurringDays: "",
+        specialInstructions: ""
       }));
 
       setFormMessage("Booking submitted successfully and saved to database.");
@@ -380,61 +488,64 @@ export default function BookingPage() {
 
         <form className="tasko-booking-form" onSubmit={handleSubmit}>
           <label className="tasko-booking-field">
-            <span>Category</span>
+            <span>Service Category</span>
             <select
-              value={formData.category}
-              onChange={(event) => setFormData((current) => ({ ...current, category: event.target.value }))}
+              value={formData.serviceCategory}
+              onChange={(event) =>
+                setFormData((current) => ({
+                  ...current,
+                  serviceCategory: event.target.value,
+                  subCategory: ""
+                }))
+              }
               required
             >
-              <option value="">Select category</option>
-              {serviceOptions.map((service) => (
-                <option key={service.value} value={service.value}>
-                  {service.label}
+              <option value="">Select service category</option>
+              {categoryOptions.map((categoryName) => (
+                <option key={categoryName} value={categoryName}>
+                  {categoryName}
                 </option>
               ))}
             </select>
           </label>
 
           <label className="tasko-booking-field">
-            <span>Date</span>
-            <input
-              type="date"
-              min={formatTodayDate()}
-              value={formData.date}
-              onChange={(event) => setFormData((current) => ({ ...current, date: event.target.value }))}
-              required
-            />
-          </label>
-
-          <label className="tasko-booking-field">
-            <span>Time</span>
-            <input
-              type="time"
-              value={formData.time}
-              onChange={(event) => setFormData((current) => ({ ...current, time: event.target.value }))}
-              required
-            />
-          </label>
-
-          <label className="tasko-booking-field">
-            <span>Plan Type</span>
+            <span>Sub Category</span>
             <select
-              value={formData.planType}
+              value={formData.subCategory}
+              onChange={(event) => setFormData((current) => ({ ...current, subCategory: event.target.value }))}
+              required
+              disabled={!formData.serviceCategory}
+            >
+              <option value="">Select sub category</option>
+              {subCategoryOptions.map((subCategoryName) => (
+                <option key={subCategoryName} value={subCategoryName}>
+                  {subCategoryName}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="tasko-booking-field">
+            <span>Service Type</span>
+            <select
+              value={formData.serviceType}
               onChange={(event) =>
                 setFormData((current) => ({
                   ...current,
-                  planType: event.target.value,
-                  packageId: ""
+                  serviceType: event.target.value,
+                  packageId: "",
+                  recurringDays: ""
                 }))
               }
               required
             >
               <option value="one-time">One-time</option>
-              <option value="package">Package Plan</option>
+              <option value="package">Package</option>
             </select>
           </label>
 
-          {formData.planType === "package" ? (
+          {formData.serviceType === "package" ? (
             <label className="tasko-booking-field">
               <span>Package</span>
               <select
@@ -455,11 +566,66 @@ export default function BookingPage() {
           )}
 
           <label className="tasko-booking-field full">
+            <span>Work Description</span>
+            <textarea
+              placeholder="Add optional notes about the work"
+              value={formData.workDescription}
+              onChange={(event) => setFormData((current) => ({ ...current, workDescription: event.target.value }))}
+            />
+          </label>
+
+          <label className="tasko-booking-field">
+            <span>Service Date</span>
+            <input
+              type="date"
+              min={formatTodayDate()}
+              value={formData.serviceDate}
+              onChange={(event) => setFormData((current) => ({ ...current, serviceDate: event.target.value }))}
+              required
+            />
+          </label>
+
+          <label className="tasko-booking-field">
+            <span>Preferred Time Slot</span>
+            <input
+              type="time"
+              value={formData.preferredTimeSlot}
+              onChange={(event) => setFormData((current) => ({ ...current, preferredTimeSlot: event.target.value }))}
+              required
+            />
+          </label>
+
+          <label className="tasko-booking-field">
+            <span>Duration</span>
+            <input
+              type="text"
+              placeholder="e.g. 2 hours"
+              value={formData.duration}
+              onChange={(event) => setFormData((current) => ({ ...current, duration: event.target.value }))}
+            />
+          </label>
+
+          {formData.serviceType === "package" ? (
+            <label className="tasko-booking-field">
+              <span>Recurring Days</span>
+              <input
+                type="text"
+                placeholder="e.g. Mon, Wed, Fri"
+                value={formData.recurringDays}
+                onChange={(event) => setFormData((current) => ({ ...current, recurringDays: event.target.value }))}
+                required
+              />
+            </label>
+          ) : (
+            <div className="tasko-booking-field tasko-booking-field-spacer" aria-hidden="true" />
+          )}
+
+          <label className="tasko-booking-field full">
             <span>Special Instructions</span>
             <textarea
               placeholder="Add any special instructions"
-              value={formData.notes}
-              onChange={(event) => setFormData((current) => ({ ...current, notes: event.target.value }))}
+              value={formData.specialInstructions}
+              onChange={(event) => setFormData((current) => ({ ...current, specialInstructions: event.target.value }))}
             />
           </label>
 
@@ -507,7 +673,7 @@ export default function BookingPage() {
               return (
                 <article key={booking.id} className="tasko-card tasko-booking-card">
                   <div className="tasko-booking-card-head">
-                    <h3>{booking.category || "Service Booking"}</h3>
+                    <h3>{booking.subCategory || booking.category || booking.serviceCategory || "Service Booking"}</h3>
                     <span className={`tasko-booking-status is-${bucket}`}>{toStatusLabel(status)}</span>
                   </div>
 
@@ -516,17 +682,29 @@ export default function BookingPage() {
                       <strong>Booking ID:</strong> {booking.id || "-"}
                     </p>
                     <p>
-                      <strong>Date:</strong> {formatSlotDate(booking)}
+                      <strong>Service Category:</strong> {booking.serviceCategory || booking.category || "-"}
                     </p>
                     <p>
-                      <strong>Time:</strong> {formatSlotTime(booking)}
+                      <strong>Sub Category:</strong> {booking.subCategory || booking.category || "-"}
                     </p>
                     <p>
-                      <strong>Plan:</strong> {toStatusLabel(booking.planType || "one-time")}
+                      <strong>Service Date:</strong> {formatSlotDate(booking)}
+                    </p>
+                    <p>
+                      <strong>Preferred Time Slot:</strong> {formatSlotTime(booking)}
+                    </p>
+                    <p>
+                      <strong>Service Type:</strong> {toStatusLabel(booking.serviceType || booking.planType || "one-time")}
                     </p>
                     <p>
                       <strong>Package:</strong>{" "}
                       {booking.packageId ? packageLabelMap[booking.packageId] || booking.packageId : "-"}
+                    </p>
+                    <p>
+                      <strong>Duration:</strong> {booking.duration || "-"}
+                    </p>
+                    <p>
+                      <strong>Recurring Days:</strong> {booking.recurringDays || "-"}
                     </p>
                     <p>
                       <strong>Status:</strong> {toStatusLabel(status)}
@@ -546,7 +724,11 @@ export default function BookingPage() {
                   </div>
 
                   <p className="tasko-booking-notes">
-                    <strong>Notes:</strong> {booking.notes || "No special instructions."}
+                    <strong>Work Description:</strong> {booking.workDescription || "No work description."}
+                  </p>
+
+                  <p className="tasko-booking-notes">
+                    <strong>Special Instructions:</strong> {booking.specialInstructions || booking.notes || "No special instructions."}
                   </p>
 
                   {canCancel ? (

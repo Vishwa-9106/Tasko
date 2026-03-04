@@ -50,9 +50,6 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
                 {item.label}
               </NavLink>
             ))}
-            <button type="button" className="tasko-nav-link tasko-nav-button" onClick={goToContact}>
-              Contact Us
-            </button>
           </nav>
 
           <div className="tasko-nav-actions">
