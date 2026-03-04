@@ -89,6 +89,75 @@ const groceryCategories = [
   "Spices & Condiments"
 ];
 
+const defaultTaskoMartProductSeeds: Array<Omit<TaskoMartProductRecord, "createdAt" | "updatedAt">> = [
+  {
+    id: "taskomart-seed-vegetables-basket",
+    name: "Daily Vegetable Basket",
+    description: "A fresh mix of seasonal vegetables for everyday cooking.",
+    category: "Vegetables",
+    price: 249,
+    discountPrice: 219,
+    stockQuantity: 80,
+    status: "Available",
+    imageUrl: ""
+  },
+  {
+    id: "taskomart-seed-fruit-combo",
+    name: "Fresh Fruit Combo",
+    description: "Apple, banana, orange and pomegranate combo pack.",
+    category: "Fruits",
+    price: 299,
+    discountPrice: 269,
+    stockQuantity: 70,
+    status: "Available",
+    imageUrl: ""
+  },
+  {
+    id: "taskomart-seed-dairy-essentials",
+    name: "Dairy Essentials Pack",
+    description: "Milk, curd, paneer and butter in one value bundle.",
+    category: "Dairy",
+    price: 199,
+    discountPrice: null,
+    stockQuantity: 65,
+    status: "Available",
+    imageUrl: ""
+  },
+  {
+    id: "taskomart-seed-snack-box",
+    name: "Evening Snack Box",
+    description: "Chips, biscuits and namkeen selection for tea time.",
+    category: "Snacks",
+    price: 159,
+    discountPrice: 139,
+    stockQuantity: 90,
+    status: "Available",
+    imageUrl: ""
+  },
+  {
+    id: "taskomart-seed-beverage-pack",
+    name: "Beverage Family Pack",
+    description: "Juice and soft drink combo for family gatherings.",
+    category: "Beverages",
+    price: 219,
+    discountPrice: 199,
+    stockQuantity: 75,
+    status: "Available",
+    imageUrl: ""
+  },
+  {
+    id: "taskomart-seed-rice-dal-kit",
+    name: "Rice & Dal Kit",
+    description: "Rice, toor dal and moong dal starter combo.",
+    category: "Rice & Dal",
+    price: 349,
+    discountPrice: 319,
+    stockQuantity: 55,
+    status: "Available",
+    imageUrl: ""
+  }
+];
+
 const productStatuses: TaskoMartProductStatus[] = ["Available", "Out of Stock"];
 const orderStatuses: TaskoMartOrderStatus[] = ["Pending", "Preparing", "Out for Delivery", "Delivered", "Cancelled"];
 const paymentStatuses: TaskoMartPaymentStatus[] = ["Pending", "Paid", "Failed", "Refunded"];
@@ -274,6 +343,23 @@ function normalizeProductRecord(productId: string, data: Record<string, unknown>
   };
 }
 
+function ensureInMemoryDefaultProducts(): TaskoMartProductRecord[] {
+  if (inMemoryProducts.size > 0) {
+    return Array.from(inMemoryProducts.values());
+  }
+
+  const now = new Date().toISOString();
+  const defaults = defaultTaskoMartProductSeeds.map((seed) =>
+    normalizeProductRecord(seed.id, {
+      ...seed,
+      createdAt: now,
+      updatedAt: now
+    })
+  );
+  defaults.forEach((product) => inMemoryProducts.set(product.id, product));
+  return defaults;
+}
+
 function normalizeOrderRecord(orderId: string, data: Record<string, unknown>): TaskoMartOrderRecord {
   const now = new Date().toISOString();
   const items = normalizeOrderItems(data.items);
@@ -433,16 +519,22 @@ async function deleteProductImage(imageUrl: string): Promise<void> {
 async function listProducts(): Promise<TaskoMartProductRecord[]> {
   try {
     const snapshot = await db.collection("taskomart_products").get();
-    const products = snapshot.docs.map((document) => normalizeProductRecord(document.id, document.data()));
-    products.forEach((product) => inMemoryProducts.set(product.id, product));
-    return products.sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+    if (!snapshot.empty) {
+      const products = snapshot.docs.map((document) => normalizeProductRecord(document.id, document.data()));
+      products.forEach((product) => inMemoryProducts.set(product.id, product));
+      return products.sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+    }
+
+    const defaults = ensureInMemoryDefaultProducts();
+    await Promise.all(defaults.map((product) => saveProduct(product)));
+    return [...defaults].sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
       throw error;
     }
   }
 
-  return Array.from(inMemoryProducts.values()).sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+  return ensureInMemoryDefaultProducts().sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
 }
 
 async function getProductById(productId: string): Promise<TaskoMartProductRecord | null> {

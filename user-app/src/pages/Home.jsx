@@ -3,25 +3,13 @@ import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
-import { groceryCategories, howTaskoWorks, packageFallbacks, popularServiceDefaults, serviceCategories } from "./homeData";
+import { groceryCategories, howTaskoWorks, packageFallbacks, serviceCategories } from "./homeData";
 
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-}
-
-function detectCategoryIcon(serviceName) {
-  const text = normalizeText(serviceName);
-  if (text.includes("plumb")) return "plumbing";
-  if (text.includes("cook")) return "cooking";
-  if (text.includes("ac") || text.includes("electr") || text.includes("install")) return "technical";
-  if (text.includes("wash") || text.includes("laundry")) return "washing";
-  if (text.includes("beauty") || text.includes("salon") || text.includes("hair")) return "beauty";
-  if (text.includes("care")) return "caring";
-  if (text.includes("mechanic") || text.includes("bike") || text.includes("car")) return "mechanic";
-  return "cleaning";
 }
 
 function normalizePackageList(list) {
@@ -59,35 +47,11 @@ function normalizePackageList(list) {
   return normalized.length > 0 ? normalized : packageFallbacks;
 }
 
-function normalizePopularServices(list) {
-  if (!Array.isArray(list) || list.length === 0) {
-    return popularServiceDefaults;
-  }
-
-  const normalized = list
-    .map((service, index) => {
-      const name = service?.name || service?.category || service?.id || `Service ${index + 1}`;
-      return {
-        id: service?.id || service?._id || `${name}-${index}`,
-        name,
-        icon: detectCategoryIcon(name)
-      };
-    })
-    .filter((item) => Boolean(item.name));
-
-  if (normalized.length === 0) {
-    return popularServiceDefaults;
-  }
-
-  return normalized.slice(0, 5);
-}
-
 export default function HomePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [packages, setPackages] = useState(packageFallbacks);
-  const [popularServices, setPopularServices] = useState(popularServiceDefaults);
 
   useEffect(() => {
     if (location.hash !== "#home-footer") return;
@@ -99,13 +63,11 @@ export default function HomePage() {
 
   useEffect(() => {
     const loadData = async () => {
-      const [serviceResponse, packageResponse] = await Promise.all([api.get("/api/services"), api.get("/api/packages")]);
-      setPopularServices(normalizePopularServices(serviceResponse.data));
+      const packageResponse = await api.get("/api/packages");
       setPackages(normalizePackageList(packageResponse.data));
     };
 
     loadData().catch(() => {
-      setPopularServices(popularServiceDefaults);
       setPackages(packageFallbacks);
     });
   }, []);
@@ -173,26 +135,6 @@ export default function HomePage() {
               <h3>{category.name}</h3>
               <button type="button" onClick={() => navigate(`/services?category=${encodeURIComponent(category.name)}`)}>
                 View Subcategories
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="tasko-content-panel">
-        <div className="tasko-section-head">
-          <p>Most Booked</p>
-          <h2>Popular Services</h2>
-        </div>
-        <div className="tasko-popular-grid">
-          {popularServices.map((service) => (
-            <article key={service.id} className="tasko-card popular">
-              <span className="tasko-card-icon">
-                <CategoryIcon name={service.icon} className="tasko-line-icon" />
-              </span>
-              <h3>{service.name}</h3>
-              <button type="button" onClick={() => navigate(`/booking?category=${encodeURIComponent(service.name)}`)}>
-                Quick Booking
               </button>
             </article>
           ))}
