@@ -392,3 +392,571 @@
     grid-template-columns: 1fr;
   }
 }
+
+.user-console-page.landing-sync {
+  min-height: 100vh;
+  color: #242424;
+  background:
+    radial-gradient(120% 72% at 50% -12%, rgba(58, 58, 58, 0.08) 0%, rgba(58, 58, 58, 0) 66%),
+    radial-gradient(45% 45% at 84% 8%, rgba(198, 167, 94, 0.12) 0%, rgba(198, 167, 94, 0) 80%),
+    linear-gradient(180deg, #f1f1f1 0%, #ececec 100%);
+}
+
+.landing-sync .user-console-nav {
+  min-height: 74px;
+  border: 1px solid #d6d6d6;
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: rgba(245, 245, 245, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.landing-sync .user-console-brand {
+  color: #1c1c1c;
+}
+
+.landing-sync .user-console-brand span {
+  font-size: 1.12rem;
+  letter-spacing: 0.14em;
+}
+
+.landing-sync .user-console-menu-link {
+  min-height: 38px;
+  border-radius: 999px;
+  color: #5f5f5f;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.landing-sync .user-console-menu-link:hover {
+  color: #1c1c1c;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.landing-sync .user-console-menu-link.is-active {
+  color: #1c1c1c;
+  border-color: rgba(58, 58, 58, 0.35);
+  background: rgba(198, 167, 94, 0.22);
+}
+
+.landing-sync .user-profile-icon-btn {
+  border-color: rgba(58, 58, 58, 0.34);
+  background: rgba(198, 167, 94, 0.2);
+  color: #1f1f1f;
+}
+
+.landing-sync .user-profile-icon-dot {
+  background: #17a55f;
+  box-shadow: 0 0 0 3px rgba(23, 165, 95, 0.2);
+}
+
+.landing-sync .user-console-main {
+  padding: 1.2rem 0 2.1rem;
+}
+
+.landing-sync .user-console-hero,
+.landing-sync .user-card,
+.landing-sync .user-profile-card {
+  border-radius: 18px;
+  border: 1px solid #d1d1d1;
+  background: rgba(249, 249, 249, 0.92);
+  box-shadow: 0 16px 26px -24px rgba(17, 17, 17, 0.42);
+}
+
+.landing-sync .user-console-hero {
+  padding: 1.15rem;
+}
+
+.landing-sync .user-console-eyebrow {
+  color: #6b7782;
+  letter-spacing: 0.24em;
+  font-size: 0.68rem;
+}
+
+.landing-sync .user-console-hero h1 {
+  color: #1c1c1c;
+  font-size: clamp(1.45rem, 2.8vw, 2.1rem);
+  font-family: "Montserrat", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.landing-sync .user-console-hero p {
+  color: #5d5d5d;
+}
+
+.landing-sync .user-card {
+  padding: 1rem;
+}
+
+.landing-sync .user-card h2,
+.landing-sync .user-card h3 {
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.98rem;
+}
+
+.landing-sync .user-card p {
+  color: #5e5e5e;
+}
+
+.sync-overview-grid {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.sync-stat-card h2 {
+  margin: 0.4rem 0 0;
+  font-size: clamp(1.38rem, 2.2vw, 2rem);
+}
+
+.sync-stat-label {
+  margin: 0;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.landing-sync .user-grid.cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.landing-sync .user-category-card,
+.landing-sync .sync-package-card,
+.landing-sync .sync-assignment-card {
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.landing-sync .user-category-card:hover,
+.landing-sync .sync-package-card:hover,
+.landing-sync .sync-assignment-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(58, 58, 58, 0.42);
+  box-shadow: 0 22px 28px -24px rgba(17, 17, 17, 0.46);
+}
+
+.sync-service-card {
+  min-height: 160px;
+}
+
+.sync-chip {
+  display: inline-flex;
+  min-height: 24px;
+  border-radius: 999px;
+  align-items: center;
+  padding: 0 0.65rem;
+  border: 1px solid rgba(198, 167, 94, 0.48);
+  color: #9a7831;
+  background: rgba(198, 167, 94, 0.14);
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.landing-sync .user-btn {
+  border-radius: 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.landing-sync .user-btn.primary {
+  border-color: #b7974d;
+  background: #c6a75e;
+  color: #fdfdfd;
+}
+
+.landing-sync .user-btn.primary:hover {
+  background: #b7974d;
+}
+
+.landing-sync .user-btn.secondary {
+  border-color: rgba(58, 58, 58, 0.4);
+  background: transparent;
+  color: #1f1f1f;
+}
+
+.landing-sync .user-btn.secondary:hover {
+  background: #1c1c1c;
+  color: #f5f5f5;
+}
+
+.landing-sync .user-btn.danger {
+  border-color: rgba(146, 57, 57, 0.34);
+  background: rgba(146, 57, 57, 0.1);
+  color: #6f2222;
+}
+
+.landing-sync .user-pill-tab {
+  border-color: #cfcfcf;
+  background: #f3f3f3;
+  color: #444;
+  font-size: 0.72rem;
+}
+
+.landing-sync .user-pill-tab.active {
+  border-color: rgba(58, 58, 58, 0.5);
+  background: rgba(198, 167, 94, 0.26);
+  color: #1c1c1c;
+}
+
+.landing-sync .user-list-item {
+  border-radius: 14px;
+  border: 1px solid #d0d0d0;
+  background: #f8f8f8;
+}
+
+.sync-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sync-meta-grid {
+  margin-top: 0.72rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.sync-meta-grid p {
+  margin: 0;
+}
+
+.sync-meta-grid strong {
+  color: #2a2a2a;
+  font-weight: 700;
+}
+
+.landing-sync .user-status-tag {
+  border-color: rgba(58, 58, 58, 0.45);
+  background: rgba(198, 167, 94, 0.25);
+  color: #1c1c1c;
+}
+
+.landing-sync .user-status-tag.is-muted {
+  border-color: rgba(90, 90, 90, 0.4);
+  background: rgba(90, 90, 90, 0.16);
+  color: #3f3f3f;
+}
+
+.sync-empty-state {
+  text-align: center;
+  padding: 1.4rem;
+}
+
+.sync-profile-overview h2 {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
+  overflow-wrap: anywhere;
+}
+
+.sync-profile-layout {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.8rem;
+}
+
+.sync-profile-panel {
+  margin-top: 0;
+}
+
+.sync-profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sync-profile-head h2 {
+  margin: 0;
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sync-profile-fields {
+  margin-top: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sync-profile-side {
+  min-height: 100%;
+}
+
+.sync-profile-side h3 {
+  margin: 0;
+}
+
+.sync-profile-side p {
+  margin-top: 0.7rem;
+  line-height: 1.6;
+}
+
+.tasko-home-banner {
+  margin-top: 0.9rem;
+}
+
+.tasko-home-banner-form {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.tasko-home-banner-form .user-btn {
+  min-width: 126px;
+  width: 100%;
+}
+
+.tasko-home-section {
+  margin-top: 0.9rem;
+}
+
+.tasko-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.tasko-section-head h2 {
+  margin: 0;
+}
+
+.tasko-inline-btn {
+  min-height: 38px;
+  padding-inline: 0.8rem;
+}
+
+.tasko-category-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasko-category-card {
+  min-height: 154px;
+}
+
+.tasko-icon-chip {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(58, 58, 58, 0.3);
+  background: rgba(198, 167, 94, 0.24);
+  color: #1f1f1f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-popular-scroll {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  gap: 0.8rem;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.2rem;
+}
+
+.tasko-popular-card {
+  min-height: 310px;
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  scroll-snap-align: start;
+}
+
+.tasko-service-image {
+  width: 100%;
+  height: 122px;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid #d0d0d0;
+  background: linear-gradient(150deg, #f7f7f7 0%, #efefef 100%);
+  padding: 0.68rem;
+}
+
+.tasko-popular-card h3 {
+  margin: 0;
+}
+
+.tasko-service-price,
+.tasko-service-rating {
+  margin: 0;
+  color: #4d4d4d;
+  font-size: 0.86rem;
+}
+
+.tasko-popular-card .user-btn {
+  margin-top: auto;
+  width: fit-content;
+}
+
+.tasko-compact-card {
+  margin-top: 0.8rem;
+}
+
+.tasko-offer-slide {
+  margin-top: 0.8rem;
+  border-radius: 14px;
+  border: 1px solid #d0d0d0;
+  background: linear-gradient(145deg, rgba(198, 167, 94, 0.28) 0%, rgba(243, 243, 243, 0.92) 60%);
+  padding: 1rem;
+}
+
+.tasko-offer-slide h3 {
+  margin: 0.48rem 0 0;
+}
+
+.tasko-offer-slide p {
+  margin: 0.56rem 0 0;
+  color: #424242;
+}
+
+.tasko-coupon-code {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  margin-top: 0.8rem;
+  border-radius: 8px;
+  border: 1px dashed rgba(58, 58, 58, 0.5);
+  padding: 0 0.68rem;
+  background: rgba(255, 255, 255, 0.65);
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-feature-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tasko-feature-card h3 {
+  margin-top: 0.58rem;
+}
+
+.tasko-feature-card p {
+  margin-top: 0.5rem;
+}
+
+.tasko-rating-summary {
+  margin-top: 0.75rem;
+  color: #4a4a4a;
+  font-size: 0.93rem;
+}
+
+.tasko-rating-summary strong {
+  color: #1c1c1c;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.98rem;
+}
+
+.tasko-review-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasko-review-card p {
+  margin-top: 0.5rem;
+  line-height: 1.55;
+}
+
+.tasko-empty-state {
+  margin-top: 0.8rem;
+}
+
+@media (max-width: 980px) {
+  .sync-overview-grid,
+  .landing-sync .user-grid.cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sync-profile-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-home-banner-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tasko-home-banner-form .user-btn {
+    grid-column: 1 / -1;
+  }
+
+  .tasko-category-grid,
+  .tasko-review-grid,
+  .tasko-feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 780px) {
+  .sync-overview-grid,
+  .landing-sync .user-grid.cards {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-sync .user-console-nav {
+    border-radius: 0 0 12px 12px;
+  }
+
+  .landing-sync .user-console-menu-link {
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+  }
+
+  .sync-profile-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-home-banner-form,
+  .tasko-category-grid,
+  .tasko-review-grid,
+  .tasko-feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-popular-scroll {
+    grid-auto-columns: minmax(78vw, 1fr);
+  }
+}

@@ -9,9 +9,17 @@ const navItems = [
   { id: "packages", label: "Packages", href: "/packages" }
 ];
 
-export default function UserDashboardShell({ activeTab, title, subtitle, children }) {
+export default function UserDashboardShell({
+  activeTab,
+  title,
+  subtitle,
+  children,
+  theme = "default",
+  eyebrow = "User Dashboard"
+}) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const rootClassName = `user-console-page${theme === "landing" ? " landing-sync" : ""}`;
 
   const initials = (user?.displayName || user?.email || "User")
     .split(" ")
@@ -21,7 +29,7 @@ export default function UserDashboardShell({ activeTab, title, subtitle, childre
     .toUpperCase();
 
   return (
-    <div className="user-console-page">
+    <div className={rootClassName}>
       <header className="user-console-nav-wrap">
         <div className="user-shell user-console-nav">
           <Link to="/home" className="user-console-brand" aria-label="Tasko dashboard home">
@@ -54,7 +62,7 @@ export default function UserDashboardShell({ activeTab, title, subtitle, childre
 
       <main className="user-shell user-console-main">
         <section className="user-console-hero">
-          <p className="user-console-eyebrow">User Dashboard</p>
+          <p className="user-console-eyebrow">{eyebrow}</p>
           <h1>{title}</h1>
           {subtitle ? <p>{subtitle}</p> : null}
         </section>

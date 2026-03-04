@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
 import UserDashboardShell from "../components/UserDashboardShell";
@@ -69,76 +69,115 @@ export default function ProfilePage() {
     navigate("/auth", { replace: true });
   };
 
+  const profileCompletion = useMemo(() => {
+    const fields = [profile.name, profile.mobile, profile.email, profile.address];
+    const completed = fields.filter((value) => String(value || "").trim().length > 0).length;
+    return Math.round((completed / fields.length) * 100);
+  }, [profile]);
+
   return (
     <UserDashboardShell
       activeTab=""
-      title="Profile"
-      subtitle="Manage your identity and contact details used for bookings and assignments."
+      theme="landing"
+      eyebrow="Service Console"
+      title="Profile & Account"
+      subtitle="Manage your identity and contact details used for bookings, assignments, and support."
     >
-      <section className="user-profile-card">
-        <div className="user-profile-row">
-          <div>
-            <p className="user-field-label">Name</p>
-            <input
-              className="user-input"
-              value={profile.name}
-              readOnly={!editing}
-              onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))}
-            />
+      <section className="sync-overview-grid sync-profile-overview">
+        <article className="user-card sync-stat-card">
+          <p className="sync-stat-label">Profile Completion</p>
+          <h2>{profileCompletion}%</h2>
+          <p>Complete all fields to improve booking coordination.</p>
+        </article>
+        <article className="user-card sync-stat-card">
+          <p className="sync-stat-label">Account Email</p>
+          <h2>{profile.email || "Not Set"}</h2>
+          <p>Primary contact used for updates and service alerts.</p>
+        </article>
+        <article className="user-card sync-stat-card">
+          <p className="sync-stat-label">Edit Mode</p>
+          <h2>{editing ? "Enabled" : "Locked"}</h2>
+          <p>{editing ? "You can update fields before saving." : "Enable edit to make profile changes."}</p>
+        </article>
+      </section>
+
+      <section className="sync-profile-layout">
+        <article className="user-profile-card sync-profile-panel">
+          <div className="sync-profile-head">
+            <h2>Personal Details</h2>
+            <span className={`user-status-tag${editing ? "" : " is-muted"}`}>{editing ? "Editing" : "Read only"}</span>
+          </div>
+          <div className="user-profile-row sync-profile-fields">
+            <div>
+              <p className="user-field-label">Name</p>
+              <input
+                className="user-input"
+                value={profile.name}
+                readOnly={!editing}
+                onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))}
+              />
+            </div>
+
+            <div>
+              <p className="user-field-label">Mobile Number</p>
+              <input
+                className="user-input"
+                value={profile.mobile}
+                readOnly={!editing}
+                onChange={(event) => setProfile((current) => ({ ...current, mobile: event.target.value }))}
+              />
+            </div>
+
+            <div>
+              <p className="user-field-label">Gmail</p>
+              <input
+                type="email"
+                className="user-input"
+                value={profile.email}
+                readOnly={!editing}
+                onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))}
+              />
+            </div>
+
+            <div>
+              <p className="user-field-label">Address</p>
+              <textarea
+                className="user-textarea"
+                value={profile.address}
+                readOnly={!editing}
+                onChange={(event) => setProfile((current) => ({ ...current, address: event.target.value }))}
+              />
+            </div>
           </div>
 
-          <div>
-            <p className="user-field-label">Mobile Number</p>
-            <input
-              className="user-input"
-              value={profile.mobile}
-              readOnly={!editing}
-              onChange={(event) => setProfile((current) => ({ ...current, mobile: event.target.value }))}
-            />
-          </div>
-
-          <div>
-            <p className="user-field-label">Gmail</p>
-            <input
-              type="email"
-              className="user-input"
-              value={profile.email}
-              readOnly={!editing}
-              onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))}
-            />
-          </div>
-
-          <div>
-            <p className="user-field-label">Address</p>
-            <textarea
-              className="user-textarea"
-              value={profile.address}
-              readOnly={!editing}
-              onChange={(event) => setProfile((current) => ({ ...current, address: event.target.value }))}
-            />
-          </div>
-        </div>
-
-        <div className="user-actions">
-          {editing ? (
-            <>
-              <button type="button" className="user-btn primary" onClick={saveProfile} disabled={saving}>
-                {saving ? "Saving..." : "Save"}
+          <div className="user-actions">
+            {editing ? (
+              <>
+                <button type="button" className="user-btn primary" onClick={saveProfile} disabled={saving}>
+                  {saving ? "Saving..." : "Save"}
+                </button>
+                <button type="button" className="user-btn secondary" onClick={() => setEditing(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button type="button" className="user-btn primary" onClick={() => setEditing(true)}>
+                Edit
               </button>
-              <button type="button" className="user-btn secondary" onClick={() => setEditing(false)}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button type="button" className="user-btn primary" onClick={() => setEditing(true)}>
-              Edit
+            )}
+          </div>
+          {message ? <p className="user-empty">{message}</p> : null}
+        </article>
+
+        <aside className="user-card sync-profile-side">
+          <h3>Account Actions</h3>
+          <p>Need to switch accounts? You can safely sign out at any time.</p>
+          <div className="user-actions">
+            <button type="button" className="user-btn danger" onClick={handleLogout}>
+              Logout
             </button>
-          )}
-          <button type="button" className="user-btn danger" onClick={handleLogout}>
-            Logout
-          </button>
-        </div>
-        {message ? <p className="user-empty">{message}</p> : null}
+          </div>
+        </aside>
       </section>
     </UserDashboardShell>
   );

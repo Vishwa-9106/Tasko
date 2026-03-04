@@ -1,77 +1,242 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api";
-import UserDashboardShell from "../components/UserDashboardShell";
+import UserPortalShell from "../components/UserPortalShell";
+import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
+import { groceryCategories, howTaskoWorks, packageFallbacks, popularServiceDefaults, serviceCategories } from "./homeData";
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function detectCategoryIcon(serviceName) {
+  const text = normalizeText(serviceName);
+  if (text.includes("plumb")) return "plumbing";
+  if (text.includes("cook")) return "cooking";
+  if (text.includes("ac") || text.includes("electr") || text.includes("install")) return "technical";
+  if (text.includes("wash") || text.includes("laundry")) return "washing";
+  if (text.includes("beauty") || text.includes("salon") || text.includes("hair")) return "beauty";
+  if (text.includes("care")) return "caring";
+  if (text.includes("mechanic") || text.includes("bike") || text.includes("car")) return "mechanic";
+  return "cleaning";
+}
+
+function normalizePackageList(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    return packageFallbacks;
+  }
+
+  const normalized = list
+    .map((item, index) => {
+      const name = item?.name || item?.serviceType || item?.plan || `Tasko Plan ${index + 1}`;
+      const frequency = item?.frequency || item?.duration || "Flexible";
+      return {
+        id: item?.id || item?._id || `${name}-${index}`,
+        name,
+        description: `${frequency} support plan for regular service bookings.`
+      };
+    })
+    .filter((item) => Boolean(item.name));
+
+  return normalized.length > 0 ? normalized : packageFallbacks;
+}
+
+function normalizePopularServices(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    return popularServiceDefaults;
+  }
+
+  const normalized = list
+    .map((service, index) => {
+      const name = service?.name || service?.category || service?.id || `Service ${index + 1}`;
+      return {
+        id: service?.id || service?._id || `${name}-${index}`,
+        name,
+        icon: detectCategoryIcon(name)
+      };
+    })
+    .filter((item) => Boolean(item.name));
+
+  if (normalized.length === 0) {
+    return popularServiceDefaults;
+  }
+
+  return normalized.slice(0, 5);
+}
 
 export default function HomePage() {
+  const location = useLocation();
   const navigate = useNavigate();
-  const [services, setServices] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [packages, setPackages] = useState(packageFallbacks);
+  const [popularServices, setPopularServices] = useState(popularServiceDefaults);
 
   useEffect(() => {
-    const loadServices = async () => {
-      const response = await api.get("/api/services");
-      setServices(response.data);
+    if (location.hash !== "#home-footer") return;
+    const timer = window.setTimeout(() => {
+      document.getElementById("home-footer")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [location.hash]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      const [serviceResponse, packageResponse] = await Promise.all([api.get("/api/services"), api.get("/api/packages")]);
+      setPopularServices(normalizePopularServices(serviceResponse.data));
+      setPackages(normalizePackageList(packageResponse.data));
     };
 
-    loadServices().catch(() => {
-      setServices([
-        { id: "cleaning", name: "Home Cleaning" },
-        { id: "plumbing", name: "Plumbing" },
-        { id: "electrician", name: "Electrician" }
-      ]);
+    loadData().catch(() => {
+      setPopularServices(popularServiceDefaults);
+      setPackages(packageFallbacks);
     });
   }, []);
 
-  const categoryOptions = useMemo(() => {
-    if (services.length === 0) return [];
-    return services.map((service) => ({ value: service.name || service.id, label: service.name || service.id }));
-  }, [services]);
+  const groceryKeywords = useMemo(
+    () =>
+      groceryCategories.flatMap((category) =>
+        normalizeText(category.name)
+          .split(" ")
+          .filter(Boolean)
+      ),
+    []
+  );
+
+  const handleSearch = (event) => {
+    event.preventDefault();
+    const normalized = normalizeText(searchQuery);
+    if (!normalized) return;
+
+    const isGroceryQuery = groceryKeywords.some((keyword) => normalized.includes(keyword));
+    if (isGroceryQuery) {
+      navigate(`/taskomart?search=${encodeURIComponent(searchQuery.trim())}`);
+      return;
+    }
+
+    navigate(`/services?search=${encodeURIComponent(searchQuery.trim())}`);
+  };
 
   return (
-    <UserDashboardShell
-      activeTab="home"
-      title="Book Trusted Services"
-      subtitle="Explore premium categories and continue to booking with your date, time, and preferred plan."
-    >
-      <section className="user-grid cards">
-        {categoryOptions.length === 0 ? (
-          <article className="user-card">
-            <h2>Categories</h2>
-            <p>Service categories are currently unavailable.</p>
-          </article>
-        ) : (
-          categoryOptions.map((service) => (
-            <article
-              key={service.value}
-              className="user-card user-category-card"
-              onClick={() => navigate(`/booking?category=${encodeURIComponent(service.value)}`)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  navigate(`/booking?category=${encodeURIComponent(service.value)}`);
-                }
-              }}
-            >
-              <h3>{service.label}</h3>
-              <p>Choose your preferred slot and booking plan.</p>
-              <div className="user-actions">
-                <button
-                  type="button"
-                  className="user-btn primary"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    navigate(`/booking?category=${encodeURIComponent(service.value)}`);
-                  }}
-                >
-                  Book Now
-                </button>
-              </div>
-            </article>
-          ))
-        )}
+    <UserPortalShell activeNav="home">
+      <section className="tasko-hero-panel" id="top">
+        <p className="tasko-hero-eyebrow">Trusted Home Services Platform</p>
+        <h1>Book Trusted Home Services Easily</h1>
+        <p>
+          Discover verified professionals, book instantly, and shop groceries from TaskoMart in one seamless
+          experience.
+        </p>
+        <form className="tasko-search-form" onSubmit={handleSearch}>
+          <label htmlFor="service-or-grocery-search" className="sr-only">
+            Search services or groceries
+          </label>
+          <SearchIcon className="tasko-search-icon" />
+          <input
+            id="service-or-grocery-search"
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search for services or groceries..."
+          />
+          <button type="submit">Search</button>
+        </form>
       </section>
-    </UserDashboardShell>
+
+      <section className="tasko-content-panel">
+        <div className="tasko-section-head">
+          <p>Home Services</p>
+          <h2>Service Categories</h2>
+        </div>
+        <div className="tasko-category-grid">
+          {serviceCategories.map((category) => (
+            <article key={category.id} className="tasko-card">
+              <span className="tasko-card-icon">
+                <CategoryIcon name={category.icon} className="tasko-line-icon" />
+              </span>
+              <h3>{category.name}</h3>
+              <button type="button" onClick={() => navigate(`/services?category=${encodeURIComponent(category.name)}`)}>
+                View Subcategories
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="tasko-content-panel">
+        <div className="tasko-section-head">
+          <p>Most Booked</p>
+          <h2>Popular Services</h2>
+        </div>
+        <div className="tasko-popular-grid">
+          {popularServices.map((service) => (
+            <article key={service.id} className="tasko-card popular">
+              <span className="tasko-card-icon">
+                <CategoryIcon name={service.icon} className="tasko-line-icon" />
+              </span>
+              <h3>{service.name}</h3>
+              <button type="button" onClick={() => navigate(`/booking?category=${encodeURIComponent(service.name)}`)}>
+                Quick Booking
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="tasko-content-panel" id="taskomart-section">
+        <div className="tasko-section-head">
+          <p>TaskoMart</p>
+          <h2>Grocery Categories</h2>
+        </div>
+        <div className="tasko-category-grid grocery">
+          {groceryCategories.map((category) => (
+            <article key={category.id} className="tasko-card">
+              <span className="tasko-card-icon">
+                <CategoryIcon name={category.icon} className="tasko-line-icon" />
+              </span>
+              <h3>{category.name}</h3>
+              <button type="button" onClick={() => navigate(`/taskomart?category=${encodeURIComponent(category.name)}`)}>
+                Browse Products
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="tasko-content-panel">
+        <div className="tasko-section-head">
+          <p>Plans</p>
+          <h2>Service Packages</h2>
+        </div>
+        <div className="tasko-package-grid">
+          {packages.slice(0, 3).map((pkg) => (
+            <article key={pkg.id} className="tasko-card package">
+              <h3>{pkg.name}</h3>
+              <p>{pkg.description}</p>
+              <button type="button" onClick={() => navigate("/packages")}>
+                View Details
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="tasko-content-panel">
+        <div className="tasko-section-head">
+          <p>Quick Guide</p>
+          <h2>How Tasko Works</h2>
+        </div>
+        <div className="tasko-steps-grid">
+          {howTaskoWorks.map((step) => (
+            <article key={step.id} className="tasko-step-card">
+              <h3>{step.title}</h3>
+              <p>{step.detail}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </UserPortalShell>
   );
 }
+

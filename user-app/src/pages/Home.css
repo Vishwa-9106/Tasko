@@ -1,0 +1,838 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap");
+
+.tasko-portal-page {
+  --color-charcoal: #1c1c1c;
+  --color-steel: #3a3a3a;
+  --color-soft: #ececec;
+  --color-off-white: #f5f5f5;
+  --color-gold: #c6a75e;
+  --color-text: #242424;
+  min-height: 100vh;
+  background:
+    radial-gradient(120% 72% at 50% -12%, rgba(58, 58, 58, 0.08) 0%, rgba(58, 58, 58, 0) 66%),
+    radial-gradient(45% 45% at 84% 8%, rgba(198, 167, 94, 0.12) 0%, rgba(198, 167, 94, 0) 80%),
+    linear-gradient(180deg, #f1f1f1 0%, #ececec 100%);
+  color: var(--color-text);
+  font-family: "Manrope", sans-serif;
+}
+
+.tasko-portal-page * {
+  box-sizing: border-box;
+}
+
+.tasko-shell {
+  width: min(1180px, calc(100% - 3rem));
+  margin: 0 auto;
+}
+
+.tasko-navbar-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid #d6d6d6;
+  background: rgba(245, 245, 245, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.tasko-navbar {
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.tasko-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--color-charcoal);
+  text-decoration: none;
+}
+
+.tasko-brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  filter: grayscale(100%);
+}
+
+.tasko-brand-name {
+  font-family: "Montserrat", sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.tasko-nav-links {
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tasko-nav-link {
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 0.95rem;
+  color: #626262;
+  background: transparent;
+  text-decoration: none;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: color 0.22s ease, background-color 0.22s ease, border-color 0.22s ease;
+}
+
+.tasko-nav-link:hover {
+  color: var(--color-charcoal);
+  background: #f8f8f8;
+}
+
+.tasko-nav-link.is-active {
+  color: var(--color-charcoal);
+  border-color: rgba(58, 58, 58, 0.3);
+  background: rgba(198, 167, 94, 0.22);
+}
+
+.tasko-nav-button {
+  cursor: pointer;
+}
+
+.tasko-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.tasko-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(58, 58, 58, 0.34);
+  background: rgba(198, 167, 94, 0.2);
+  color: #1f1f1f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.tasko-icon-btn.profile {
+  width: auto;
+  min-width: 56px;
+  border-radius: 999px;
+  gap: 0.3rem;
+  padding: 0 0.56rem;
+}
+
+.tasko-initials {
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-inline-icon,
+.tasko-line-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.tasko-inline-icon path,
+.tasko-line-icon path,
+.tasko-line-icon circle {
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tasko-main-content {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1.15rem 0 2.3rem;
+}
+
+.tasko-hero-panel,
+.tasko-content-panel,
+.tasko-page-header {
+  border-radius: 18px;
+  border: 1px solid #d1d1d1;
+  background: rgba(249, 249, 249, 0.92);
+  box-shadow: 0 16px 26px -24px rgba(17, 17, 17, 0.42);
+}
+
+.tasko-hero-panel {
+  padding: 1.5rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(238, 238, 238, 0.9) 100%);
+}
+
+.tasko-hero-eyebrow {
+  margin: 0;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.tasko-hero-panel h1 {
+  margin: 0.75rem 0 0;
+  color: #1c1c1c;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.65rem, 3.2vw, 2.9rem);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tasko-hero-panel > p {
+  margin: 0.75rem 0 0;
+  color: #575757;
+  max-width: 58ch;
+}
+
+.tasko-search-form {
+  margin-top: 1.1rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.tasko-search-form input {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid #d0d0d0;
+  border-radius: 14px;
+  padding: 0 0.95rem 0 2.9rem;
+  font-size: 0.95rem;
+  color: #222;
+  background: #fefefe;
+}
+
+.tasko-search-form input:focus {
+  outline: none;
+  border-color: rgba(58, 58, 58, 0.45);
+  box-shadow: 0 0 0 3px rgba(198, 167, 94, 0.18);
+}
+
+.tasko-search-icon {
+  position: absolute;
+  left: 0.95rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #676767;
+  width: 18px;
+  height: 18px;
+}
+
+.tasko-search-icon path {
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tasko-search-form button,
+.tasko-card button,
+.tasko-step-card button,
+.tasko-product-card button {
+  min-height: 46px;
+  border: 1px solid #b7974d;
+  background: #c6a75e;
+  color: #fdfdfd;
+  cursor: pointer;
+  padding: 0 1rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: background-color 0.2s ease;
+}
+
+.tasko-search-form button:hover,
+.tasko-card button:hover,
+.tasko-product-card button:hover {
+  background: #b7974d;
+}
+
+.tasko-content-panel {
+  padding: 1.1rem;
+}
+
+.tasko-section-head p {
+  margin: 0;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.tasko-section-head h2 {
+  margin: 0.5rem 0 0;
+  color: #1b1b1b;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.2rem, 2.2vw, 1.9rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-category-grid,
+.tasko-popular-grid,
+.tasko-package-grid,
+.tasko-steps-grid,
+.tasko-subcategory-grid,
+.taskomart-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.tasko-category-grid,
+.tasko-popular-grid,
+.tasko-package-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasko-steps-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tasko-subcategory-grid,
+.taskomart-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasko-card,
+.tasko-step-card,
+.tasko-product-card {
+  border: 1px solid #d0d0d0;
+  background: #f8f8f8;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.tasko-card {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+}
+
+.tasko-card h3,
+.tasko-step-card h3,
+.tasko-product-card h3 {
+  margin: 0;
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.tasko-card p,
+.tasko-step-card p,
+.tasko-product-card p {
+  margin: 0;
+  color: #5c5c5c;
+  font-size: 0.93rem;
+}
+
+.tasko-card button,
+.tasko-product-card button {
+  margin-top: 0.35rem;
+}
+
+.tasko-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  border: 1px solid rgba(58, 58, 58, 0.28);
+  background: rgba(198, 167, 94, 0.2);
+  color: #1f1f1f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tasko-card-icon.large {
+  width: 52px;
+  height: 52px;
+}
+
+.tasko-step-card {
+  text-align: center;
+  border-style: dashed;
+}
+
+.tasko-step-card h3 {
+  font-size: 0.82rem;
+}
+
+.tasko-page-header {
+  padding: 1.2rem;
+}
+
+.tasko-page-header p:first-child {
+  margin: 0;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.tasko-page-header h1 {
+  margin: 0.6rem 0 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.45rem, 2.8vw, 2.15rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-page-header p {
+  margin: 0.65rem 0 0;
+  color: #5d5d5d;
+}
+
+.tasko-toolbar {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.tasko-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tasko-chip {
+  min-height: 34px;
+  border-radius: 999px;
+  border: 1px solid #cfcfcf;
+  background: #f3f3f3;
+  color: #444;
+  padding: 0 0.85rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tasko-chip.is-active {
+  border-color: rgba(58, 58, 58, 0.5);
+  background: rgba(198, 167, 94, 0.24);
+  color: #1c1c1c;
+}
+
+.tasko-inline-search {
+  position: relative;
+  max-width: 420px;
+}
+
+.tasko-inline-search input {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  color: #1f1f1f;
+  padding: 0 0.85rem 0 2.5rem;
+}
+
+.tasko-inline-search .tasko-search-icon {
+  left: 0.82rem;
+}
+
+.tasko-inline-search input:focus {
+  outline: none;
+  border-color: rgba(58, 58, 58, 0.45);
+  box-shadow: 0 0 0 3px rgba(198, 167, 94, 0.14);
+}
+
+.tasko-product-card {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+
+.tasko-product-image-wrap {
+  min-height: 120px;
+  border: 1px solid #d0d0d0;
+  border-radius: 12px;
+  background: linear-gradient(150deg, #f7f7f7 0%, #efefef 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.tasko-product-image {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+}
+
+.tasko-product-category {
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6b7782;
+}
+
+.tasko-product-price {
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+}
+
+.tasko-empty-state {
+  margin: 0.8rem 0 0;
+  color: #5f5f5f;
+}
+
+.tasko-booking-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.tasko-booking-stat-card {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+}
+
+.tasko-booking-stat-card h3 {
+  font-size: 0.78rem;
+}
+
+.tasko-booking-stat-value {
+  margin: 0;
+  color: #1c1c1c;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.3rem, 2.4vw, 2rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.tasko-booking-form {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.tasko-booking-field {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.tasko-booking-field span {
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tasko-booking-field input,
+.tasko-booking-field select,
+.tasko-booking-field textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  color: #212121;
+  min-height: 46px;
+  padding: 0 0.82rem;
+  font-size: 0.92rem;
+  font-family: "Manrope", sans-serif;
+}
+
+.tasko-booking-field textarea {
+  min-height: 102px;
+  resize: vertical;
+  padding: 0.72rem 0.82rem;
+}
+
+.tasko-booking-field input:focus,
+.tasko-booking-field select:focus,
+.tasko-booking-field textarea:focus {
+  outline: none;
+  border-color: rgba(58, 58, 58, 0.45);
+  box-shadow: 0 0 0 3px rgba(198, 167, 94, 0.15);
+}
+
+.tasko-booking-field.full {
+  grid-column: 1 / -1;
+}
+
+.tasko-booking-actions-row {
+  margin-top: 0.12rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.tasko-booking-submit,
+.tasko-booking-cancel {
+  min-height: 44px;
+  border: 1px solid #b7974d;
+  background: #c6a75e;
+  color: #fdfdfd;
+  cursor: pointer;
+  padding: 0 1rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.tasko-booking-submit:hover,
+.tasko-booking-cancel:hover {
+  background: #b7974d;
+}
+
+.tasko-booking-submit:disabled,
+.tasko-booking-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.tasko-booking-cancel {
+  border-color: rgba(146, 57, 57, 0.35);
+  background: rgba(146, 57, 57, 0.08);
+  color: #6f2222;
+}
+
+.tasko-booking-cancel:hover {
+  background: rgba(146, 57, 57, 0.18);
+}
+
+.tasko-booking-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.tasko-booking-card {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+}
+
+.tasko-booking-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.tasko-booking-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 0.62rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid #cfcfcf;
+}
+
+.tasko-booking-status.is-current {
+  border-color: rgba(58, 58, 58, 0.45);
+  background: rgba(198, 167, 94, 0.24);
+  color: #1c1c1c;
+}
+
+.tasko-booking-status.is-upcoming {
+  border-color: rgba(36, 94, 153, 0.38);
+  background: rgba(36, 94, 153, 0.14);
+  color: #1d4a7a;
+}
+
+.tasko-booking-status.is-old {
+  border-color: rgba(90, 90, 90, 0.35);
+  background: rgba(90, 90, 90, 0.14);
+  color: #3f3f3f;
+}
+
+.tasko-booking-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem 0.8rem;
+}
+
+.tasko-booking-meta-grid p,
+.tasko-booking-notes {
+  margin: 0;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.tasko-booking-meta-grid strong,
+.tasko-booking-notes strong {
+  color: #1f1f1f;
+}
+
+.tasko-site-footer {
+  margin-top: 1rem;
+  border-top: 1px solid #151515;
+  background: #171717;
+  color: #f2f2f2;
+  padding: 2.3rem 0;
+}
+
+.tasko-footer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.tasko-footer-grid h3 {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.86rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-footer-grid a,
+.tasko-footer-grid button {
+  margin-top: 0.6rem;
+  display: block;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  color: #bfbfbf;
+  text-decoration: none;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.tasko-footer-grid a:hover,
+.tasko-footer-grid button:hover {
+  color: #f2f2f2;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+@media (max-width: 1080px) {
+  .tasko-category-grid,
+  .tasko-popular-grid,
+  .tasko-package-grid,
+  .tasko-subcategory-grid,
+  .taskomart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tasko-steps-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tasko-booking-stats,
+  .tasko-booking-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .tasko-shell {
+    width: min(1180px, calc(100% - 1.8rem));
+  }
+
+  .tasko-navbar {
+    min-height: 68px;
+    flex-wrap: wrap;
+    gap: 0.68rem;
+    padding: 0.65rem 0;
+  }
+
+  .tasko-nav-links {
+    order: 3;
+    margin: 0;
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+
+  .tasko-nav-link {
+    flex: 0 0 auto;
+  }
+
+  .tasko-nav-actions {
+    margin-left: auto;
+  }
+
+  .tasko-search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-search-form button {
+    width: 100%;
+  }
+
+  .tasko-footer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .tasko-category-grid,
+  .tasko-popular-grid,
+  .tasko-package-grid,
+  .tasko-steps-grid,
+  .tasko-subcategory-grid,
+  .taskomart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-booking-stats,
+  .tasko-booking-grid,
+  .tasko-booking-form,
+  .tasko-booking-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-content-panel,
+  .tasko-hero-panel,
+  .tasko-page-header {
+    padding: 0.9rem;
+  }
+}

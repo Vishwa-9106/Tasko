@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
+import TaskoMartManagement from "./TaskoMartManagement";
 
-const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management", "Category"];
+const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management", "Category", "TaskoMart Management"];
 const CATEGORY_LIST_PATH = "/admin/categories";
 
 const defaultRequestNotes = {};
@@ -731,7 +732,7 @@ export default function AdminApp() {
         <div className="mx-auto max-w-md">
           <div className="erp-card p-8">
             <h1 className="erp-heading text-2xl text-slate-900">Tasko Admin Login</h1>
-            <p className="mt-2 text-sm text-slate-500">Sign in to manage worker hiring requests and employee accounts.</p>
+            <p className="mt-2 text-sm text-slate-500">Sign in to manage workers, categories, and TaskoMart operations.</p>
 
             <form className="mt-6 space-y-4" onSubmit={login}>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -776,7 +777,7 @@ export default function AdminApp() {
         <header className="erp-card flex flex-wrap items-center justify-between gap-3 p-4">
           <div>
             <p className="erp-eyebrow">Tasko Admin Panel</p>
-            <h1 className="erp-heading text-2xl text-slate-900">Worker Hiring Console</h1>
+            <h1 className="erp-heading text-2xl text-slate-900">Operations Console</h1>
           </div>
           <div className="flex items-center gap-2">
             <button type="button" className="erp-btn erp-btn-soft" onClick={loadData} disabled={loadingData}>
@@ -909,6 +910,16 @@ export default function AdminApp() {
                   </tbody>
                 </table>
               </section>
+            ) : null}
+
+            {active === "TaskoMart Management" ? (
+              <TaskoMartManagement
+                sessionToken={sessionToken}
+                pushToast={pushToast}
+                onSessionExpired={async () => {
+                  await logout();
+                }}
+              />
             ) : null}
 
             {active === "Category" ? (

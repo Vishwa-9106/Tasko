@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import UserDashboardShell from "../components/UserDashboardShell";
@@ -74,6 +74,19 @@ export default function AssignsPage() {
     });
   }, [bookings]);
 
+  const bookingCounts = useMemo(
+    () =>
+      bookings.reduce(
+        (acc, booking) => {
+          const bucket = getBookingBucket(booking);
+          acc[bucket] += 1;
+          return acc;
+        },
+        { ongoing: 0, upcoming: 0, completed: 0 }
+      ),
+    [bookings]
+  );
+
   const filteredBookings = bookings.filter((booking) => getBookingBucket(booking) === activeTab);
 
   const cancelBooking = async (bookingId) => {
@@ -90,9 +103,29 @@ export default function AssignsPage() {
   return (
     <UserDashboardShell
       activeTab="assigns"
+      theme="landing"
+      eyebrow="Service Console"
       title="Assigned Services"
       subtitle="Track ongoing, upcoming, and completed services with worker details and service status."
     >
+      <section className="sync-overview-grid">
+        <article className="user-card sync-stat-card">
+          <p className="sync-stat-label">Ongoing</p>
+          <h2>{bookingCounts.ongoing}</h2>
+          <p>Services that are currently active.</p>
+        </article>
+        <article className="user-card sync-stat-card">
+          <p className="sync-stat-label">Upcoming</p>
+          <h2>{bookingCounts.upcoming}</h2>
+          <p>Confirmed services scheduled for future slots.</p>
+        </article>
+        <article className="user-card sync-stat-card">
+          <p className="sync-stat-label">Completed</p>
+          <h2>{bookingCounts.completed}</h2>
+          <p>Delivered services including cancelled items.</p>
+        </article>
+      </section>
+
       <section className="user-card">
         <h2>Service Assignments</h2>
         <div className="user-pill-tabs">
@@ -118,15 +151,22 @@ export default function AssignsPage() {
               const canCancel = !["completed", "cancelled"].includes(status.toLowerCase());
 
               return (
-                <article key={booking.id} className="user-list-item">
+                <article key={booking.id} className="user-list-item sync-assignment-card">
                   <div className="user-list-item-head">
                     <h3>{booking.category || "Service"}</h3>
                     <span className="user-status-tag">{status}</span>
                   </div>
-                  <p>Worker: {workerName}</p>
-                  <p>
-                    Date & Time: {booking.date || "-"} {booking.time ? `at ${booking.time}` : ""}
-                  </p>
+                  <div className="sync-meta-grid">
+                    <p>
+                      <strong>Worker:</strong> {workerName}
+                    </p>
+                    <p>
+                      <strong>Date:</strong> {booking.date || "-"}
+                    </p>
+                    <p>
+                      <strong>Time:</strong> {booking.time || "-"}
+                    </p>
+                  </div>
                   {canCancel ? (
                     <div className="user-actions">
                       <button type="button" className="user-btn danger" onClick={() => cancelBooking(booking.id)}>

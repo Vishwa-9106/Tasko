@@ -5,6 +5,7 @@ import express, { Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
+import { registerTaskoMartRoutes } from "./taskomartRoutes";
 import { registerWorkerHiringRoutes } from "./workerHiringRoutes";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -38,6 +39,7 @@ app.use(
 // 25mb allows both documents plus JSON overhead without tripping 413.
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ limit: "25mb", extended: true }));
+app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
 type RoleType = "user" | "worker" | "admin" | "unknown";
 type WritableRole = Exclude<RoleType, "unknown">;
@@ -800,6 +802,10 @@ app.post("/api/admin/logout", (req: Request, res: Response) => {
 });
 
 registerWorkerHiringRoutes(app, {
+  validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
+});
+
+registerTaskoMartRoutes(app, {
   validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
 });
 

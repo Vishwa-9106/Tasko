@@ -7,6 +7,8 @@ import AssignsPage from "./pages/Assigns";
 import PackagesPage from "./pages/Packages";
 import BookingPage from "./pages/Booking";
 import ProfilePage from "./pages/Profile";
+import ServiceSubcategoriesPage from "./pages/ServiceSubcategories";
+import TaskoMartPage from "./pages/TaskoMart";
 
 export default function App() {
   return (
@@ -43,6 +45,22 @@ export default function App() {
         element={
           <ProtectedRoute>
             <PackagesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/services"
+        element={
+          <ProtectedRoute>
+            <ServiceSubcategoriesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/taskomart"
+        element={
+          <ProtectedRoute>
+            <TaskoMartPage />
           </ProtectedRoute>
         }
       />
