@@ -5,6 +5,7 @@ import express, { Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
+import { ensurePackagesBootstrapData, registerPackageRoutes } from "./packagesRoutes";
 import { registerTaskoMartRoutes } from "./taskomartRoutes";
 import { registerWorkerHiringRoutes } from "./workerHiringRoutes";
 
@@ -808,6 +809,7 @@ registerWorkerHiringRoutes(app, {
 registerTaskoMartRoutes(app, {
   validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
 });
+registerPackageRoutes(app);
 
 app.get("/api/services", async (_req: Request, res: Response) => {
   try {
@@ -816,16 +818,6 @@ app.get("/api/services", async (_req: Request, res: Response) => {
     res.json(services);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch services", error });
-  }
-});
-
-app.get("/api/packages", async (_req: Request, res: Response) => {
-  try {
-    const snapshot = await db.collection("packages").get();
-    const packages = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    res.json(packages);
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch packages", error });
   }
 });
 
@@ -1143,6 +1135,7 @@ app.get("/api/admin/analytics", async (_req: Request, res: Response) => {
 async function startServer() {
   await loadPersistedAdminSessions();
   await ensureAdminAccount();
+  await ensurePackagesBootstrapData();
 
   app.listen(port, () => {
     // eslint-disable-next-line no-console

@@ -234,8 +234,8 @@ export default function BookingPage() {
   const packageOptions = useMemo(
     () =>
       packages.map((pkg) => ({
-        value: pkg.id || pkg.name,
-        label: pkg.name || pkg.serviceType || "Package Plan"
+        value: String(pkg.package_id || pkg.id || pkg.name || ""),
+        label: pkg.package_name || pkg.name || pkg.serviceType || "Package Plan"
       })),
     [packages]
   );

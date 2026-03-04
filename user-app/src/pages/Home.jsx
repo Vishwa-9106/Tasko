@@ -31,12 +31,27 @@ function normalizePackageList(list) {
 
   const normalized = list
     .map((item, index) => {
-      const name = item?.name || item?.serviceType || item?.plan || `Tasko Plan ${index + 1}`;
-      const frequency = item?.frequency || item?.duration || "Flexible";
+      const name =
+        item?.package_name ||
+        item?.name ||
+        item?.serviceType ||
+        item?.plan ||
+        `Tasko Plan ${index + 1}`;
+      const durationDays = Number(item?.duration_days);
+      const duration =
+        Number.isFinite(durationDays) && durationDays > 0
+          ? `${Math.trunc(durationDays)} days`
+          : item?.duration || "Flexible";
+      const frequency = item?.visit_frequency || item?.frequency || "";
+      const normalizedFrequency = String(frequency || "")
+        .replace(/_/g, " ")
+        .trim();
       return {
-        id: item?.id || item?._id || `${name}-${index}`,
+        id: item?.id || item?._id || item?.package_id || `${name}-${index}`,
         name,
-        description: `${frequency} support plan for regular service bookings.`
+        description: normalizedFrequency
+          ? `${duration} | ${normalizedFrequency} support plan for regular service bookings.`
+          : `${duration} support plan for regular service bookings.`
       };
     })
     .filter((item) => Boolean(item.name));
@@ -239,4 +254,3 @@ export default function HomePage() {
     </UserPortalShell>
   );
 }
-

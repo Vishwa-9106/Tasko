@@ -1,0 +1,152 @@
+.tasko-packages-grid-wrap {
+  border-radius: 18px;
+  border: 1px solid #d1d1d1;
+  background: rgba(249, 249, 249, 0.92);
+  box-shadow: 0 16px 26px -24px rgba(17, 17, 17, 0.42);
+  padding: 1rem;
+}
+
+.tasko-packages-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.tasko-package-card-v2 {
+  border: 1px solid #d2d2d2;
+  border-radius: 16px;
+  background:
+    radial-gradient(130% 110% at 85% -10%, rgba(198, 167, 94, 0.2) 0%, rgba(198, 167, 94, 0) 70%),
+    linear-gradient(160deg, #fdfdfd 0%, #f2f2f2 100%);
+  padding: 1rem;
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+}
+
+.tasko-package-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.tasko-package-card-head h3 {
+  margin: 0;
+  color: #121212;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.92rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-package-duration-badge {
+  min-height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(58, 58, 58, 0.3);
+  background: rgba(198, 167, 94, 0.2);
+  color: #262626;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.65rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.tasko-package-price {
+  margin: 0;
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.tasko-package-frequency {
+  margin: 0;
+  color: #5d5d5d;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tasko-package-description {
+  margin: 0;
+  color: #525252;
+  font-size: 0.92rem;
+}
+
+.tasko-package-service-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.tasko-package-service-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #2b2b2b;
+  font-size: 0.88rem;
+}
+
+.tasko-package-check-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(58, 58, 58, 0.35);
+  background: rgba(198, 167, 94, 0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1e1e1e;
+  flex: 0 0 20px;
+}
+
+.tasko-package-check-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tasko-package-subscribe-btn {
+  margin-top: 0.28rem;
+  min-height: 44px;
+  border: 1px solid #b7974d;
+  background: #c6a75e;
+  color: #fdfdfd;
+  cursor: pointer;
+  padding: 0 1rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: background-color 0.2s ease;
+}
+
+.tasko-package-subscribe-btn:hover {
+  background: #b7974d;
+}
+
+@media (max-width: 1080px) {
+  .tasko-packages-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .tasko-packages-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-packages-grid-wrap {
+    padding: 0.9rem;
+  }
+}

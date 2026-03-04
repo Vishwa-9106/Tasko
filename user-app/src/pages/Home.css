@@ -38,6 +38,7 @@
   min-height: 74px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1.2rem;
 }
 
@@ -65,11 +66,12 @@
 }
 
 .tasko-nav-links {
-  margin-left: auto;
-  margin-right: auto;
+  margin: 0;
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 0.75rem;
 }
 
 .tasko-nav-link {
@@ -107,6 +109,7 @@
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  flex: 0 0 auto;
 }
 
 .tasko-icon-btn {
