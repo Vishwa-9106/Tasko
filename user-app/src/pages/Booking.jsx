@@ -4,6 +4,7 @@ import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import UserPortalShell from "../components/UserPortalShell";
 import { serviceCategories } from "./homeData";
+import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 
 const tabs = [
   { id: "current", label: "Current" },
@@ -163,13 +164,28 @@ function bookingSortTime(booking) {
   );
 }
 
+function readBookingString(booking, keys, fallback = "") {
+  for (const key of keys) {
+    const value = booking?.[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return fallback;
+}
+
+function resolveWorkerInfo(booking) {
+  const name = readBookingString(booking, ["assignedWorkerName", "assigned_worker_name"], "Not assigned");
+  const phone = readBookingString(booking, ["assignedWorkerPhone", "assigned_worker_phone"], "-");
+  return { name, phone };
+}
+
 export default function BookingPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [services, setServices] = useState([]);
   const [packages, setPackages] = useState([]);
   const [bookings, setBookings] = useState([]);
-  const [workerDirectory, setWorkerDirectory] = useState({});
   const [activeTab, setActiveTab] = useState("current");
   const [formMessage, setFormMessage] = useState("");
   const [bookingsMessage, setBookingsMessage] = useState("");
@@ -192,9 +208,21 @@ export default function BookingPage() {
 
   useEffect(() => {
     const loadCatalogs = async () => {
+      const cachedServices = readSessionCache("services:list", 5 * 60 * 1000);
+      const cachedPackages = readSessionCache("packages:list", 5 * 60 * 1000);
+      if (Array.isArray(cachedServices) && Array.isArray(cachedPackages)) {
+        setServices(cachedServices);
+        setPackages(cachedPackages);
+        return;
+      }
+
       const [servicesRes, packagesRes] = await Promise.all([api.get("/api/services"), api.get("/api/packages")]);
-      setServices(Array.isArray(servicesRes.data) ? servicesRes.data : []);
-      setPackages(Array.isArray(packagesRes.data) ? packagesRes.data : []);
+      const nextServices = Array.isArray(servicesRes.data) ? servicesRes.data : [];
+      const nextPackages = Array.isArray(packagesRes.data) ? packagesRes.data : [];
+      setServices(nextServices);
+      setPackages(nextPackages);
+      writeSessionCache("services:list", nextServices);
+      writeSessionCache("packages:list", nextPackages);
     };
 
     loadCatalogs().catch(() => {
@@ -244,14 +272,24 @@ export default function BookingPage() {
       return;
     }
 
+    const cacheKey = `bookings:user:${user.uid}`;
+    const cachedBookings = readSessionCache(cacheKey, 30 * 1000);
+    if (Array.isArray(cachedBookings)) {
+      setBookings(cachedBookings);
+      setBookingsLoading(false);
+      return;
+    }
+
     setBookingsLoading(true);
     setBookingsMessage("");
 
     try {
       const response = await api.get("/api/bookings", {
-        params: { userId: user.uid }
+        params: { userId: user.uid, limit: 20 }
       });
-      setBookings(Array.isArray(response.data) ? response.data : []);
+      const nextBookings = Array.isArray(response.data) ? response.data : [];
+      setBookings(nextBookings);
+      writeSessionCache(cacheKey, nextBookings);
     } catch (_error) {
       setBookings([]);
       setBookingsMessage("Unable to load bookings right now.");
@@ -267,36 +305,6 @@ export default function BookingPage() {
       setBookingsMessage("Unable to load bookings right now.");
     });
   }, [loadBookings]);
-
-  useEffect(() => {
-    const workerIds = Array.from(new Set(bookings.map((booking) => booking.assignedWorkerId).filter(Boolean)));
-    if (workerIds.length === 0) return;
-
-    Promise.all(
-      workerIds.map((workerId) =>
-        api
-          .get(`/api/workers/${workerId}`)
-          .then((response) => ({
-            workerId,
-            name: response.data?.name || "Assigned Worker",
-            phone: response.data?.number || response.data?.mobile || ""
-          }))
-          .catch(() => ({
-            workerId,
-            name: "Assigned Worker",
-            phone: ""
-          }))
-      )
-    ).then((workers) => {
-      setWorkerDirectory((current) => {
-        const next = { ...current };
-        workers.forEach((worker) => {
-          next[worker.workerId] = worker;
-        });
-        return next;
-      });
-    });
-  }, [bookings]);
 
   const categoryOptions = useMemo(
     () => Array.from(new Set(serviceCatalog.map((item) => item.categoryName))),
@@ -390,6 +398,8 @@ export default function BookingPage() {
     try {
       await api.post("/api/bookings", {
         userId: user.uid,
+        userName: user.displayName || "",
+        userEmail: user.email || "",
         serviceCategory: formData.serviceCategory,
         subCategory: formData.subCategory,
         serviceType: formData.serviceType,
@@ -435,8 +445,8 @@ export default function BookingPage() {
 
     try {
       await api.patch(`/api/bookings/${bookingId}/status`, { status: "cancelled" });
-      setBookings((current) =>
-        current.map((booking) =>
+      setBookings((current) => {
+        const next = current.map((booking) =>
           booking.id === bookingId
             ? {
                 ...booking,
@@ -444,8 +454,12 @@ export default function BookingPage() {
                 updatedAt: new Date().toISOString()
               }
             : booking
-        )
-      );
+        );
+        if (user?.uid) {
+          writeSessionCache(`bookings:user:${user.uid}`, next);
+        }
+        return next;
+      });
       setBookingsMessage("Booking cancelled successfully.");
     } catch (error) {
       setBookingsMessage(error?.response?.data?.message || "Unable to cancel this booking right now.");
@@ -668,7 +682,7 @@ export default function BookingPage() {
               const bucket = getBookingBucket(booking);
               const status = String(booking.status || "pending").toLowerCase();
               const canCancel = !oldStatuses.has(status);
-              const workerInfo = booking.assignedWorkerId ? workerDirectory[booking.assignedWorkerId] : null;
+              const workerInfo = resolveWorkerInfo(booking);
 
               return (
                 <article key={booking.id} className="tasko-card tasko-booking-card">

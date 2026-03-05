@@ -5,6 +5,7 @@ import { API_BASE_URL } from "../config";
 import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
 import { groceryCategories } from "./homeData";
+import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 
 function normalizeText(value) {
   return String(value || "")
@@ -82,7 +83,16 @@ export default function TaskoMartPage() {
 
   useEffect(() => {
     const loadProducts = async () => {
-      const response = await api.get("/api/taskomart/products");
+      const cacheKey = "taskomart:products:list";
+      const cachedProducts = readSessionCache(cacheKey, 60 * 1000);
+      if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
+        setProducts(cachedProducts);
+        return;
+      }
+
+      const response = await api.get("/api/taskomart/products", {
+        params: { limit: 20 }
+      });
       const list = Array.isArray(response.data) ? response.data : [];
       if (list.length === 0) {
         setProducts(fallbackProducts);
@@ -98,6 +108,7 @@ export default function TaskoMartPage() {
         status: item?.status || "Available"
       }));
       setProducts(normalized);
+      writeSessionCache(cacheKey, normalized);
     };
 
     loadProducts()
@@ -220,4 +231,3 @@ export default function TaskoMartPage() {
     </UserPortalShell>
   );
 }
-

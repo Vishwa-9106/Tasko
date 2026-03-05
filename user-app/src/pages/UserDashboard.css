@@ -11,7 +11,7 @@
 }
 
 .user-shell {
-  width: min(1180px, calc(100% - 3rem));
+  width: calc(100% - 3rem);
   margin: 0 auto;
 }
 
@@ -370,7 +370,7 @@
 
 @media (max-width: 780px) {
   .user-shell {
-    width: min(1180px, calc(100% - 1.6rem));
+    width: calc(100% - 1.6rem);
   }
 
   .user-console-nav {

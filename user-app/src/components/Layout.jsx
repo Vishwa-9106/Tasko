@@ -21,7 +21,7 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
+        <div className="flex w-full items-center justify-between px-4 py-3">
           <h1 className="text-xl font-bold text-brand-700">Tasko</h1>
           <nav className="flex items-center gap-2">
             <NavLink to="/home" className={linkBase}>
@@ -45,7 +45,7 @@ export default function Layout({ children }) {
           </nav>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl px-4 py-6">{children}</main>
+      <main className="w-full px-4 py-6">{children}</main>
     </div>
   );
 }

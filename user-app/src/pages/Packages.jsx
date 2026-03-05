@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
+import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import "./Packages.css";
 
 const fallbackPackages = [
@@ -116,10 +117,19 @@ export default function PackagesPage() {
       setError("");
 
       try {
+        const cachedPackages = readSessionCache("packages:list", 5 * 60 * 1000);
+        if (Array.isArray(cachedPackages) && cachedPackages.length > 0) {
+          const normalizedCached = cachedPackages.map((item, index) => normalizePackage(item, index)).filter((item) => item.package_name);
+          setPackages(normalizedCached.length > 0 ? normalizedCached : fallbackPackages);
+          setLoading(false);
+          return;
+        }
+
         const response = await api.get("/api/packages");
         const normalized = Array.isArray(response.data)
           ? response.data.map((item, index) => normalizePackage(item, index)).filter((item) => item.package_name)
           : [];
+        writeSessionCache("packages:list", Array.isArray(response.data) ? response.data : []);
         setPackages(normalized.length > 0 ? normalized : fallbackPackages);
       } catch (_error) {
         setError("Unable to load packages right now. Showing default plans.");

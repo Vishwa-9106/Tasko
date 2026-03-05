@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import UserDashboardShell from "../components/UserDashboardShell";
+import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 
 const tabs = ["ongoing", "upcoming", "completed"];
 
@@ -30,49 +31,29 @@ export default function AssignsPage() {
   const { user } = useAuth();
   const [bookings, setBookings] = useState([]);
   const [activeTab, setActiveTab] = useState("ongoing");
-  const [workerNames, setWorkerNames] = useState({});
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!user) return;
 
     const loadBookings = async () => {
+      const cacheKey = `bookings:user:${user.uid}`;
+      const cachedBookings = readSessionCache(cacheKey, 30 * 1000);
+      if (Array.isArray(cachedBookings)) {
+        setBookings(cachedBookings);
+        return;
+      }
+
       const response = await api.get("/api/bookings", {
-        params: { userId: user.uid }
+        params: { userId: user.uid, limit: 20 }
       });
-      setBookings(response.data);
+      const nextBookings = Array.isArray(response.data) ? response.data : [];
+      setBookings(nextBookings);
+      writeSessionCache(cacheKey, nextBookings);
     };
 
     loadBookings().catch(() => setBookings([]));
   }, [user]);
-
-  useEffect(() => {
-    const workerIds = Array.from(new Set(bookings.map((booking) => booking.assignedWorkerId).filter(Boolean)));
-    if (workerIds.length === 0) return;
-
-    Promise.all(
-      workerIds.map((workerId) =>
-        api
-          .get(`/api/workers/${workerId}`)
-          .then((response) => ({
-            workerId,
-            name: response.data?.name || "Assigned Worker"
-          }))
-          .catch(() => ({
-            workerId,
-            name: "Assigned Worker"
-          }))
-      )
-    ).then((resolved) => {
-      setWorkerNames((current) => {
-        const next = { ...current };
-        resolved.forEach((item) => {
-          next[item.workerId] = item.name;
-        });
-        return next;
-      });
-    });
-  }, [bookings]);
 
   const bookingCounts = useMemo(
     () =>
@@ -93,7 +74,13 @@ export default function AssignsPage() {
     setMessage("");
     try {
       await api.patch(`/api/bookings/${bookingId}/status`, { status: "cancelled" });
-      setBookings((current) => current.map((booking) => (booking.id === bookingId ? { ...booking, status: "cancelled" } : booking)));
+      setBookings((current) => {
+        const next = current.map((booking) => (booking.id === bookingId ? { ...booking, status: "cancelled" } : booking));
+        if (user?.uid) {
+          writeSessionCache(`bookings:user:${user.uid}`, next);
+        }
+        return next;
+      });
       setMessage("Booking cancelled successfully.");
     } catch (error) {
       setMessage(error?.response?.data?.message || "Unable to cancel this booking right now.");
@@ -146,7 +133,8 @@ export default function AssignsPage() {
         ) : (
           <div className="user-list">
             {filteredBookings.map((booking) => {
-              const workerName = booking.assignedWorkerId ? workerNames[booking.assignedWorkerId] || "Assigned Worker" : "Not assigned";
+              const workerName =
+                String(booking.assignedWorkerName || booking.assigned_worker_name || "").trim() || "Not assigned";
               const status = String(booking.status || activeTab);
               const canCancel = !["completed", "cancelled"].includes(status.toLowerCase());
 

@@ -148,8 +148,10 @@ function normalizeBookingRecord(record, userLookup, workerLookup) {
     String(record?.user_name || record?.userName || user?.name || user?.full_name || user?.fullName || user?.mail || "-").trim() ||
     "-";
 
-  const userPhone = String(user?.mobile || user?.number || user?.phone || "-").trim() || "-";
-  const userEmail = String(user?.email || user?.mail || "-").trim() || "-";
+  const userPhone = String(record?.user_phone || record?.userPhone || user?.mobile || user?.number || user?.phone || "-").trim() || "-";
+  const userEmail = String(record?.user_email || record?.userEmail || user?.email || user?.mail || "-").trim() || "-";
+  const assignedWorkerName =
+    String(record?.assigned_worker_name || record?.assignedWorkerName || assignedWorker?.name || "-").trim() || "-";
 
   return {
     bookingId,
@@ -165,7 +167,7 @@ function normalizeBookingRecord(record, userLookup, workerLookup) {
     bookingType,
     status,
     assignedWorkerId,
-    assignedWorkerName: assignedWorker ? assignedWorker.name : "-",
+    assignedWorkerName,
     notes,
     createdAt: record?.created_at || record?.createdAt || "",
     updatedAt: record?.updated_at || record?.updatedAt || "",

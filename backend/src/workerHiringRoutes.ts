@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import { Express, Request, Response } from "express";
+import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { db } from "./firebaseAdmin";
 
@@ -69,6 +70,9 @@ const inMemoryWorkerApplications = new Map<string, WorkerApplicationRecord>();
 const inMemoryWorkers = new Map<string, WorkerRecord>();
 const inMemoryCategories = new Map<string, CategoryRecord>();
 const inMemorySubcategories = new Map<string, SubcategoryRecord>();
+const workerReadCacheTtlMs = Math.max(10000, Number(process.env.WORKER_READ_CACHE_MS || 60000));
+const workerProfileCache = new Map<string, { expiresAt: number; value: WorkerRecord }>();
+const workerJobsCache = new Map<string, { expiresAt: number; value: Array<Record<string, unknown>> }>();
 const defaultServiceCategories = [
   "Cleaning",
   "Washing",
@@ -181,6 +185,14 @@ function readTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function readPositiveIntQuery(value: unknown, fallback: number, max = 100): number {
+  const parsed = Number(readTrimmedString(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(max, Math.trunc(parsed));
+}
+
 function normalizePhone(value: unknown): string {
   return readTrimmedString(value).replace(/\D/g, "");
 }
@@ -215,12 +227,74 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function getWorkerProfileFromCache(workerId: string): WorkerRecord | null {
+  const cached = workerProfileCache.get(workerId);
+  if (!cached) return null;
+  if (Date.now() >= cached.expiresAt) {
+    workerProfileCache.delete(workerId);
+    return null;
+  }
+  return cached.value;
+}
+
+function setWorkerProfileCache(workerId: string, value: WorkerRecord): void {
+  workerProfileCache.set(workerId, {
+    value,
+    expiresAt: Date.now() + workerReadCacheTtlMs
+  });
+}
+
+function getWorkerJobsFromCache(workerId: string): Array<Record<string, unknown>> | null {
+  const cached = workerJobsCache.get(workerId);
+  if (!cached) return null;
+  if (Date.now() >= cached.expiresAt) {
+    workerJobsCache.delete(workerId);
+    return null;
+  }
+  return cached.value;
+}
+
+function setWorkerJobsCache(workerId: string, value: Array<Record<string, unknown>>): void {
+  workerJobsCache.set(workerId, {
+    value,
+    expiresAt: Date.now() + workerReadCacheTtlMs
+  });
+}
+
+function clearWorkerJobsCache(workerId: string): void {
+  workerJobsCache.delete(workerId);
+}
+
 function isFirestoreUnavailableError(error: unknown): boolean {
   const message = getErrorMessage(error);
+  const normalizedMessage = message.toLowerCase();
+  const rawCode = (error as { code?: unknown })?.code;
+  const code =
+    typeof rawCode === "string"
+      ? rawCode.toLowerCase()
+      : typeof rawCode === "number"
+        ? String(rawCode)
+        : "";
   return (
-    message.includes("5 NOT_FOUND") ||
-    message.includes("database (default) does not exist") ||
-    message.includes("The caller does not have permission")
+    normalizedMessage.includes("5 not_found") ||
+    normalizedMessage.includes("not_found") ||
+    normalizedMessage.includes("7 permission_denied") ||
+    normalizedMessage.includes("permission_denied") ||
+    normalizedMessage.includes("8 resource_exhausted") ||
+    normalizedMessage.includes("resource_exhausted") ||
+    normalizedMessage.includes("quota exceeded") ||
+    normalizedMessage.includes("missing or insufficient permissions") ||
+    normalizedMessage.includes("the caller does not have permission") ||
+    (normalizedMessage.includes("database") && normalizedMessage.includes("does not exist")) ||
+    normalizedMessage.includes("14 unavailable") ||
+    normalizedMessage.includes("deadline exceeded") ||
+    code.includes("not-found") ||
+    code.includes("permission-denied") ||
+    code.includes("resource-exhausted") ||
+    code === "5" ||
+    code === "7" ||
+    code === "8" ||
+    code === "14"
   );
 }
 
@@ -470,9 +544,13 @@ async function getWorkerApplicationById(applicationId: string): Promise<WorkerAp
   return inMemoryRecord || null;
 }
 
-async function listWorkerApplications(): Promise<WorkerApplicationRecord[]> {
+async function listWorkerApplications(limit?: number): Promise<WorkerApplicationRecord[]> {
   try {
-    const snapshot = await db.collection("worker_applications").orderBy("applied_at", "desc").get();
+    let query: Query = db.collection("worker_applications").orderBy("applied_at", "desc");
+    if (typeof limit === "number" && limit > 0) {
+      query = query.limit(limit);
+    }
+    const snapshot = await query.get();
     return snapshot.docs.map((document) => normalizeWorkerApplicationRecord(document.id, document.data()));
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
@@ -480,9 +558,13 @@ async function listWorkerApplications(): Promise<WorkerApplicationRecord[]> {
     }
   }
 
-  return Array.from(inMemoryWorkerApplications.values()).sort(
+  const fallbackRows = Array.from(inMemoryWorkerApplications.values()).sort(
     (left, right) => new Date(right.applied_at).getTime() - new Date(left.applied_at).getTime()
   );
+  if (typeof limit === "number" && limit > 0) {
+    return fallbackRows.slice(0, limit);
+  }
+  return fallbackRows;
 }
 
 async function updateWorkerApplication(
@@ -519,16 +601,32 @@ async function updateWorkerApplication(
 }
 
 async function getWorkerById(workerId: string): Promise<WorkerRecord | null> {
+  const cachedRecord = getWorkerProfileFromCache(workerId);
+  if (cachedRecord) {
+    return cachedRecord;
+  }
+
   const inMemoryRecord = inMemoryWorkers.get(workerId);
+  if (inMemoryRecord) {
+    setWorkerProfileCache(workerId, inMemoryRecord);
+    return inMemoryRecord;
+  }
+
   try {
     const document = await db.collection("workers").doc(workerId).get();
     if (document.exists) {
-      return normalizeWorkerRecord(document.id, document.data() || {});
+      const normalized = normalizeWorkerRecord(document.id, document.data() || {});
+      inMemoryWorkers.set(workerId, normalized);
+      setWorkerProfileCache(workerId, normalized);
+      return normalized;
     }
 
     const querySnapshot = await db.collection("workers").where("worker_id", "==", workerId).limit(1).get();
     if (!querySnapshot.empty) {
-      return normalizeWorkerRecord(querySnapshot.docs[0].id, querySnapshot.docs[0].data());
+      const normalized = normalizeWorkerRecord(querySnapshot.docs[0].id, querySnapshot.docs[0].data());
+      inMemoryWorkers.set(workerId, normalized);
+      setWorkerProfileCache(workerId, normalized);
+      return normalized;
     }
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
@@ -538,16 +636,24 @@ async function getWorkerById(workerId: string): Promise<WorkerRecord | null> {
   return inMemoryRecord || null;
 }
 
-async function listWorkers(): Promise<WorkerRecord[]> {
+async function listWorkers(limit?: number): Promise<WorkerRecord[]> {
   try {
-    const snapshot = await db.collection("workers").get();
+    let query: Query = db.collection("workers");
+    if (typeof limit === "number" && limit > 0) {
+      query = query.limit(limit);
+    }
+    const snapshot = await query.get();
     return snapshot.docs.map((document) => normalizeWorkerRecord(document.id, document.data()));
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
       throw error;
     }
   }
-  return Array.from(inMemoryWorkers.values());
+  const fallbackRows = Array.from(inMemoryWorkers.values());
+  if (typeof limit === "number" && limit > 0) {
+    return fallbackRows.slice(0, limit);
+  }
+  return fallbackRows;
 }
 
 function normalizeCategoryRecord(categoryId: string, data: Record<string, unknown>): CategoryRecord {
@@ -1156,7 +1262,8 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
     }
 
     try {
-      const applications = await listWorkerApplications();
+      const limit = readPositiveIntQuery(req.query.limit, 20, 100);
+      const applications = await listWorkerApplications(limit);
       return res.json(applications.map((application) => toApplicationResponse(req, sessionToken, application)));
     } catch (error) {
       return res.status(500).json({ message: "Failed to load worker applications", error: getErrorMessage(error) });
@@ -1765,8 +1872,14 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(401).json({ message: "Worker session is invalid or expired" });
       }
 
-      const snapshot = await db.collection("bookings").where("assignedWorkerId", "==", workerId).get();
+      const cachedJobs = getWorkerJobsFromCache(workerId);
+      if (cachedJobs) {
+        return res.json(cachedJobs);
+      }
+
+      const snapshot = await db.collection("bookings").where("assignedWorkerId", "==", workerId).limit(20).get();
       const jobs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setWorkerJobsCache(workerId, jobs);
       return res.json(jobs);
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch assigned jobs", error: getErrorMessage(error) });
@@ -1811,6 +1924,8 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
       }
 
       inMemoryWorkers.set(worker.worker_id, { ...worker, online, updated_at: updatedAt });
+      setWorkerProfileCache(worker.worker_id, { ...worker, online, updated_at: updatedAt });
+      clearWorkerJobsCache(worker.worker_id);
       return res.json({ message: "Worker availability updated" });
     } catch (error) {
       return res.status(500).json({ message: "Failed to update worker status", error: getErrorMessage(error) });

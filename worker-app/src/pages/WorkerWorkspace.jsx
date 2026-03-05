@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, WORKER_ID_KEY, WORKER_SESSION_TOKEN_KEY } from "../api";
 import BrandLogo from "../components/landing/BrandLogo";
@@ -8,6 +8,7 @@ const tabs = [
   { id: "earnings", label: "My Earnings", href: "/my-earnings" },
   { id: "profile", label: "Profile", href: "/profile" }
 ];
+const workerDashboardPollIntervalMs = 60000;
 
 function resolveDateTime(job) {
   if (!job?.date) return null;
@@ -32,6 +33,7 @@ export default function WorkerWorkspacePage({ activeTab }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const hasLoadedWorkspaceRef = useRef(false);
 
   const online = Boolean(worker?.online);
   const workerName = worker?.name || "Worker";
@@ -49,7 +51,7 @@ export default function WorkerWorkspacePage({ activeTab }) {
       return;
     }
 
-    if (!worker) {
+    if (!hasLoadedWorkspaceRef.current) {
       setLoading(true);
     }
     setError("");
@@ -84,23 +86,26 @@ export default function WorkerWorkspacePage({ activeTab }) {
       setError(loadError?.response?.data?.message || "Failed to load worker dashboard.");
     } finally {
       setLoading(false);
+      hasLoadedWorkspaceRef.current = true;
     }
-  }, [activeTab, navigate, worker]);
+  }, [activeTab, navigate]);
 
   useEffect(() => {
     loadWorkerWorkspace().catch(() => {});
   }, [loadWorkerWorkspace]);
 
   useEffect(() => {
+    if (activeTab !== "dashboard") return undefined;
     const sessionToken = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
     if (!sessionToken) return undefined;
 
     const poll = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       loadWorkerWorkspace().catch(() => {});
-    }, 10000);
+    }, workerDashboardPollIntervalMs);
 
     return () => clearInterval(poll);
-  }, [loadWorkerWorkspace]);
+  }, [activeTab, loadWorkerWorkspace]);
 
   const toggleOnlineStatus = async () => {
     if (!worker) return;

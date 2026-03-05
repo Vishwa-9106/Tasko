@@ -77,6 +77,9 @@ type CheckoutInputBody = {
 
 const inMemoryProducts = new Map<string, TaskoMartProductRecord>();
 const inMemoryOrders = new Map<string, TaskoMartOrderRecord>();
+const taskoMartReadCacheTtlMs = Math.max(5000, Number(process.env.TASKOMART_READ_CACHE_MS || 30000));
+let productsListCache: { expiresAt: number; value: TaskoMartProductRecord[] } | null = null;
+let ordersListCache: { expiresAt: number; value: TaskoMartOrderRecord[] } | null = null;
 
 const groceryCategories = [
   "Fruits & Vegetables",
@@ -218,6 +221,15 @@ function hasOwn(record: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
+function readPositiveIntQuery(value: unknown, fallback: number, max = 100): number {
+  const raw = readTrimmedString(value);
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(max, Math.trunc(parsed));
+}
+
 function parseDateTimestamp(value: unknown): number | null {
   const textValue = readTrimmedString(value);
   if (!textValue) return null;
@@ -245,12 +257,76 @@ function toEpoch(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getProductsListFromCache(): TaskoMartProductRecord[] | null {
+  if (!productsListCache) return null;
+  if (Date.now() >= productsListCache.expiresAt) {
+    productsListCache = null;
+    return null;
+  }
+  return productsListCache.value;
+}
+
+function setProductsListCache(value: TaskoMartProductRecord[]): void {
+  productsListCache = {
+    value,
+    expiresAt: Date.now() + taskoMartReadCacheTtlMs
+  };
+}
+
+function clearProductsListCache(): void {
+  productsListCache = null;
+}
+
+function getOrdersListFromCache(): TaskoMartOrderRecord[] | null {
+  if (!ordersListCache) return null;
+  if (Date.now() >= ordersListCache.expiresAt) {
+    ordersListCache = null;
+    return null;
+  }
+  return ordersListCache.value;
+}
+
+function setOrdersListCache(value: TaskoMartOrderRecord[]): void {
+  ordersListCache = {
+    value,
+    expiresAt: Date.now() + taskoMartReadCacheTtlMs
+  };
+}
+
+function clearOrdersListCache(): void {
+  ordersListCache = null;
+}
+
 function isFirestoreUnavailableError(error: unknown): boolean {
   const message = getErrorMessage(error);
+  const normalizedMessage = message.toLowerCase();
+  const rawCode = (error as { code?: unknown })?.code;
+  const code =
+    typeof rawCode === "string"
+      ? rawCode.toLowerCase()
+      : typeof rawCode === "number"
+        ? String(rawCode)
+        : "";
   return (
-    message.includes("5 NOT_FOUND") ||
-    message.includes("database (default) does not exist") ||
-    message.includes("The caller does not have permission")
+    normalizedMessage.includes("5 not_found") ||
+    normalizedMessage.includes("not_found") ||
+    normalizedMessage.includes("7 permission_denied") ||
+    normalizedMessage.includes("permission_denied") ||
+    normalizedMessage.includes("8 resource_exhausted") ||
+    normalizedMessage.includes("resource_exhausted") ||
+    normalizedMessage.includes("quota exceeded") ||
+    normalizedMessage.includes("missing or insufficient permissions") ||
+    normalizedMessage.includes("the caller does not have permission") ||
+    (normalizedMessage.includes("database") && normalizedMessage.includes("does not exist")) ||
+    normalizedMessage.includes("14 unavailable") ||
+    normalizedMessage.includes("deadline exceeded") ||
+    code.includes("not-found") ||
+    code.includes("permission-denied") ||
+    code.includes("resource-exhausted") ||
+    code === "5" ||
+    code === "7" ||
+    code === "8" ||
+    code === "14"
   );
 }
 
@@ -517,27 +593,43 @@ async function deleteProductImage(imageUrl: string): Promise<void> {
 }
 
 async function listProducts(): Promise<TaskoMartProductRecord[]> {
+  const cached = getProductsListFromCache();
+  if (cached) {
+    return cached;
+  }
+
   try {
     const snapshot = await db.collection("taskomart_products").get();
     if (!snapshot.empty) {
       const products = snapshot.docs.map((document) => normalizeProductRecord(document.id, document.data()));
       products.forEach((product) => inMemoryProducts.set(product.id, product));
-      return products.sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+      const sorted = products.sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+      setProductsListCache(sorted);
+      return sorted;
     }
 
     const defaults = ensureInMemoryDefaultProducts();
     await Promise.all(defaults.map((product) => saveProduct(product)));
-    return [...defaults].sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+    const sortedDefaults = [...defaults].sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+    setProductsListCache(sortedDefaults);
+    return sortedDefaults;
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
       throw error;
     }
   }
 
-  return ensureInMemoryDefaultProducts().sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+  const fallback = ensureInMemoryDefaultProducts().sort((left, right) => toEpoch(right.updatedAt) - toEpoch(left.updatedAt));
+  setProductsListCache(fallback);
+  return fallback;
 }
 
 async function getProductById(productId: string): Promise<TaskoMartProductRecord | null> {
+  const inMemory = inMemoryProducts.get(productId);
+  if (inMemory) {
+    return inMemory;
+  }
+
   try {
     const document = await db.collection("taskomart_products").doc(productId).get();
     if (document.exists) {
@@ -577,6 +669,7 @@ async function saveProduct(product: TaskoMartProductRecord): Promise<void> {
   }
 
   inMemoryProducts.set(product.id, product);
+  clearProductsListCache();
 }
 
 async function deleteProductById(productId: string): Promise<void> {
@@ -589,24 +682,39 @@ async function deleteProductById(productId: string): Promise<void> {
   }
 
   inMemoryProducts.delete(productId);
+  clearProductsListCache();
 }
 
 async function listOrders(): Promise<TaskoMartOrderRecord[]> {
+  const cached = getOrdersListFromCache();
+  if (cached) {
+    return cached;
+  }
+
   try {
     const snapshot = await db.collection("taskomart_orders").get();
     const orders = snapshot.docs.map((document) => normalizeOrderRecord(document.id, document.data()));
     orders.forEach((order) => inMemoryOrders.set(order.id, order));
-    return orders.sort((left, right) => toEpoch(right.orderDate) - toEpoch(left.orderDate));
+    const sorted = orders.sort((left, right) => toEpoch(right.orderDate) - toEpoch(left.orderDate));
+    setOrdersListCache(sorted);
+    return sorted;
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
       throw error;
     }
   }
 
-  return Array.from(inMemoryOrders.values()).sort((left, right) => toEpoch(right.orderDate) - toEpoch(left.orderDate));
+  const fallback = Array.from(inMemoryOrders.values()).sort((left, right) => toEpoch(right.orderDate) - toEpoch(left.orderDate));
+  setOrdersListCache(fallback);
+  return fallback;
 }
 
 async function getOrderById(orderId: string): Promise<TaskoMartOrderRecord | null> {
+  const inMemory = inMemoryOrders.get(orderId);
+  if (inMemory) {
+    return inMemory;
+  }
+
   try {
     const document = await db.collection("taskomart_orders").doc(orderId).get();
     if (document.exists) {
@@ -676,6 +784,7 @@ async function saveOrder(order: TaskoMartOrderRecord): Promise<void> {
   }
 
   inMemoryOrders.set(order.id, order);
+  clearOrdersListCache();
 }
 
 function createOrderCode(): string {
@@ -715,6 +824,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
     try {
       const searchText = readTrimmedString(req.query.search).toLowerCase();
       const categoryFilter = normalizeCategoryFilter(req.query.category);
+      const limit = readPositiveIntQuery(req.query.limit, 20, 100);
       const products = await listProducts();
 
       const filtered = products.filter((product) => {
@@ -734,7 +844,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
       ).sort((left, right) => left.localeCompare(right));
 
       return res.json({
-        products: filtered.map((product) => toProductResponse(product)),
+        products: filtered.slice(0, limit).map((product) => toProductResponse(product)),
         categories,
         statuses: productStatuses
       });
@@ -944,6 +1054,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
       const searchText = readTrimmedString(req.query.search).toLowerCase();
       const categoryFilter = normalizeCategoryFilter(req.query.category);
       const statusFilter = readTrimmedString(req.query.status);
+      const limit = readPositiveIntQuery(req.query.limit, 20, 100);
       const products = await listProducts();
 
       const filtered = products.filter((product) => {
@@ -956,7 +1067,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
         return matchesSearch && matchesCategory && matchesStatus;
       });
 
-      return res.json(filtered.map((product) => toProductResponse(product)));
+      return res.json(filtered.slice(0, limit).map((product) => toProductResponse(product)));
     } catch (error) {
       return res.status(500).json({
         message: "Failed to load products",
@@ -1090,6 +1201,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
 
   app.get("/api/taskomart/orders", async (req: Request, res: Response) => {
     try {
+      const limit = readPositiveIntQuery(req.query.limit, 20, 100);
       const userId = readTrimmedString(req.query.userId);
       const userEmail = readTrimmedString(req.query.userEmail).toLowerCase();
       const userPhone = readTrimmedString(req.query.userPhone);
@@ -1113,7 +1225,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
         return true;
       });
 
-      return res.json(filtered.map((order) => toOrderDetailResponse(order)));
+      return res.json(filtered.slice(0, limit).map((order) => toOrderDetailResponse(order)));
     } catch (error) {
       return res.status(500).json({
         message: "Failed to fetch orders",
@@ -1131,6 +1243,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
       const statusFilterInput = readTrimmedString(req.query.status);
       const fromDateTimestamp = parseDateTimestamp(req.query.fromDate);
       const toDateTimestamp = parseDateEndTimestamp(req.query.toDate);
+      const limit = readPositiveIntQuery(req.query.limit, 20, 100);
 
       if (statusFilterInput && !isRecognizedOrderStatus(statusFilterInput)) {
         return res.status(400).json({ message: "Invalid order status filter." });
@@ -1159,7 +1272,7 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
       });
 
       return res.json({
-        orders: filteredOrders.map((order) => toOrderSummaryResponse(order)),
+        orders: filteredOrders.slice(0, limit).map((order) => toOrderSummaryResponse(order)),
         statuses: orderStatuses,
         paymentStatuses
       });

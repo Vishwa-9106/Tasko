@@ -30,6 +30,10 @@ const adminSessions = new Map<string, { email: string; createdAt: number }>();
 const adminSessionTtlMs = 1000 * 60 * 60 * 24;
 const inMemoryUsers = new Map<string, Record<string, unknown>>();
 const inMemoryWorkers = new Map<string, Record<string, unknown>>();
+const dashboardReadCache = new Map<string, { expiresAt: number; value: unknown }>();
+const dashboardReadCacheTtlMs = Math.max(5000, Number(process.env.DASHBOARD_READ_CACHE_MS || 30000));
+const adminAnalyticsCacheTtlMs = Math.max(5000, Number(process.env.ADMIN_ANALYTICS_CACHE_MS || 60000));
+let adminAnalyticsCache: { expiresAt: number; value: Record<string, number> } | null = null;
 
 app.use(
   cors({
@@ -90,10 +94,34 @@ function getErrorMessage(error: unknown): string {
 
 function isFirestoreUnavailableError(error: unknown): boolean {
   const message = getErrorMessage(error);
+  const normalizedMessage = message.toLowerCase();
+  const rawCode = (error as { code?: unknown })?.code;
+  const code =
+    typeof rawCode === "string"
+      ? rawCode.toLowerCase()
+      : typeof rawCode === "number"
+        ? String(rawCode)
+        : "";
   return (
-    message.includes("5 NOT_FOUND") ||
-    message.includes("database (default) does not exist") ||
-    message.includes("The caller does not have permission")
+    normalizedMessage.includes("5 not_found") ||
+    normalizedMessage.includes("not_found") ||
+    normalizedMessage.includes("7 permission_denied") ||
+    normalizedMessage.includes("permission_denied") ||
+    normalizedMessage.includes("8 resource_exhausted") ||
+    normalizedMessage.includes("resource_exhausted") ||
+    normalizedMessage.includes("quota exceeded") ||
+    normalizedMessage.includes("missing or insufficient permissions") ||
+    normalizedMessage.includes("the caller does not have permission") ||
+    (normalizedMessage.includes("database") && normalizedMessage.includes("does not exist")) ||
+    normalizedMessage.includes("14 unavailable") ||
+    normalizedMessage.includes("deadline exceeded") ||
+    code.includes("not-found") ||
+    code.includes("permission-denied") ||
+    code.includes("resource-exhausted") ||
+    code === "5" ||
+    code === "7" ||
+    code === "8" ||
+    code === "14"
   );
 }
 
@@ -103,6 +131,51 @@ function toInMemoryWorkerList(): Array<Record<string, unknown>> {
 
 function toInMemoryUserList(): Array<Record<string, unknown>> {
   return Array.from(inMemoryUsers.entries()).map(([id, user]) => ({ id, ...user }));
+}
+
+function getDashboardReadCache<T>(cacheKey: string): T | null {
+  const entry = dashboardReadCache.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    dashboardReadCache.delete(cacheKey);
+    return null;
+  }
+  return entry.value as T;
+}
+
+function setDashboardReadCache<T>(cacheKey: string, value: T): void {
+  dashboardReadCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + dashboardReadCacheTtlMs
+  });
+}
+
+function clearDashboardReadCache(prefix: "users:" | "workers:" | "bookings:"): void {
+  Array.from(dashboardReadCache.keys()).forEach((cacheKey) => {
+    if (cacheKey.startsWith(prefix)) {
+      dashboardReadCache.delete(cacheKey);
+    }
+  });
+}
+
+function getAdminAnalyticsCache(): Record<string, number> | null {
+  if (!adminAnalyticsCache) return null;
+  if (Date.now() >= adminAnalyticsCache.expiresAt) {
+    adminAnalyticsCache = null;
+    return null;
+  }
+  return adminAnalyticsCache.value;
+}
+
+function setAdminAnalyticsCache(value: Record<string, number>): void {
+  adminAnalyticsCache = {
+    value,
+    expiresAt: Date.now() + adminAnalyticsCacheTtlMs
+  };
+}
+
+function clearAdminAnalyticsCache(): void {
+  adminAnalyticsCache = null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -309,6 +382,21 @@ function readRouteParam(param: string | string[] | undefined): string {
   }
 
   return param || "";
+}
+
+function readQueryText(value: unknown): string {
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0].trim() : "";
+  }
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readQueryLimit(value: unknown, fallback: number, max = 100): number {
+  const parsed = Number(readQueryText(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(max, Math.trunc(parsed));
 }
 
 async function syncUserRoleRecord({
@@ -811,10 +899,18 @@ registerTaskoMartRoutes(app, {
 });
 registerPackageRoutes(app);
 
-app.get("/api/services", async (_req: Request, res: Response) => {
+app.get("/api/services", async (req: Request, res: Response) => {
+  const limit = readQueryLimit(req.query.limit, 20, 100);
+  const cacheKey = `services:limit:${limit}`;
+  const cachedServices = getDashboardReadCache<Array<Record<string, unknown>>>(cacheKey);
+  if (cachedServices) {
+    return res.json(cachedServices);
+  }
+
   try {
-    const snapshot = await db.collection("services").get();
+    const snapshot = await db.collection("services").limit(limit).get();
     const services = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    setDashboardReadCache(cacheKey, services);
     res.json(services);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch services", error });
@@ -850,6 +946,8 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
       },
       { merge: true }
     );
+    clearDashboardReadCache("users:");
+    clearAdminAnalyticsCache();
 
     return res.status(201).json({ message: "User saved", role: "user" });
   } catch (error) {
@@ -880,6 +978,8 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         createdAt: existingCreatedAt,
         updatedAt: now
       });
+      clearDashboardReadCache("users:");
+      clearAdminAnalyticsCache();
 
       return res.status(201).json({ message: "User saved", role: "user" });
     }
@@ -893,10 +993,43 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/api/users", async (_req: Request, res: Response) => {
+app.get("/api/users", async (req: Request, res: Response) => {
+  const userId = readQueryText(req.query.userId);
+  if (userId) {
+    const singleUserCacheKey = `users:single:${userId}`;
+    const cachedSingleUser = getDashboardReadCache<Array<Record<string, unknown>>>(singleUserCacheKey);
+    if (cachedSingleUser) {
+      return res.json(cachedSingleUser);
+    }
+
+    try {
+      const userDocument = await db.collection("users").doc(userId).get();
+      if (userDocument.exists) {
+        const payload = [{ id: userDocument.id, ...userDocument.data() }];
+        setDashboardReadCache(singleUserCacheKey, payload);
+        return res.json(payload);
+      }
+      const inMemoryUser = inMemoryUsers.get(userId);
+      const payload = inMemoryUser ? [{ id: userId, ...inMemoryUser }] : [];
+      setDashboardReadCache(singleUserCacheKey, payload);
+      return res.json(payload);
+    } catch (error) {
+      const inMemoryUser = inMemoryUsers.get(userId);
+      return sendDashboardReadFallback(res, "/api/users", inMemoryUser ? [{ id: userId, ...inMemoryUser }] : [], error);
+    }
+  }
+
+  const limit = readQueryLimit(req.query.limit, 20, 100);
+  const allUsersCacheKey = `users:all:limit:${limit}`;
+  const cachedUsers = getDashboardReadCache<Array<Record<string, unknown>>>(allUsersCacheKey);
+  if (cachedUsers) {
+    return res.json(cachedUsers);
+  }
+
   try {
-    const snapshot = await db.collection("users").get();
+    const snapshot = await db.collection("users").limit(limit).get();
     const users = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    setDashboardReadCache(allUsersCacheKey, users);
     return res.json(users);
   } catch (error) {
     return sendDashboardReadFallback(res, "/api/users", toInMemoryUserList(), error);
@@ -920,6 +1053,9 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     const recurringDays = serviceType === "package" ? readText(req.body.recurringDays) : "";
     const specialInstructions = readText(req.body.specialInstructions) || readText(req.body.notes);
     const directAddress = readText(req.body.address) || readText(req.body.serviceAddress);
+    let userName = readText(req.body.userName);
+    let userEmail = readText(req.body.userEmail);
+    let userPhone = readText(req.body.userPhone) || readText(req.body.mobile) || readText(req.body.number);
 
     if (!userId || !serviceCategory || !subCategory || !serviceDate || !preferredTimeSlot) {
       return res
@@ -937,11 +1073,24 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
 
     let address = directAddress;
     if (!address && userId) {
+      const inMemoryUser = inMemoryUsers.get(userId);
+      if (inMemoryUser) {
+        address = address || readText(inMemoryUser.address);
+        userName = userName || readText(inMemoryUser.name);
+        userEmail = userEmail || readText(inMemoryUser.email) || readText(inMemoryUser.mail);
+        userPhone = userPhone || readText(inMemoryUser.mobile) || readText(inMemoryUser.number);
+      }
+
       try {
-        const userDoc = await db.collection("users").doc(userId).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data() || {};
-          address = readText(userData.address);
+        if (!address || !userName || !userEmail || !userPhone) {
+          const userDoc = await db.collection("users").doc(userId).get();
+          if (userDoc.exists) {
+            const userData = userDoc.data() || {};
+            address = address || readText(userData.address);
+            userName = userName || readText(userData.name);
+            userEmail = userEmail || readText(userData.email) || readText(userData.mail);
+            userPhone = userPhone || readText(userData.mobile) || readText(userData.number);
+          }
         }
       } catch (error) {
         if (!isFirestoreUnavailableError(error)) {
@@ -951,10 +1100,7 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       }
 
       if (!address) {
-        const inMemoryUser = inMemoryUsers.get(userId);
-        if (inMemoryUser) {
-          address = readText(inMemoryUser.address);
-        }
+        address = readText(inMemoryUser?.address);
       }
     }
 
@@ -991,10 +1137,21 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       timeSlot: preferredTimeSlot,
       bookingType: serviceType,
       assignedWorkerId: "",
-      userName: readText(req.body.userName),
+      assignedWorkerName: "",
+      assigned_worker_name: "",
+      assignedWorkerPhone: "",
+      assigned_worker_phone: "",
+      userName,
+      user_name: userName,
+      userEmail,
+      user_email: userEmail,
+      userPhone,
+      user_phone: userPhone,
       status: "pending",
       createdAt: timestamp()
     });
+    clearDashboardReadCache("bookings:");
+    clearAdminAnalyticsCache();
 
     return res.status(201).json({ id: bookingRef.id, bookingId: bookingRef.id, message: "Booking created" });
   } catch (error) {
@@ -1003,35 +1160,84 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
 });
 
 app.get("/api/bookings", async (req: Request, res: Response) => {
+  const userIdParam = readQueryText(req.query.userId);
+  const workerIdParam = readQueryText(req.query.workerId);
+  const limit = readQueryLimit(req.query.limit, 20, 100);
+  const cacheKey = `bookings:user:${userIdParam || "*"}:worker:${workerIdParam || "*"}:limit:${limit}`;
+  const cachedBookings = getDashboardReadCache<Array<Record<string, unknown>>>(cacheKey);
+  if (cachedBookings) {
+    return res.json(cachedBookings);
+  }
+
   try {
-    const { userId, workerId } = req.query;
     let query: Query = db.collection("bookings");
 
-    if (typeof userId === "string") {
-      query = query.where("userId", "==", userId);
+    if (userIdParam) {
+      query = query.where("userId", "==", userIdParam);
     }
 
-    if (typeof workerId === "string") {
-      query = query.where("assignedWorkerId", "==", workerId);
+    if (workerIdParam) {
+      query = query.where("assignedWorkerId", "==", workerIdParam);
     }
 
-    const snapshot = await query.get();
+    const snapshot = await query.limit(limit).get();
     const bookings = snapshot.docs.map((doc) => {
       const data = doc.data();
       const bookingId =
         typeof data.booking_id === "string" && data.booking_id.trim()
           ? data.booking_id.trim()
           : typeof data.bookingId === "string" && data.bookingId.trim()
-            ? data.bookingId.trim()
-            : doc.id;
+          ? data.bookingId.trim()
+          : doc.id;
+      const assignedWorkerName =
+        typeof data.assignedWorkerName === "string"
+          ? data.assignedWorkerName
+          : typeof data.assigned_worker_name === "string"
+            ? data.assigned_worker_name
+            : "";
+      const assignedWorkerPhone =
+        typeof data.assignedWorkerPhone === "string"
+          ? data.assignedWorkerPhone
+          : typeof data.assigned_worker_phone === "string"
+            ? data.assigned_worker_phone
+            : "";
+      const normalizedUserName =
+        typeof data.userName === "string"
+          ? data.userName
+          : typeof data.user_name === "string"
+            ? data.user_name
+            : "";
+      const normalizedUserPhone =
+        typeof data.userPhone === "string"
+          ? data.userPhone
+          : typeof data.user_phone === "string"
+            ? data.user_phone
+            : "";
+      const normalizedUserEmail =
+        typeof data.userEmail === "string"
+          ? data.userEmail
+          : typeof data.user_email === "string"
+            ? data.user_email
+            : "";
 
       return {
         id: doc.id,
         ...data,
         booking_id: bookingId,
-        bookingId
+        bookingId,
+        assignedWorkerName,
+        assigned_worker_name: assignedWorkerName,
+        assignedWorkerPhone,
+        assigned_worker_phone: assignedWorkerPhone,
+        userName: normalizedUserName,
+        user_name: normalizedUserName,
+        userPhone: normalizedUserPhone,
+        user_phone: normalizedUserPhone,
+        userEmail: normalizedUserEmail,
+        user_email: normalizedUserEmail
       };
     });
+    setDashboardReadCache(cacheKey, bookings);
     return res.json(bookings);
   } catch (error) {
     return sendDashboardReadFallback(res, "/api/bookings", [], error);
@@ -1067,6 +1273,7 @@ app.patch("/api/bookings/:bookingId/status", async (req: Request, res: Response)
       },
       { merge: true }
     );
+    clearDashboardReadCache("bookings:");
 
     return res.json({ message: "Booking status updated" });
   } catch (error) {
@@ -1080,10 +1287,18 @@ app.post("/api/workers/register", async (req: Request, res: Response) => {
   });
 });
 
-app.get("/api/workers", async (_req: Request, res: Response) => {
+app.get("/api/workers", async (req: Request, res: Response) => {
+  const limit = readQueryLimit(req.query.limit, 20, 100);
+  const cacheKey = `workers:all:limit:${limit}`;
+  const cachedWorkers = getDashboardReadCache<Array<Record<string, unknown>>>(cacheKey);
+  if (cachedWorkers) {
+    return res.json(cachedWorkers);
+  }
+
   try {
-    const snapshot = await db.collection("workers").get();
+    const snapshot = await db.collection("workers").limit(limit).get();
     const workers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    setDashboardReadCache(cacheKey, workers);
     return res.json(workers);
   } catch (error) {
     return sendDashboardReadFallback(res, "/api/workers", toInMemoryWorkerList(), error);
@@ -1136,6 +1351,7 @@ app.patch("/api/workers/:workerId/status", async (req: Request, res: Response) =
       online,
       updatedAt: timestamp()
     });
+    clearDashboardReadCache("workers:");
 
     const inMemoryWorker = inMemoryWorkers.get(workerId);
     if (inMemoryWorker) {
@@ -1160,6 +1376,7 @@ app.patch("/api/workers/:workerId/status", async (req: Request, res: Response) =
         online,
         updatedAt: new Date().toISOString()
       });
+      clearDashboardReadCache("workers:");
       return res.json({ message: "Worker availability updated" });
     }
 
@@ -1169,9 +1386,11 @@ app.patch("/api/workers/:workerId/status", async (req: Request, res: Response) =
 
 app.get("/api/workers/:workerId/jobs", async (req: Request, res: Response) => {
   try {
+    const limit = readQueryLimit(req.query.limit, 20, 100);
     const snapshot = await db
       .collection("bookings")
       .where("assignedWorkerId", "==", req.params.workerId)
+      .limit(limit)
       .get();
 
     const jobs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -1189,10 +1408,49 @@ app.post("/api/jobs/assign", async (req: Request, res: Response) => {
       return res.status(400).json({ message: "bookingId and workerId are required" });
     }
 
+    const readText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+    let assignedWorkerName = "";
+    let assignedWorkerPhone = "";
+    const inMemoryWorker = inMemoryWorkers.get(workerId);
+    if (inMemoryWorker) {
+      assignedWorkerName =
+        readText(inMemoryWorker.full_name) || readText(inMemoryWorker.name) || readText(inMemoryWorker.worker_id);
+      assignedWorkerPhone =
+        readText(inMemoryWorker.mobile) || readText(inMemoryWorker.number) || readText(inMemoryWorker.phone);
+    }
+
+    if (!assignedWorkerName || !assignedWorkerPhone) {
+      try {
+        const workerDoc = await db.collection("workers").doc(workerId).get();
+        if (workerDoc.exists) {
+          const workerData = workerDoc.data() || {};
+          assignedWorkerName =
+            assignedWorkerName ||
+            readText(workerData.full_name) ||
+            readText(workerData.name) ||
+            readText(workerData.worker_id);
+          assignedWorkerPhone =
+            assignedWorkerPhone ||
+            readText(workerData.mobile) ||
+            readText(workerData.number) ||
+            readText(workerData.phone);
+        }
+      } catch (error) {
+        if (!isFirestoreUnavailableError(error)) {
+          // eslint-disable-next-line no-console
+          console.warn("Failed to fetch worker details during assignment:", error);
+        }
+      }
+    }
+
     await db.collection("bookings").doc(bookingId).set(
       {
         assignedWorkerId: workerId,
         assigned_worker_id: workerId,
+        assignedWorkerName,
+        assigned_worker_name: assignedWorkerName,
+        assignedWorkerPhone,
+        assigned_worker_phone: assignedWorkerPhone,
         status: "assigned",
         assignedAt: timestamp(),
         assigned_at: timestamp(),
@@ -1201,6 +1459,7 @@ app.post("/api/jobs/assign", async (req: Request, res: Response) => {
       },
       { merge: true }
     );
+    clearDashboardReadCache("bookings:");
 
     return res.json({ message: "Job assigned" });
   } catch (error) {
@@ -1209,21 +1468,28 @@ app.post("/api/jobs/assign", async (req: Request, res: Response) => {
 });
 
 app.get("/api/admin/analytics", async (_req: Request, res: Response) => {
+  const cachedAnalytics = getAdminAnalyticsCache();
+  if (cachedAnalytics) {
+    return res.json(cachedAnalytics);
+  }
+
   try {
-    const [users, workers, bookings] = await Promise.all([
-      db.collection("users").get(),
-      db.collection("workers").get(),
-      db.collection("bookings").get()
+    const [usersCountSnapshot, workersCountSnapshot, bookingsCountSnapshot, pendingWorkersSnapshot] = await Promise.all([
+      db.collection("users").count().get(),
+      db.collection("workers").count().get(),
+      db.collection("bookings").count().get(),
+      db.collection("workers").where("status", "==", "pending").count().get()
     ]);
 
-    const pendingWorkers = workers.docs.filter((doc) => doc.data().status === "pending").length;
+    const payload = {
+      userCount: Number(usersCountSnapshot.data().count || 0),
+      workerCount: Number(workersCountSnapshot.data().count || 0),
+      bookingCount: Number(bookingsCountSnapshot.data().count || 0),
+      pendingWorkers: Number(pendingWorkersSnapshot.data().count || 0)
+    };
+    setAdminAnalyticsCache(payload);
 
-    return res.json({
-      userCount: users.size,
-      workerCount: workers.size,
-      bookingCount: bookings.size,
-      pendingWorkers
-    });
+    return res.json(payload);
   } catch (error) {
     const memoryWorkers = toInMemoryWorkerList();
     const pendingWorkers = memoryWorkers.filter((worker) => worker.status === "pending").length;
@@ -1237,19 +1503,29 @@ app.get("/api/admin/analytics", async (_req: Request, res: Response) => {
   }
 });
 
-async function startServer() {
-  await loadPersistedAdminSessions();
-  await ensureAdminAccount();
-  await ensurePackagesBootstrapData();
+async function runStartupTasks(): Promise<void> {
+  const startupTasks: Array<{ label: string; run: () => Promise<void> }> = [
+    { label: "load persisted admin sessions", run: loadPersistedAdminSessions },
+    { label: "ensure admin account", run: ensureAdminAccount },
+    { label: "ensure package bootstrap data", run: ensurePackagesBootstrapData }
+  ];
 
+  for (const task of startupTasks) {
+    try {
+      await task.run();
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`Startup task failed (${task.label}):`, error);
+    }
+  }
+}
+
+function startServer() {
   app.listen(port, () => {
     // eslint-disable-next-line no-console
     console.log(`Tasko backend running on http://localhost:${port}`);
+    void runStartupTasks();
   });
 }
 
-startServer().catch((error) => {
-  // eslint-disable-next-line no-console
-  console.error("Failed to start backend:", error);
-  process.exit(1);
-});
+startServer();

@@ -4,6 +4,7 @@ import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
 import { groceryCategories, howTaskoWorks, packageFallbacks, serviceCategories } from "./homeData";
+import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 
 function normalizeText(value) {
   return String(value || "")
@@ -63,7 +64,14 @@ export default function HomePage() {
 
   useEffect(() => {
     const loadData = async () => {
+      const cachedPackages = readSessionCache("packages:list", 5 * 60 * 1000);
+      if (Array.isArray(cachedPackages) && cachedPackages.length > 0) {
+        setPackages(normalizePackageList(cachedPackages));
+        return;
+      }
+
       const packageResponse = await api.get("/api/packages");
+      writeSessionCache("packages:list", packageResponse.data);
       setPackages(normalizePackageList(packageResponse.data));
     };
 

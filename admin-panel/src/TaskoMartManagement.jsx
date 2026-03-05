@@ -176,6 +176,7 @@ export default function TaskoMartManagement({ sessionToken, pushToast, onSession
       const response = await api.get("/api/admin/taskomart/products", {
         params: {
           sessionToken,
+          limit: 20,
           search: productSearch.trim() || undefined,
           category: productCategoryFilter || undefined
         }
@@ -203,6 +204,7 @@ export default function TaskoMartManagement({ sessionToken, pushToast, onSession
       const response = await api.get("/api/admin/taskomart/orders", {
         params: {
           sessionToken,
+          limit: 20,
           status: orderStatusFilter || undefined,
           fromDate: orderFromDate || undefined,
           toDate: orderToDate || undefined

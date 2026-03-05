@@ -21,7 +21,7 @@
 }
 
 .tasko-shell {
-  width: min(1180px, calc(100% - 3rem));
+  width: calc(100% - 3rem);
   margin: 0 auto;
 }
 
@@ -782,7 +782,7 @@
 
 @media (max-width: 860px) {
   .tasko-shell {
-    width: min(1180px, calc(100% - 1.8rem));
+    width: calc(100% - 1.8rem);
   }
 
   .tasko-navbar {

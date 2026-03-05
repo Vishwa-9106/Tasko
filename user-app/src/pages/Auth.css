@@ -18,7 +18,7 @@
 }
 
 .auth-shell {
-  width: min(1180px, calc(100% - 3rem));
+  width: calc(100% - 3rem);
   margin: 0 auto;
 }
 
@@ -376,7 +376,7 @@
 
 @media (max-width: 860px) {
   .auth-shell {
-    width: min(1180px, calc(100% - 2rem));
+    width: calc(100% - 2rem);
   }
 
   .auth-nav-links {

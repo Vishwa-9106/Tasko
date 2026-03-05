@@ -77,6 +77,8 @@ const inMemoryUserPackages = new Map<number, UserPackageRecord>();
 const inMemoryPackageSchedules = new Map<number, PackageScheduleRecord>();
 const inMemoryPackagePayments = new Map<number, PackagePaymentRecord>();
 const inMemoryCounters = new Map<CounterTableName, number>();
+const packagesReadCacheTtlMs = Math.max(5000, Number(process.env.PACKAGES_READ_CACHE_MS || 30000));
+let packagesResponseCache: { expiresAt: number; value: Array<Record<string, unknown>> } | null = null;
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -87,10 +89,34 @@ function getErrorMessage(error: unknown): string {
 
 function isFirestoreUnavailableError(error: unknown): boolean {
   const message = getErrorMessage(error);
+  const normalizedMessage = message.toLowerCase();
+  const rawCode = (error as { code?: unknown })?.code;
+  const code =
+    typeof rawCode === "string"
+      ? rawCode.toLowerCase()
+      : typeof rawCode === "number"
+        ? String(rawCode)
+        : "";
   return (
-    message.includes("5 NOT_FOUND") ||
-    message.includes("database (default) does not exist") ||
-    message.includes("The caller does not have permission")
+    normalizedMessage.includes("5 not_found") ||
+    normalizedMessage.includes("not_found") ||
+    normalizedMessage.includes("7 permission_denied") ||
+    normalizedMessage.includes("permission_denied") ||
+    normalizedMessage.includes("8 resource_exhausted") ||
+    normalizedMessage.includes("resource_exhausted") ||
+    normalizedMessage.includes("quota exceeded") ||
+    normalizedMessage.includes("missing or insufficient permissions") ||
+    normalizedMessage.includes("the caller does not have permission") ||
+    (normalizedMessage.includes("database") && normalizedMessage.includes("does not exist")) ||
+    normalizedMessage.includes("14 unavailable") ||
+    normalizedMessage.includes("deadline exceeded") ||
+    code.includes("not-found") ||
+    code.includes("permission-denied") ||
+    code.includes("resource-exhausted") ||
+    code === "5" ||
+    code === "7" ||
+    code === "8" ||
+    code === "14"
   );
 }
 
@@ -193,6 +219,26 @@ function parseDurationDays(value: unknown, fallback = 30): number {
   }
 
   return Math.trunc(parsed);
+}
+
+function getPackagesResponseCache(): Array<Record<string, unknown>> | null {
+  if (!packagesResponseCache) return null;
+  if (Date.now() >= packagesResponseCache.expiresAt) {
+    packagesResponseCache = null;
+    return null;
+  }
+  return packagesResponseCache.value;
+}
+
+function setPackagesResponseCache(value: Array<Record<string, unknown>>): void {
+  packagesResponseCache = {
+    value,
+    expiresAt: Date.now() + packagesReadCacheTtlMs
+  };
+}
+
+function clearPackagesResponseCache(): void {
+  packagesResponseCache = null;
 }
 
 function normalizeVisitFrequency(value: unknown): PackageVisitFrequency {
@@ -404,6 +450,7 @@ async function savePackageRecord(record: PackageRecord): Promise<void> {
 
   inMemoryPackages.set(record.package_id, record);
   await ensureCounterBaseline("packages", record.package_id);
+  clearPackagesResponseCache();
 }
 
 async function savePackageServiceRecord(record: PackageServiceRecord): Promise<void> {
@@ -420,6 +467,7 @@ async function savePackageServiceRecord(record: PackageServiceRecord): Promise<v
 
   inMemoryPackageServices.set(record.package_service_id, record);
   await ensureCounterBaseline("package_services", record.package_service_id);
+  clearPackagesResponseCache();
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -668,6 +716,11 @@ export async function ensurePackagesBootstrapData(): Promise<void> {
 
 export function registerPackageRoutes(app: Express): void {
   app.get("/api/packages", async (_req: Request, res: Response) => {
+    const cachedPayload = getPackagesResponseCache();
+    if (cachedPayload) {
+      return res.json(cachedPayload);
+    }
+
     try {
       const allPackages = await listAllPackages();
       const activePackages = allPackages.filter((item) => item.status);
@@ -703,6 +756,7 @@ export function registerPackageRoutes(app: Express): void {
         };
       });
 
+      setPackagesResponseCache(payload);
       return res.json(payload);
     } catch (error) {
       return res.status(500).json({
@@ -712,4 +766,3 @@ export function registerPackageRoutes(app: Express): void {
     }
   });
 }
-

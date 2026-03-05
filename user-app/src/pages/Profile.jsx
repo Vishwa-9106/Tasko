@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
 import { useAuth } from "../context/AuthContext";
+import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import "./Profile.css";
 
 export default function ProfilePage() {
@@ -23,15 +24,31 @@ export default function ProfilePage() {
     if (!user) return;
 
     const hydrateProfile = async () => {
-      const response = await api.get("/api/users");
+      const cacheKey = `profile:${user.uid}`;
+      const cached = readSessionCache(cacheKey, 30 * 1000);
+      if (cached && typeof cached === "object") {
+        setProfile({
+          name: cached.name || user.displayName || "",
+          mobile: cached.mobile || "",
+          email: cached.email || user.email || "",
+          address: cached.address || ""
+        });
+        return;
+      }
+
+      const response = await api.get("/api/users", {
+        params: { userId: user.uid }
+      });
       const users = Array.isArray(response.data) ? response.data : [];
       const current = users.find((entry) => entry.id === user.uid || entry.uid === user.uid) || {};
-      setProfile({
+      const nextProfile = {
         name: current.name || user.displayName || "",
         mobile: current.number || current.mobile || "",
         email: current.mail || current.email || user.email || "",
         address: current.address || ""
-      });
+      };
+      setProfile(nextProfile);
+      writeSessionCache(cacheKey, nextProfile);
     };
 
     hydrateProfile().catch(() => {
@@ -50,14 +67,21 @@ export default function ProfilePage() {
     setMessage("");
     setMessageType("info");
     try {
+      const nextProfile = {
+        name: profile.name.trim(),
+        mobile: profile.mobile.trim(),
+        email: profile.email.trim().toLowerCase(),
+        address: profile.address.trim()
+      };
       await api.post("/api/users/register", {
         uid: user.uid,
-        name: profile.name.trim(),
-        email: profile.email.trim().toLowerCase(),
-        mobile: profile.mobile.trim(),
-        number: profile.mobile.trim(),
-        address: profile.address.trim()
+        name: nextProfile.name,
+        email: nextProfile.email,
+        mobile: nextProfile.mobile,
+        number: nextProfile.mobile,
+        address: nextProfile.address
       });
+      writeSessionCache(`profile:${user.uid}`, nextProfile);
       setEditing(false);
       setMessage("Profile updated successfully.");
       setMessageType("success");

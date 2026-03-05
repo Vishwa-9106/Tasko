@@ -3,8 +3,17 @@ import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
 import BookingsManagement from "./BookingsManagement";
 import TaskoMartManagement from "./TaskoMartManagement";
 
-const NAV = ["Dashboard", "Worker Hiring Requests", "Worker Management", "Bookings", "Category", "TaskoMart Management"];
-const CATEGORY_LIST_PATH = "/admin/categories";
+const NAV_ITEMS = [
+  { label: "Dashboard", path: "/dashboard" },
+  { label: "Worker Hiring Requests", path: "/worker-hiring-requests" },
+  { label: "Worker Management", path: "/worker-management" },
+  { label: "Bookings", path: "/bookings" },
+  { label: "Category", path: "/category" },
+  { label: "TaskoMart Management", path: "/taskomart-management" }
+];
+const NAV_PATH_BY_LABEL = Object.fromEntries(NAV_ITEMS.map((item) => [item.label, item.path]));
+const DEFAULT_NAV_PATH = NAV_ITEMS[0].path;
+const CATEGORY_LIST_PATH = NAV_PATH_BY_LABEL.Category;
 
 const defaultRequestNotes = {};
 const defaultSalaryDraft = {};
@@ -102,31 +111,65 @@ function normalizeSubcategory(record) {
 }
 
 function parseSubcategoryRoute(pathname) {
-  const match = String(pathname || "").match(/^\/admin\/category\/([^/]+)\/subcategories\/?$/i);
-  return match ? decodeURIComponent(match[1]) : "";
+  const match = String(pathname || "").match(/^\/category\/([^/]+)\/subcategories\/?$/i);
+  if (match) return decodeURIComponent(match[1]);
+  const legacyMatch = String(pathname || "").match(/^\/admin\/category\/([^/]+)\/subcategories\/?$/i);
+  return legacyMatch ? decodeURIComponent(legacyMatch[1]) : "";
+}
+
+function normalizePath(pathname) {
+  const path = String(pathname || "").trim();
+  if (!path) return "/";
+  const cleaned = path.replace(/\/+$/, "");
+  return cleaned || "/";
+}
+
+function normalizeAdminPath(pathname) {
+  const normalized = normalizePath(pathname);
+  if (normalized === "/") return DEFAULT_NAV_PATH;
+  if (normalized === "/admin/categories") return CATEGORY_LIST_PATH;
+  const legacySubCategoryMatch = normalized.match(/^\/admin\/category\/([^/]+)\/subcategories$/i);
+  if (legacySubCategoryMatch) {
+    return `/category/${encodeURIComponent(decodeURIComponent(legacySubCategoryMatch[1]))}/subcategories`;
+  }
+  return normalized;
+}
+
+function activeNavFromPath(pathname) {
+  const normalized = normalizeAdminPath(pathname);
+  if (parseSubcategoryRoute(normalized)) return "Category";
+  const found = NAV_ITEMS.find((item) => item.path === normalized);
+  if (found) return found.label;
+  return "Dashboard";
+}
+
+function subcategoryPathForCategory(categoryId) {
+  return `/category/${encodeURIComponent(categoryId)}/subcategories`;
 }
 
 export default function AdminApp() {
+  const initialPath = normalizeAdminPath(window.location.pathname);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [sessionToken, setSessionToken] = useState(localStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || "");
-  const [active, setActive] = useState(() =>
-    window.location.pathname === CATEGORY_LIST_PATH || window.location.pathname.startsWith("/admin/category/")
-      ? "Category"
-      : "Dashboard"
-  );
-  const [locationPath, setLocationPath] = useState(() => window.location.pathname);
+  const [locationPath, setLocationPath] = useState(() => initialPath);
+  const active = useMemo(() => activeNavFromPath(locationPath), [locationPath]);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [loadingSubcategories, setLoadingSubcategories] = useState(false);
   const [error, setError] = useState("");
   const [banner, setBanner] = useState("");
   const [toasts, setToasts] = useState([]);
-
   const [applications, setApplications] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [users, setUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [analytics, setAnalytics] = useState({
+    userCount: 0,
+    workerCount: 0,
+    bookingCount: 0,
+    pendingWorkers: 0
+  });
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [subcategories, setSubcategories] = useState([]);
@@ -147,6 +190,12 @@ export default function AdminApp() {
   const [createAccountModal, setCreateAccountModal] = useState(null);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const subcategoryRouteCategoryId = useMemo(() => parseSubcategoryRoute(locationPath), [locationPath]);
+  
+  useEffect(() => {
+    if (window.location.pathname !== initialPath) {
+      window.history.replaceState({}, "", initialPath);
+    }
+  }, [initialPath]);
 
   const pushToast = (type, message) => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -157,23 +206,24 @@ export default function AdminApp() {
   };
 
   const navigateToPath = (nextPath) => {
-    if (window.location.pathname === nextPath) {
-      setLocationPath(nextPath);
+    const normalizedPath = normalizeAdminPath(nextPath);
+    if (window.location.pathname === normalizedPath) {
+      setLocationPath(normalizedPath);
       return;
     }
-    window.history.pushState({}, "", nextPath);
-    setLocationPath(nextPath);
+    window.history.pushState({}, "", normalizedPath);
+    setLocationPath(normalizedPath);
   };
 
   const loadData = async () => {
     setLoadingData(true);
     try {
-      const [applicationsRes, workersRes, usersRes, bookingsRes, categoriesRes] = await Promise.allSettled([
-        api.get("/api/admin/worker-applications", { params: { sessionToken } }),
-        api.get("/api/workers"),
-        api.get("/api/users"),
-        api.get("/api/bookings"),
-        api.get("/api/admin/categories", { params: { sessionToken } })
+      const [applicationsRes, workersRes, bookingsRes, categoriesRes, analyticsRes] = await Promise.allSettled([
+        api.get("/api/admin/worker-applications", { params: { sessionToken, limit: 20 } }),
+        api.get("/api/workers", { params: { limit: 20 } }),
+        api.get("/api/bookings", { params: { limit: 20 } }),
+        api.get("/api/admin/categories", { params: { sessionToken } }),
+        api.get("/api/admin/analytics", { params: { sessionToken } })
       ]);
 
       const nextApplications =
@@ -195,9 +245,19 @@ export default function AdminApp() {
 
       setApplications(nextApplications);
       setWorkers(nextWorkers);
-      setUsers(usersRes.status === "fulfilled" && Array.isArray(usersRes.value.data) ? usersRes.value.data : []);
+      setUsers([]);
       setBookings(bookingsRes.status === "fulfilled" && Array.isArray(bookingsRes.value.data) ? bookingsRes.value.data : []);
       setCategories(nextCategories);
+      const analyticsPayload =
+        analyticsRes.status === "fulfilled" && analyticsRes.value?.data
+          ? analyticsRes.value.data
+          : {};
+      setAnalytics({
+        userCount: Number.isFinite(Number(analyticsPayload.userCount)) ? Number(analyticsPayload.userCount) : 0,
+        workerCount: Number.isFinite(Number(analyticsPayload.workerCount)) ? Number(analyticsPayload.workerCount) : 0,
+        bookingCount: Number.isFinite(Number(analyticsPayload.bookingCount)) ? Number(analyticsPayload.bookingCount) : 0,
+        pendingWorkers: Number.isFinite(Number(analyticsPayload.pendingWorkers)) ? Number(analyticsPayload.pendingWorkers) : 0
+      });
       setError("");
     } catch (loadError) {
       setError(loadError?.response?.data?.message || "Failed to load admin data.");
@@ -253,16 +313,16 @@ export default function AdminApp() {
   };
 
   useEffect(() => {
-    const onPopState = () => setLocationPath(window.location.pathname);
+    const onPopState = () => {
+      const normalizedPath = normalizeAdminPath(window.location.pathname);
+      if (window.location.pathname !== normalizedPath) {
+        window.history.replaceState({}, "", normalizedPath);
+      }
+      setLocationPath(normalizedPath);
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-
-  useEffect(() => {
-    if (locationPath === CATEGORY_LIST_PATH || subcategoryRouteCategoryId) {
-      setActive("Category");
-    }
-  }, [locationPath, subcategoryRouteCategoryId]);
 
   useEffect(() => {
     if (!sessionToken) return;
@@ -286,7 +346,6 @@ export default function AdminApp() {
       return;
     }
 
-    setActive("Category");
     const found = categories.find((item) => item.id === subcategoryRouteCategoryId);
     if (!found) {
       if (categories.length > 0) {
@@ -485,24 +544,19 @@ export default function AdminApp() {
   };
 
   const handleNavClick = (item) => {
-    setActive(item);
-    if (item === "Category") {
-      navigateToPath(CATEGORY_LIST_PATH);
-      return;
+    const nextPath = NAV_PATH_BY_LABEL[item] || DEFAULT_NAV_PATH;
+    navigateToPath(nextPath);
+    if (item !== "Category") {
+      setSelectedCategory(null);
+      setSubcategories([]);
+      setLoadedSubcategoryCategoryId("");
     }
-    if (subcategoryRouteCategoryId || locationPath === CATEGORY_LIST_PATH) {
-      navigateToPath("/");
-    }
-    setSelectedCategory(null);
-    setSubcategories([]);
-    setLoadedSubcategoryCategoryId("");
   };
 
   const openManageSubcategories = (category) => {
     if (!category?.id) return;
-    setActive("Category");
     setSelectedCategory(category);
-    navigateToPath(`/admin/category/${encodeURIComponent(category.id)}/subcategories`);
+    navigateToPath(subcategoryPathForCategory(category.id));
     loadSubcategories(category.id).catch(() => {});
   };
 
@@ -777,42 +831,52 @@ export default function AdminApp() {
 
   return (
     <div className="min-h-screen bg-slate-100 p-4 lg:p-6">
-      <div className="mx-auto max-w-7xl space-y-4">
-        <header className="erp-card flex flex-wrap items-center justify-between gap-3 p-4">
-          <div>
-            <p className="erp-eyebrow">Tasko Admin Panel</p>
-            <h1 className="erp-heading text-2xl text-slate-900">Operations Console</h1>
+      <div className="w-full space-y-4">
+        <header className="erp-card p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-sm font-extrabold text-white">
+                T
+              </div>
+              <div>
+                <p className="erp-eyebrow">Tasko</p>
+                <h1 className="erp-heading text-lg text-slate-900">Admin Panel</h1>
+              </div>
+            </div>
+
+            <nav className="flex min-w-[240px] flex-1 flex-wrap items-center justify-center gap-2">
+              {NAV_ITEMS.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  className={`erp-topnav-item ${active === item.label ? "erp-topnav-item-active" : ""}`}
+                  onClick={() => handleNavClick(item.label)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="ml-auto flex items-center gap-2">
+              <button type="button" className="erp-btn erp-btn-soft" onClick={loadData} disabled={loadingData}>
+                {loadingData ? "Refreshing..." : "Refresh"}
+              </button>
+              <button type="button" className="erp-btn erp-btn-danger" onClick={() => logout().catch(() => {})}>
+                Logout
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" className="erp-btn erp-btn-soft" onClick={loadData} disabled={loadingData}>
-              {loadingData ? "Refreshing..." : "Refresh"}
-            </button>
-            <button type="button" className="erp-btn erp-btn-danger" onClick={() => logout().catch(() => {})}>
-              Logout
-            </button>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="erp-eyebrow">Tasko Admin Panel</p>
+            <h2 className="erp-heading text-2xl text-slate-900">Operations Console</h2>
           </div>
         </header>
 
         {error ? <div className="erp-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div> : null}
         {banner ? <div className="erp-card border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{banner}</div> : null}
 
-        <div className="grid gap-4 lg:grid-cols-[220px,1fr]">
-          <aside className="erp-card p-3">
-            <nav className="space-y-2">
-              {NAV.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className={`erp-sidebar-item ${active === item ? "erp-sidebar-item-active" : ""}`}
-                  onClick={() => handleNavClick(item)}
-                >
-                  {item}
-                </button>
-              ))}
-            </nav>
-          </aside>
-
-          <main className="space-y-4">
+        <main className="space-y-4">
             {active === "Dashboard" ? (
               <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="erp-card p-4"><p className="erp-eyebrow">Applications</p><h2 className="text-2xl font-bold">{counts.applications}</h2></div>
@@ -820,7 +884,10 @@ export default function AdminApp() {
                 <div className="erp-card p-4"><p className="erp-eyebrow">Visit Required</p><h2 className="text-2xl font-bold">{counts.visitRequired}</h2></div>
                 <div className="erp-card p-4"><p className="erp-eyebrow">Account Created</p><h2 className="text-2xl font-bold">{counts.accountCreated}</h2></div>
                 <div className="erp-card p-4 md:col-span-2 xl:col-span-4">
-                  <p className="text-sm text-slate-600">Users: {users.length} | Workers: {workers.length} | Bookings: {bookings.length}</p>
+                  <p className="text-sm text-slate-600">
+                    Users: {analytics.userCount || users.length} | Workers: {analytics.workerCount || workers.length} | Bookings:{" "}
+                    {analytics.bookingCount || bookings.length}
+                  </p>
                 </div>
               </section>
             ) : null}
@@ -1091,8 +1158,7 @@ export default function AdminApp() {
                 )}
               </section>
             ) : null}
-          </main>
-        </div>
+        </main>
       </div>
 
       {drawer ? (
