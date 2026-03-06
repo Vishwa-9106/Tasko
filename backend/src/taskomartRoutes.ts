@@ -168,6 +168,8 @@ const paymentStatuses: TaskoMartPaymentStatus[] = ["Pending", "Paid", "Failed", 
 const uploadsRoot = path.resolve(__dirname, "../uploads");
 const taskoMartProductImageRoot = path.join(uploadsRoot, "taskomart-products");
 const maxProductImageBytes = 6 * 1024 * 1024;
+const maxCsvImportRows = 500;
+const maxCsvImportErrors = 100;
 const allowedImageMimeTypes: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -815,6 +817,69 @@ function normalizeCategoryFilter(value: unknown): string {
   return readTrimmedString(value).toLowerCase();
 }
 
+function parseCsvRows(csvText: string): string[][] {
+  const text = csvText.replace(/^\uFEFF/, "");
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (character === "\"") {
+      if (inQuotes && text[index + 1] === "\"") {
+        cell += "\"";
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && character === ",") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if (!inQuotes && (character === "\n" || character === "\r")) {
+      row.push(cell);
+      cell = "";
+      rows.push(row);
+      row = [];
+      if (character === "\r" && text[index + 1] === "\n") {
+        index += 1;
+      }
+      continue;
+    }
+
+    cell += character;
+  }
+
+  if (inQuotes) {
+    throw new Error("Invalid CSV format: unmatched quote.");
+  }
+
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  return rows.map((entries) => entries.map((entry) => entry.trim()));
+}
+
+function normalizeCsvHeader(value: string): string {
+  return value.toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+function readCsvCell(row: string[], index: number): string {
+  if (index < 0 || index >= row.length) {
+    return "";
+  }
+  return readTrimmedString(row[index]);
+}
+
 export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMartRoutesOptions): void {
   app.get("/api/admin/taskomart/products", async (req: Request, res: Response) => {
     if (!ensureValidAdminSession(req, res, options.validateAdminSession)) {
@@ -912,6 +977,176 @@ export function registerTaskoMartRoutes(app: Express, options: RegisterTaskoMart
     } catch (error) {
       return res.status(500).json({
         message: "Failed to create product",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.post("/api/admin/taskomart/products/import-csv", async (req: Request, res: Response) => {
+    if (!ensureValidAdminSession(req, res, options.validateAdminSession)) {
+      return;
+    }
+
+    try {
+      if (!isRecord(req.body)) {
+        return res.status(400).json({ message: "Invalid CSV payload." });
+      }
+
+      const csvText = readTrimmedString(req.body.csvText);
+      if (!csvText) {
+        return res.status(400).json({ message: "csvText is required." });
+      }
+
+      let parsedRows: string[][] = [];
+      try {
+        parsedRows = parseCsvRows(csvText).filter((row) =>
+          row.some((cell) => Boolean(readTrimmedString(cell)))
+        );
+      } catch (parseError) {
+        return res.status(400).json({
+          message: getErrorMessage(parseError)
+        });
+      }
+      if (parsedRows.length < 2) {
+        return res.status(400).json({ message: "CSV must include a header row and at least one product row." });
+      }
+
+      const [headerRow, ...rawDataRows] = parsedRows;
+      const headerIndexes = new Map<string, number>();
+      headerRow.forEach((header, index) => {
+        const normalizedHeader = normalizeCsvHeader(header);
+        if (normalizedHeader && !headerIndexes.has(normalizedHeader)) {
+          headerIndexes.set(normalizedHeader, index);
+        }
+      });
+
+      const nameIndex = headerIndexes.get("name") ?? -1;
+      const categoryIndex = headerIndexes.get("category") ?? -1;
+      const priceIndex = headerIndexes.get("price") ?? -1;
+      const stockIndex = headerIndexes.get("stockquantity") ?? headerIndexes.get("stock") ?? -1;
+      const descriptionIndex = headerIndexes.get("description") ?? -1;
+      const discountPriceIndex = headerIndexes.get("discountprice") ?? -1;
+      const statusIndex = headerIndexes.get("status") ?? -1;
+      const imageUrlIndex = headerIndexes.get("imageurl") ?? -1;
+
+      if (nameIndex < 0 || categoryIndex < 0 || priceIndex < 0 || stockIndex < 0) {
+        return res.status(400).json({
+          message:
+            "Missing required CSV columns. Required headers: name, category, price, stockQuantity (or stock)."
+        });
+      }
+
+      if (rawDataRows.length > maxCsvImportRows) {
+        return res.status(400).json({
+          message: `CSV row limit exceeded. Maximum ${maxCsvImportRows} product rows are allowed per import.`
+        });
+      }
+
+      let createdCount = 0;
+      const errors: Array<{ row: number; message: string }> = [];
+      let errorsTruncated = false;
+      const appendRowError = (row: number, message: string): boolean => {
+        errors.push({ row, message });
+        if (errors.length >= maxCsvImportErrors) {
+          errorsTruncated = true;
+          return true;
+        }
+        return false;
+      };
+
+      for (let index = 0; index < rawDataRows.length; index += 1) {
+        const row = rawDataRows[index];
+        const csvRowNumber = index + 2;
+
+        const name = readCsvCell(row, nameIndex);
+        const category = readCsvCell(row, categoryIndex);
+        const description = readCsvCell(row, descriptionIndex);
+        const priceValue = readNonNegativeNumber(readCsvCell(row, priceIndex));
+        const stockQuantity = readNonNegativeInteger(readCsvCell(row, stockIndex));
+        const discountCellValue = readCsvCell(row, discountPriceIndex);
+        const discountPrice = discountCellValue === "" ? null : readOptionalNumber(discountCellValue);
+        const statusValue = readCsvCell(row, statusIndex);
+        const imageUrl = readCsvCell(row, imageUrlIndex);
+
+        if (!name || !category || priceValue === null || stockQuantity === null) {
+          if (
+            appendRowError(
+              csvRowNumber,
+              "name, category, price and stockQuantity are required with valid values."
+            )
+          ) {
+            break;
+          }
+          continue;
+        }
+
+        if (discountCellValue !== "" && (discountPrice === null || discountPrice < 0 || discountPrice > priceValue)) {
+          if (
+            appendRowError(
+              csvRowNumber,
+              "discountPrice must be a non-negative number less than or equal to price."
+            )
+          ) {
+            break;
+          }
+          continue;
+        }
+
+        const now = new Date().toISOString();
+        const product = normalizeProductRecord(`taskomart-product-${crypto.randomUUID()}`, {
+          name,
+          description,
+          category,
+          price: priceValue,
+          discountPrice,
+          stockQuantity,
+          status: statusValue,
+          imageUrl,
+          createdAt: now,
+          updatedAt: now
+        });
+
+        try {
+          await saveProduct(product);
+          createdCount += 1;
+        } catch (rowError) {
+          if (appendRowError(csvRowNumber, getErrorMessage(rowError))) {
+            break;
+          }
+        }
+      }
+
+      if (createdCount === 0 && errors.length > 0) {
+        const failureMessage = errorsTruncated
+          ? "CSV import stopped after reaching maximum error limit. No products were created."
+          : "CSV import failed. No products were created.";
+        return res.status(400).json({
+          message: failureMessage,
+          createdCount,
+          failedCount: errors.length,
+          errors,
+          truncatedErrors: errorsTruncated
+        });
+      }
+
+      const summaryBase =
+        errors.length > 0
+          ? `CSV import completed with partial success. ${createdCount} products created and ${errors.length} rows failed.`
+          : `CSV import completed successfully. ${createdCount} products created.`;
+      const summaryMessage = errorsTruncated
+        ? `${summaryBase} Error list was truncated after ${maxCsvImportErrors} rows.`
+        : summaryBase;
+
+      return res.status(errors.length > 0 ? 200 : 201).json({
+        message: summaryMessage,
+        createdCount,
+        failedCount: errors.length,
+        errors,
+        truncatedErrors: errorsTruncated
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to import products from CSV",
         error: getErrorMessage(error)
       });
     }

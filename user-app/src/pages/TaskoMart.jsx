@@ -85,9 +85,10 @@ export default function TaskoMartPage() {
     const loadProducts = async () => {
       const cacheKey = "taskomart:products:list";
       const cachedProducts = readSessionCache(cacheKey, 60 * 1000);
-      if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
+      const hasCachedProducts = Array.isArray(cachedProducts) && cachedProducts.length > 0;
+      if (hasCachedProducts) {
         setProducts(cachedProducts);
-        return;
+        setLoading(false);
       }
 
       const response = await api.get("/api/taskomart/products", {
@@ -95,7 +96,9 @@ export default function TaskoMartPage() {
       });
       const list = Array.isArray(response.data) ? response.data : [];
       if (list.length === 0) {
-        setProducts(fallbackProducts);
+        if (!hasCachedProducts) {
+          setProducts(fallbackProducts);
+        }
         return;
       }
 
@@ -113,15 +116,25 @@ export default function TaskoMartPage() {
 
     loadProducts()
       .catch(() => {
-        setProducts(fallbackProducts);
+        const cachedProducts = readSessionCache("taskomart:products:list", 60 * 1000);
+        if (!Array.isArray(cachedProducts) || cachedProducts.length === 0) {
+          setProducts(fallbackProducts);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
 
   const categories = useMemo(() => {
-    const builtIn = groceryCategories.map((category) => category.name);
-    const discovered = products.map((product) => product.category);
-    return Array.from(new Set([...builtIn, ...discovered])).filter(Boolean);
+    const categoryMap = new Map();
+    products.forEach((product) => {
+      const rawCategory = String(product.category || "").trim();
+      const normalizedCategory = normalizeText(rawCategory);
+      if (!normalizedCategory) return;
+      if (!categoryMap.has(normalizedCategory)) {
+        categoryMap.set(normalizedCategory, rawCategory);
+      }
+    });
+    return Array.from(categoryMap.values());
   }, [products]);
 
   const filteredProducts = useMemo(() => {
@@ -201,14 +214,14 @@ export default function TaskoMartPage() {
         {!loading && filteredProducts.length === 0 ? (
           <p className="tasko-empty-state">No products found for this category.</p>
         ) : (
-          <div className="taskomart-grid">
+          <div className="taskomart-grid taskomart-grid-compact">
             {filteredProducts.map((product) => {
               const iconName =
                 groceryCategories.find((category) => normalizeText(category.name) === normalizeText(product.category))
                   ?.icon || "beverages";
 
               return (
-                <article key={product.id} className="tasko-product-card">
+                <article key={product.id} className="tasko-product-card taskomart-product-card">
                   <div className="tasko-product-image-wrap">
                     {product.imageUrl ? (
                       <img src={product.imageUrl} alt={product.name} className="tasko-product-image" />

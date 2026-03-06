@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "./api";
 import { API_BASE_URL } from "./config";
 
@@ -29,6 +29,7 @@ const defaultProductDraft = {
   imageFile: null,
   imagePreview: ""
 };
+const CSV_ERROR_PREVIEW_LIMIT = 8;
 
 const currency = (value) =>
   new Intl.NumberFormat("en-IN", {
@@ -110,6 +111,22 @@ const normalizeOrderDetail = (record) => ({
   orderDate: String(record?.orderDate || record?.createdAt || "")
 });
 
+const normalizeCsvImportErrors = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry, index) => {
+      const row = Number(entry?.row);
+      const message = String(entry?.message || "").trim();
+      if (!message) return null;
+      return {
+        id: `csv-error-${index}`,
+        row: Number.isFinite(row) ? row : null,
+        message
+      };
+    })
+    .filter(Boolean);
+};
+
 function resolveImageUrl(imageUrl) {
   const value = String(imageUrl || "").trim();
   if (!value) {
@@ -143,6 +160,9 @@ export default function TaskoMartManagement({ sessionToken, pushToast, onSession
   const [productModal, setProductModal] = useState(null);
   const [savingProduct, setSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState("");
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [csvImportFeedback, setCsvImportFeedback] = useState(null);
+  const csvFileInputRef = useRef(null);
 
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -295,6 +315,85 @@ export default function TaskoMartManagement({ sessionToken, pushToast, onSession
     } catch (error) {
       pushToast?.("error", error?.message || "Failed to read image file.");
     }
+  };
+
+  const importProductsFromCsv = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setCsvImportFeedback(null);
+
+    const fileName = String(file.name || "").toLowerCase();
+    const isCsvMime = String(file.type || "").toLowerCase().includes("csv");
+    if (!fileName.endsWith(".csv") && !isCsvMime) {
+      pushToast?.("error", "Please upload a valid CSV file.");
+      return;
+    }
+
+    setImportingCsv(true);
+    try {
+      const csvText = await file.text();
+      if (!csvText.trim()) {
+        pushToast?.("error", "CSV file is empty.");
+        return;
+      }
+
+      const response = await api.post("/api/admin/taskomart/products/import-csv", {
+        csvText,
+        sessionToken
+      });
+
+      const createdCount = Number(response?.data?.createdCount || 0);
+      const failedCount = Number(response?.data?.failedCount || 0);
+      const rowErrors = normalizeCsvImportErrors(response?.data?.errors);
+      const truncatedErrors = Boolean(response?.data?.truncatedErrors);
+      const message =
+        response?.data?.message ||
+        `CSV import finished. ${createdCount} created${failedCount > 0 ? `, ${failedCount} failed` : ""}.`;
+      setCsvImportFeedback({
+        tone: failedCount > 0 ? "error" : "success",
+        message,
+        errors: rowErrors,
+        truncatedErrors
+      });
+      pushToast?.(failedCount > 0 ? "error" : "success", message);
+      await loadProducts();
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Failed to import products from CSV.";
+      const rowErrors = normalizeCsvImportErrors(error?.response?.data?.errors);
+      const truncatedErrors = Boolean(error?.response?.data?.truncatedErrors);
+      setCsvImportFeedback({
+        tone: "error",
+        message,
+        errors: rowErrors,
+        truncatedErrors
+      });
+      await handleApiError(error, "Failed to import products from CSV.");
+    } finally {
+      setImportingCsv(false);
+    }
+  };
+
+  const downloadCsvTemplate = () => {
+    const rows = [
+      "name,description,category,price,discountPrice,stockQuantity,status,imageUrl",
+      "Daily Vegetable Basket,Fresh seasonal vegetables,Fruits & Vegetables,249,219,80,Available,",
+      "A2 Milk 1L,Organic full cream milk,Dairy & Bakery,92,,120,Available,",
+      "Brown Bread,Bakery fresh loaf,Dairy & Bakery,45,,0,Out of Stock,"
+    ];
+    const csvTemplate = `${rows.join("\n")}\n`;
+    const blob = new Blob([csvTemplate], { type: "text/csv;charset=utf-8;" });
+    const objectUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = "taskomart-products-template.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(objectUrl);
   };
 
   const submitProduct = async (event) => {
@@ -471,7 +570,60 @@ export default function TaskoMartManagement({ sessionToken, pushToast, onSession
             <button type="button" className="erp-btn erp-btn-primary" onClick={openAddProduct}>
               Add Product
             </button>
+            <input
+              ref={csvFileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={importProductsFromCsv}
+              disabled={importingCsv}
+            />
+            <button
+              type="button"
+              className="erp-btn erp-btn-soft"
+              onClick={() => csvFileInputRef.current?.click()}
+              disabled={importingCsv}
+            >
+              {importingCsv ? "Uploading CSV..." : "Upload CSV"}
+            </button>
+            <button type="button" className="erp-btn erp-btn-soft" onClick={downloadCsvTemplate} disabled={importingCsv}>
+              Download CSV Sample
+            </button>
           </div>
+          <p className="mb-3 text-xs text-slate-500">
+            CSV required columns: <strong>name</strong>, <strong>category</strong>, <strong>price</strong>, <strong>stockQuantity</strong> (or <strong>stock</strong>). Optional: description, discountPrice, status, imageUrl.
+          </p>
+          {csvImportFeedback ? (
+            <div
+              className={`mb-4 rounded-xl border px-3 py-2 text-sm ${
+                csvImportFeedback.tone === "error"
+                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              <p className="font-medium">{csvImportFeedback.message}</p>
+              {csvImportFeedback.errors?.length ? (
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+                  {csvImportFeedback.errors.slice(0, CSV_ERROR_PREVIEW_LIMIT).map((errorItem) => (
+                    <li key={errorItem.id}>
+                      {errorItem.row ? `Row ${errorItem.row}: ` : ""}
+                      {errorItem.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {csvImportFeedback.errors?.length > CSV_ERROR_PREVIEW_LIMIT ? (
+                <p className="mt-2 text-xs">
+                  Showing first {CSV_ERROR_PREVIEW_LIMIT} errors out of {csvImportFeedback.errors.length}.
+                </p>
+              ) : null}
+              {csvImportFeedback.truncatedErrors ? (
+                <p className="mt-2 text-xs">
+                  Error list was truncated by the server due to too many invalid rows.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="overflow-x-auto">
             <table className="erp-table">
