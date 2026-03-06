@@ -6,6 +6,30 @@ import { useAuth } from "../context/AuthContext";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import "./Profile.css";
 
+function toRupee(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "INR 0";
+  return `INR ${Math.round(amount)}`;
+}
+
+function formatOrderDate(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
+}
+
+function mergeOrders(primary, secondary) {
+  const combined = [...primary, ...secondary];
+  const deduped = new Map();
+  combined.forEach((order, index) => {
+    const key = String(order?.id || order?.orderId || `order-${index}`);
+    if (!deduped.has(key)) {
+      deduped.set(key, order);
+    }
+  });
+  return Array.from(deduped.values());
+}
+
 export default function ProfilePage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -13,6 +37,9 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("info");
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersMessage, setOrdersMessage] = useState("");
   const [profile, setProfile] = useState({
     name: "",
     mobile: "",
@@ -59,6 +86,54 @@ export default function ProfilePage() {
         address: ""
       });
     });
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const loadOrders = async () => {
+      setOrdersLoading(true);
+      setOrdersMessage("");
+
+      const cacheKey = `taskomart:orders:user:${user.uid || user.email || "unknown"}`;
+      const cachedOrders = readSessionCache(cacheKey, 30 * 1000);
+      if (Array.isArray(cachedOrders)) {
+        setOrders(cachedOrders);
+      }
+
+      const byUserId = user.uid
+        ? await api.get("/api/taskomart/orders", {
+            params: { userId: user.uid, limit: 50 }
+          })
+        : { data: [] };
+
+      const byEmail = user.email
+        ? await api.get("/api/taskomart/orders", {
+            params: { userEmail: String(user.email).toLowerCase(), limit: 50 }
+          })
+        : { data: [] };
+
+      const userIdOrders = Array.isArray(byUserId.data) ? byUserId.data : [];
+      const emailOrders = Array.isArray(byEmail.data) ? byEmail.data : [];
+      const mergedOrders = mergeOrders(userIdOrders, emailOrders);
+
+      setOrders(mergedOrders);
+      writeSessionCache(cacheKey, mergedOrders);
+    };
+
+    loadOrders()
+      .catch((error) => {
+        const cachedOrders = readSessionCache(`taskomart:orders:user:${user.uid || user.email || "unknown"}`, 30 * 1000);
+        if (Array.isArray(cachedOrders)) {
+          setOrders(cachedOrders);
+          return;
+        }
+        setOrders([]);
+        setOrdersMessage(error?.response?.data?.message || "Unable to load your TaskoMart orders.");
+      })
+      .finally(() => {
+        setOrdersLoading(false);
+      });
   }, [user]);
 
   const saveProfile = async () => {
@@ -113,6 +188,14 @@ export default function ProfilePage() {
       .slice(0, 2)
       .toUpperCase();
   }, [profile.email, profile.name]);
+
+  const sortedOrders = useMemo(() => {
+    return [...orders].sort((left, right) => {
+      const leftTime = new Date(left?.orderDate || left?.createdAt || 0).getTime();
+      const rightTime = new Date(right?.orderDate || right?.createdAt || 0).getTime();
+      return rightTime - leftTime;
+    });
+  }, [orders]);
 
   return (
     <UserPortalShell activeNav="">
@@ -228,6 +311,68 @@ export default function ProfilePage() {
             </button>
           </div>
         </aside>
+      </section>
+
+      <section className="tasko-content-panel tasko-profile-orders-panel">
+        <div className="tasko-profile-panel-head">
+          <div>
+            <p className="tasko-profile-eyebrow">TaskoMart</p>
+            <h2>My Orders</h2>
+          </div>
+        </div>
+
+        {ordersLoading ? <p className="tasko-empty-state">Loading your orders...</p> : null}
+        {!ordersLoading && ordersMessage ? <p className="tasko-empty-state">{ordersMessage}</p> : null}
+        {!ordersLoading && !ordersMessage && sortedOrders.length === 0 ? (
+          <p className="tasko-empty-state">No TaskoMart orders yet.</p>
+        ) : null}
+
+        {!ordersLoading && sortedOrders.length > 0 ? (
+          <div className="tasko-profile-orders-list">
+            {sortedOrders.map((order, index) => {
+              const orderKey = String(order?.id || order?.orderId || `taskomart-order-${index}`);
+              const items = Array.isArray(order?.items) ? order.items : [];
+              const totalItems = items.reduce((sum, item) => sum + Math.max(1, Number(item?.quantity) || 1), 0);
+              const itemsPreview = items
+                .slice(0, 3)
+                .map((item) => String(item?.name || "").trim())
+                .filter(Boolean)
+                .join(", ");
+
+              return (
+                <article key={orderKey} className="tasko-card tasko-profile-order-card">
+                  <div className="tasko-profile-order-head">
+                    <div>
+                      <p className="tasko-profile-order-code">{order?.orderId || "Order"}</p>
+                      <p className="tasko-profile-order-date">{formatOrderDate(order?.orderDate || order?.createdAt)}</p>
+                    </div>
+                    <div className="tasko-profile-order-chips">
+                      <span className="tasko-profile-order-chip">{order?.orderStatus || "Pending"}</span>
+                      <span className="tasko-profile-order-chip subtle">{order?.paymentStatus || "Pending"}</span>
+                    </div>
+                  </div>
+
+                  <div className="tasko-profile-order-meta">
+                    <p>
+                      <strong>Total:</strong> {toRupee(order?.totalAmount)}
+                    </p>
+                    <p>
+                      <strong>Items:</strong> {totalItems}
+                    </p>
+                  </div>
+
+                  <p className="tasko-profile-order-items">
+                    <strong>Products:</strong> {itemsPreview || "Items not available"}
+                    {items.length > 3 ? "..." : ""}
+                  </p>
+                  <p className="tasko-profile-order-address">
+                    <strong>Address:</strong> {order?.deliveryAddress || "Address not available"}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
       </section>
     </UserPortalShell>
   );

@@ -6,6 +6,12 @@ import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
 import { groceryCategories } from "./homeData";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
+import {
+  addTaskoMartCartItem,
+  onTaskoMartCartUpdated,
+  readTaskoMartCart,
+  setTaskoMartCartItemQuantity
+} from "../utils/taskomartCart";
 
 function normalizeText(value) {
   return String(value || "")
@@ -77,6 +83,7 @@ export default function TaskoMartPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState(fallbackProducts);
   const [loading, setLoading] = useState(true);
+  const [cartItems, setCartItems] = useState(() => readTaskoMartCart());
 
   const selectedCategory = searchParams.get("category") || "";
   const selectedSearch = searchParams.get("search") || "";
@@ -124,6 +131,13 @@ export default function TaskoMartPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    setCartItems(readTaskoMartCart());
+    return onTaskoMartCartUpdated(() => {
+      setCartItems(readTaskoMartCart());
+    });
+  }, []);
+
   const categories = useMemo(() => {
     const categoryMap = new Map();
     products.forEach((product) => {
@@ -149,6 +163,17 @@ export default function TaskoMartPage() {
       return categoryMatches && searchMatches;
     });
   }, [products, selectedCategory, selectedSearch]);
+
+  const cartQuantityById = useMemo(() => {
+    const quantityMap = new Map();
+    cartItems.forEach((item) => {
+      const productId = String(item?.id || "").trim();
+      const quantity = Math.max(1, Number(item?.quantity) || 1);
+      if (!productId) return;
+      quantityMap.set(productId, quantity);
+    });
+    return quantityMap;
+  }, [cartItems]);
 
   return (
     <UserPortalShell activeNav="taskomart">
@@ -219,6 +244,7 @@ export default function TaskoMartPage() {
               const iconName =
                 groceryCategories.find((category) => normalizeText(category.name) === normalizeText(product.category))
                   ?.icon || "beverages";
+              const quantityInCart = Math.max(0, Number(cartQuantityById.get(product.id) || 0));
 
               return (
                 <article key={product.id} className="tasko-product-card taskomart-product-card">
@@ -234,7 +260,38 @@ export default function TaskoMartPage() {
                   <p className="tasko-product-category">{product.category}</p>
                   <h3>{product.name}</h3>
                   <p className="tasko-product-price">{toRupee(product.price)}</p>
-                  <button type="button">View Product</button>
+                  {quantityInCart > 0 ? (
+                    <div className="taskomart-inline-qty-controls">
+                      <button
+                        type="button"
+                        aria-label={`Decrease quantity for ${product.name}`}
+                        onClick={() => {
+                          setTaskoMartCartItemQuantity(product.id, quantityInCart - 1);
+                        }}
+                      >
+                        -
+                      </button>
+                      <span>{quantityInCart}</span>
+                      <button
+                        type="button"
+                        aria-label={`Increase quantity for ${product.name}`}
+                        onClick={() => {
+                          setTaskoMartCartItemQuantity(product.id, quantityInCart + 1);
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addTaskoMartCartItem(product);
+                      }}
+                    >
+                      Add to Cart
+                    </button>
+                  )}
                 </article>
               );
             })}

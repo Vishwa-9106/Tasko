@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { BellIcon, ProfileIcon } from "./PortalIcons";
+import { BellIcon, CartIcon, ProfileIcon } from "./PortalIcons";
+import { getTaskoMartCartCount, onTaskoMartCartUpdated } from "../utils/taskomartCart";
 import taskoLogo from "../pages/tasko-logo.png";
 import "../pages/Home.css";
 
@@ -25,7 +27,15 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [cartCount, setCartCount] = useState(0);
   const initials = getInitials(user?.displayName || user?.email);
+
+  useEffect(() => {
+    setCartCount(getTaskoMartCartCount());
+    return onTaskoMartCartUpdated((nextCount) => {
+      setCartCount(nextCount);
+    });
+  }, []);
 
   const goToContact = () => {
     if (location.pathname === "/home") {
@@ -61,6 +71,20 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
               title="Notifications"
             >
               <BellIcon className="tasko-inline-icon" />
+            </button>
+            <button
+              type="button"
+              className="tasko-icon-btn"
+              onClick={() => navigate("/cart")}
+              aria-label={`Open cart with ${cartCount} item${cartCount === 1 ? "" : "s"}`}
+              title="Cart"
+            >
+              <CartIcon className="tasko-inline-icon" />
+              {cartCount > 0 ? (
+                <span className="tasko-icon-badge" aria-hidden="true">
+                  {cartCount > 99 ? "99+" : cartCount}
+                </span>
+              ) : null}
             </button>
             <button
               type="button"

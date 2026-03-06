@@ -140,6 +140,26 @@
   padding: 0 0.56rem;
 }
 
+.tasko-icon-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  padding: 0 5px;
+  border: 1px solid #f5f5f5;
+  background: #222;
+  color: #fff;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .tasko-initials {
   font-family: "Montserrat", sans-serif;
   font-size: 0.66rem;
@@ -495,6 +515,47 @@
   margin-top: 0.5rem;
 }
 
+.taskomart-inline-qty-controls {
+  width: 100%;
+  margin-top: 0.5rem;
+  border: 1px solid #cdcdcd;
+  border-radius: 12px;
+  background: #fff;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 46px;
+  align-items: center;
+  overflow: hidden;
+}
+
+.taskomart-inline-qty-controls button {
+  min-height: 46px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  background: #efefef;
+  color: #1f1f1f;
+  padding: 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.taskomart-inline-qty-controls button:hover {
+  background: #e4e4e4;
+}
+
+.taskomart-inline-qty-controls span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  color: #222;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .taskomart-product-card .tasko-product-image-wrap {
   min-height: 140px;
 }
@@ -537,6 +598,256 @@
 .tasko-empty-state {
   margin: 0.8rem 0 0;
   color: #5f5f5f;
+}
+
+.tasko-cart-layout {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.tasko-cart-items-panel,
+.tasko-cart-summary-panel {
+  padding: 1rem;
+}
+
+.tasko-cart-items-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
+}
+
+.tasko-cart-items-head h2,
+.tasko-cart-summary-panel h2 {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tasko-cart-items-head p {
+  margin: 0;
+  color: #666;
+  font-size: 0.88rem;
+}
+
+.tasko-cart-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.tasko-cart-item {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.tasko-cart-image-wrap {
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
+  border: 1px solid #d0d0d0;
+  background: #f2f2f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.tasko-cart-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tasko-cart-item-info {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.tasko-cart-item-info h3 {
+  margin: 0;
+  color: #1a1a1a;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tasko-cart-price {
+  margin: 0;
+  color: #222;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.tasko-cart-line-total {
+  margin: 0;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.tasko-cart-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.5rem;
+}
+
+.tasko-cart-qty-controls {
+  border: 1px solid #cbcbcb;
+  border-radius: 999px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.tasko-cart-qty-controls button {
+  width: 34px;
+  height: 34px;
+  margin-top: 0;
+  border: 0;
+  background: #efefef;
+  color: #222;
+  cursor: pointer;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.tasko-cart-qty-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.tasko-cart-qty-controls span {
+  min-width: 34px;
+  text-align: center;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1f1f1f;
+}
+
+.tasko-cart-remove-btn {
+  min-height: 34px;
+  margin-top: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(146, 57, 57, 0.4);
+  background: rgba(146, 57, 57, 0.08);
+  color: #6f2222;
+  padding: 0 0.75rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tasko-cart-remove-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.tasko-cart-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+  color: #444;
+}
+
+.tasko-cart-summary-row strong {
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+}
+
+.tasko-cart-checkout-form {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.62rem;
+}
+
+.tasko-cart-field {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.tasko-cart-field span {
+  color: #5f6b75;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-cart-field input,
+.tasko-cart-field textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  color: #212121;
+  min-height: 44px;
+  padding: 0 0.82rem;
+  font-size: 0.9rem;
+  font-family: "Manrope", sans-serif;
+}
+
+.tasko-cart-field textarea {
+  min-height: 90px;
+  resize: vertical;
+  padding: 0.7rem 0.82rem;
+}
+
+.tasko-cart-checkout-btn,
+.tasko-cart-clear-btn,
+.tasko-cart-empty button {
+  min-height: 42px;
+  border: 1px solid #b7974d;
+  border-radius: 12px;
+  background: #c6a75e;
+  color: #fdfdfd;
+  cursor: pointer;
+  padding: 0 1rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-cart-checkout-btn:disabled,
+.tasko-cart-clear-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.tasko-cart-clear-btn {
+  border-color: rgba(146, 57, 57, 0.4);
+  background: rgba(146, 57, 57, 0.08);
+  color: #6f2222;
+}
+
+.tasko-cart-empty {
+  display: grid;
+  justify-items: start;
+  gap: 0.6rem;
+}
+
+.tasko-cart-empty p {
+  margin: 0;
+  color: #545454;
 }
 
 .tasko-booking-stats {
@@ -805,6 +1116,10 @@
   .tasko-booking-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .tasko-cart-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 860px) {
@@ -864,6 +1179,16 @@
   .tasko-booking-form,
   .tasko-booking-meta-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tasko-cart-item {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .tasko-cart-actions {
+    width: 100%;
+    justify-items: start;
   }
 
   .tasko-content-panel,

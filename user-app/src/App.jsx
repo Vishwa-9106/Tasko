@@ -9,6 +9,7 @@ import BookingPage from "./pages/Booking";
 import ProfilePage from "./pages/Profile";
 import ServiceSubcategoriesPage from "./pages/ServiceSubcategories";
 import TaskoMartPage from "./pages/TaskoMart";
+import CartPage from "./pages/Cart";
 
 export default function App() {
   return (
@@ -61,6 +62,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <TaskoMartPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cart"
+        element={
+          <ProtectedRoute>
+            <CartPage />
           </ProtectedRoute>
         }
       />

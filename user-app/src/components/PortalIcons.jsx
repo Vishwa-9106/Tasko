@@ -119,6 +119,14 @@ export function BellIcon({ className = "" }) {
   );
 }
 
+export function CartIcon({ className = "" }) {
+  return (
+    <svg {...iconProps(className)}>
+      <path d="M4 5h2l1.4 8.4A2 2 0 0 0 9.4 15h7.7a2 2 0 0 0 2-1.6L20 8H7.2M10 19a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm9 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+    </svg>
+  );
+}
+
 export function ProfileIcon({ className = "" }) {
   return (
     <svg {...iconProps(className)}>
@@ -134,4 +142,3 @@ export function SearchIcon({ className = "" }) {
     </svg>
   );
 }
-
