@@ -37,7 +37,7 @@
 
 .tasko-profile-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
+  grid-template-columns: 1fr;
   gap: 0.8rem;
 }
 
@@ -258,6 +258,10 @@
   padding: 1rem;
 }
 
+.tasko-profile-logout-panel {
+  padding: 1rem;
+}
+
 .tasko-profile-orders-list {
   margin-top: 0.8rem;
   display: grid;
@@ -313,6 +317,36 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.tasko-profile-order-chip.status-pending {
+  border-color: rgba(167, 123, 30, 0.45);
+  background: rgba(220, 181, 95, 0.24);
+  color: #6a4f11;
+}
+
+.tasko-profile-order-chip.status-preparing {
+  border-color: rgba(33, 94, 146, 0.45);
+  background: rgba(33, 94, 146, 0.16);
+  color: #1e5077;
+}
+
+.tasko-profile-order-chip.status-out-for-delivery {
+  border-color: rgba(94, 74, 151, 0.45);
+  background: rgba(94, 74, 151, 0.18);
+  color: #46357a;
+}
+
+.tasko-profile-order-chip.status-delivered {
+  border-color: rgba(34, 126, 74, 0.45);
+  background: rgba(34, 126, 74, 0.18);
+  color: #1f6a3f;
+}
+
+.tasko-profile-order-chip.status-cancelled {
+  border-color: rgba(146, 57, 57, 0.45);
+  background: rgba(146, 57, 57, 0.18);
+  color: #7a2727;
 }
 
 .tasko-profile-order-chip.subtle {

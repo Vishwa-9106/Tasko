@@ -18,6 +18,13 @@ function formatOrderDate(value) {
   return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
 }
 
+function toStatusToken(value) {
+  return String(value || "pending")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+}
+
 function mergeOrders(primary, secondary) {
   const combined = [...primary, ...secondary];
   const deduped = new Map();
@@ -173,22 +180,6 @@ export default function ProfilePage() {
     navigate("/auth", { replace: true });
   };
 
-  const profileCompletion = useMemo(() => {
-    const fields = [profile.name, profile.mobile, profile.email, profile.address];
-    const completed = fields.filter((value) => String(value || "").trim().length > 0).length;
-    return Math.round((completed / fields.length) * 100);
-  }, [profile]);
-
-  const initials = useMemo(() => {
-    return String(profile.name || profile.email || "User")
-      .split(" ")
-      .filter(Boolean)
-      .map((part) => part[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  }, [profile.email, profile.name]);
-
   const sortedOrders = useMemo(() => {
     return [...orders].sort((left, right) => {
       const leftTime = new Date(left?.orderDate || left?.createdAt || 0).getTime();
@@ -203,24 +194,6 @@ export default function ProfilePage() {
         <p>Profile</p>
         <h1>Profile & Account</h1>
         <p>Manage your contact details and account preferences used across Tasko services.</p>
-      </section>
-
-      <section className="tasko-profile-overview-grid">
-        <article className="tasko-card tasko-profile-stat-card">
-          <p className="tasko-profile-stat-label">Profile Completion</p>
-          <h2>{profileCompletion}%</h2>
-          <p>Complete all fields to improve booking coordination.</p>
-        </article>
-        <article className="tasko-card tasko-profile-stat-card">
-          <p className="tasko-profile-stat-label">Account Email</p>
-          <h2>{profile.email || "Not Set"}</h2>
-          <p>Primary contact used for updates and service alerts.</p>
-        </article>
-        <article className="tasko-card tasko-profile-stat-card">
-          <p className="tasko-profile-stat-label">Mode</p>
-          <h2>{editing ? "Editing" : "Read Only"}</h2>
-          <p>{editing ? "You can edit and save your details now." : "Enable edit mode to update profile."}</p>
-        </article>
       </section>
 
       <section className="tasko-profile-layout">
@@ -297,20 +270,6 @@ export default function ProfilePage() {
 
           {message ? <p className={`tasko-profile-message ${messageType}`}>{message}</p> : null}
         </article>
-
-        <aside className="tasko-content-panel tasko-profile-side-panel">
-          <div className="tasko-profile-avatar" aria-hidden="true">
-            {initials}
-          </div>
-          <h3>{profile.name || "Tasko User"}</h3>
-          <p>{profile.mobile || "Add your mobile number for faster assignment updates."}</p>
-          <p className="tasko-profile-side-note">Need to switch accounts? You can safely sign out at any time.</p>
-          <div className="tasko-profile-actions">
-            <button type="button" className="tasko-profile-btn danger" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
-        </aside>
       </section>
 
       <section className="tasko-content-panel tasko-profile-orders-panel">
@@ -333,6 +292,8 @@ export default function ProfilePage() {
               const orderKey = String(order?.id || order?.orderId || `taskomart-order-${index}`);
               const items = Array.isArray(order?.items) ? order.items : [];
               const totalItems = items.reduce((sum, item) => sum + Math.max(1, Number(item?.quantity) || 1), 0);
+              const orderStatus = String(order?.orderStatus || "Pending");
+              const orderStatusClassName = `tasko-profile-order-chip status-${toStatusToken(orderStatus)}`;
               const itemsPreview = items
                 .slice(0, 3)
                 .map((item) => String(item?.name || "").trim())
@@ -347,7 +308,7 @@ export default function ProfilePage() {
                       <p className="tasko-profile-order-date">{formatOrderDate(order?.orderDate || order?.createdAt)}</p>
                     </div>
                     <div className="tasko-profile-order-chips">
-                      <span className="tasko-profile-order-chip">{order?.orderStatus || "Pending"}</span>
+                      <span className={orderStatusClassName}>{orderStatus}</span>
                       <span className="tasko-profile-order-chip subtle">{order?.paymentStatus || "Pending"}</span>
                     </div>
                   </div>
@@ -373,6 +334,21 @@ export default function ProfilePage() {
             })}
           </div>
         ) : null}
+      </section>
+
+      <section className="tasko-content-panel tasko-profile-logout-panel">
+        <div className="tasko-profile-panel-head">
+          <div>
+            <p className="tasko-profile-eyebrow">Account</p>
+            <h2>Logout</h2>
+          </div>
+        </div>
+        <p className="tasko-empty-state">You can safely sign out from your account at any time.</p>
+        <div className="tasko-profile-actions">
+          <button type="button" className="tasko-profile-btn danger" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
       </section>
     </UserPortalShell>
   );
