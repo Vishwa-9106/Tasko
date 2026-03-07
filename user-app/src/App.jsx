@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
+import PublicOnlyRoute from "./components/PublicOnlyRoute";
 import LandingPage from "./pages/Landing";
 import AuthPage from "./pages/Auth";
 import HomePage from "./pages/Home";
@@ -14,8 +15,22 @@ import CartPage from "./pages/Cart";
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/auth" element={<AuthPage />} />
+      <Route
+        path="/"
+        element={
+          <PublicOnlyRoute>
+            <LandingPage />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/auth"
+        element={
+          <PublicOnlyRoute>
+            <AuthPage />
+          </PublicOnlyRoute>
+        }
+      />
       <Route path="/login" element={<Navigate to="/auth" replace />} />
       <Route
         path="/home"

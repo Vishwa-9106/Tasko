@@ -578,6 +578,48 @@ async function ensureAdminAccountRecord(email: string, password: string): Promis
   ]);
 }
 
+async function syncAdminAccessRecord({
+  uid,
+  email,
+  name
+}: {
+  uid: string;
+  email: string;
+  name: string;
+}): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedName = name.trim() || "Tasko Admin";
+  const now = new Date().toISOString();
+
+  await syncUserRoleRecord({
+    uid,
+    email: normalizedEmail,
+    name: normalizedName,
+    role: "admin"
+  });
+
+  try {
+    await db
+      .collection("admin_accounts")
+      .doc(normalizedEmail)
+      .set(
+        {
+          uid,
+          email: normalizedEmail,
+          role: "admin",
+          status: "active",
+          updatedAt: now,
+          createdAt: now
+        },
+        { merge: true }
+      );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+}
+
 async function persistAdminSession(sessionToken: string, email: string, createdAt: number): Promise<void> {
   const now = new Date().toISOString();
   const expiresAt = createdAt + adminSessionTtlMs;
@@ -593,6 +635,23 @@ async function persistAdminSession(sessionToken: string, email: string, createdA
     },
     { merge: true }
   );
+}
+
+async function createPersistedAdminSession(email: string): Promise<string> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const sessionToken = createAdminSession(normalizedEmail);
+  const createdAt = adminSessions.get(sessionToken)?.createdAt || Date.now();
+
+  try {
+    await persistAdminSession(sessionToken, normalizedEmail, createdAt);
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to persist admin session:", error);
+    }
+  }
+
+  return sessionToken;
 }
 
 async function removePersistedAdminSession(sessionToken: string): Promise<void> {
@@ -849,16 +908,7 @@ app.post("/api/admin/login", async (req: Request, res: Response) => {
       console.error("Admin account sync failed during login:", error);
     }
 
-    const sessionToken = createAdminSession(normalizedEmail);
-    const createdAt = adminSessions.get(sessionToken)?.createdAt || Date.now();
-    try {
-      await persistAdminSession(sessionToken, normalizedEmail, createdAt);
-    } catch (error) {
-      if (!isFirestoreUnavailableError(error)) {
-        // eslint-disable-next-line no-console
-        console.error("Failed to persist admin session:", error);
-      }
-    }
+    const sessionToken = await createPersistedAdminSession(normalizedEmail);
 
     return res.json({
       sessionToken,
@@ -866,6 +916,48 @@ app.post("/api/admin/login", async (req: Request, res: Response) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to login as admin", error });
+  }
+});
+
+app.post("/api/admin/firebase-login", async (req: Request, res: Response) => {
+  try {
+    const { idToken } = req.body as { idToken?: string };
+    if (!idToken) {
+      return res.status(400).json({ message: "idToken is required" });
+    }
+
+    const decoded = await adminAuth.verifyIdToken(idToken);
+    const normalizedEmail = (decoded.email || "").trim().toLowerCase();
+    const adminName = (decoded.name || "Tasko Admin").trim();
+
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Google account email is required for admin access" });
+    }
+
+    if (!isAllowedAdminEmail(normalizedEmail)) {
+      return res.status(403).json({ message: "This account is not authorized for admin access" });
+    }
+
+    try {
+      await syncAdminAccessRecord({
+        uid: decoded.uid,
+        email: normalizedEmail,
+        name: adminName
+      });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Admin account sync failed during Firebase login:", error);
+    }
+
+    const sessionToken = await createPersistedAdminSession(normalizedEmail);
+
+    return res.json({
+      sessionToken,
+      email: normalizedEmail,
+      name: adminName
+    });
+  } catch (error) {
+    return res.status(401).json({ message: "Failed to login with Google", error: getErrorMessage(error) });
   }
 });
 

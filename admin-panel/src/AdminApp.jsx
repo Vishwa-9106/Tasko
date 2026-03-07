@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { GoogleAuthProvider, signInWithPopup, signOut as signOutOfFirebase } from "firebase/auth";
 import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
+import { auth as firebaseAuth, initializeFirebaseClient } from "./firebase";
 import BookingsManagement from "./BookingsManagement";
 import TaskoMartManagement from "./TaskoMartManagement";
 
@@ -149,6 +151,26 @@ function subcategoryPathForCategory(categoryId) {
   return `/category/${encodeURIComponent(categoryId)}/subcategories`;
 }
 
+function getFirebaseAuthErrorMessage(error) {
+  const code = error?.code || "";
+  const fallback = error?.response?.data?.message || error?.message || "Admin Google login failed.";
+
+  if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+    return "Google sign-in popup was closed before completion.";
+  }
+  if (code === "auth/popup-blocked") {
+    return "Google sign-in popup was blocked by the browser.";
+  }
+  if (code === "auth/unauthorized-domain") {
+    return "Current domain is not authorized in Firebase Authentication settings.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Network error. Check your connection and retry.";
+  }
+
+  return fallback;
+}
+
 export default function AdminApp() {
   const initialPath = normalizeAdminPath(window.location.pathname);
   const [email, setEmail] = useState("");
@@ -158,6 +180,7 @@ export default function AdminApp() {
   const [locationPath, setLocationPath] = useState(() => initialPath);
   const active = useMemo(() => activeNavFromPath(locationPath), [locationPath]);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [loadingSubcategories, setLoadingSubcategories] = useState(false);
   const [error, setError] = useState("");
@@ -273,6 +296,9 @@ export default function AdminApp() {
     setSessionToken("");
     localStorage.removeItem(ADMIN_SESSION_TOKEN_KEY);
     setDrawer(null);
+    if (firebaseAuth) {
+      await signOutOfFirebase(firebaseAuth).catch(() => {});
+    }
     if (token) {
       await api.post("/api/admin/logout", { sessionToken: token }).catch(() => {});
     }
@@ -380,6 +406,31 @@ export default function AdminApp() {
       setError(loginError?.response?.data?.message || "Admin login failed.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loginWithGoogle = async () => {
+    setGoogleLoading(true);
+    setError("");
+    try {
+      const { auth } = await initializeFirebaseClient();
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const credential = await signInWithPopup(auth, provider);
+      const idToken = await credential.user.getIdToken();
+      const response = await api.post("/api/admin/firebase-login", { idToken });
+      const token = response.data?.sessionToken;
+      if (!token) throw new Error("Missing session token.");
+      localStorage.setItem(ADMIN_SESSION_TOKEN_KEY, token);
+      setEmail(response.data?.email || credential.user.email || "");
+      setSessionToken(token);
+    } catch (loginError) {
+      if (firebaseAuth) {
+        await signOutOfFirebase(firebaseAuth).catch(() => {});
+      }
+      setError(getFirebaseAuthErrorMessage(loginError));
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -779,7 +830,7 @@ export default function AdminApp() {
             <h1 className="erp-heading text-2xl text-slate-900">Tasko Admin Login</h1>
             <p className="mt-2 text-sm text-slate-500">Sign in to manage workers, categories, and TaskoMart operations.</p>
 
-            <form className="mt-6 space-y-4" onSubmit={login}>
+	            <form className="mt-6 space-y-4" onSubmit={login}>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Email
                 <input
@@ -816,13 +867,28 @@ export default function AdminApp() {
 
               {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
-              <button type="submit" className="erp-btn erp-btn-primary w-full py-3 text-sm" disabled={loading}>
-                {loading ? "Signing in..." : "Sign In"}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
+	              <button type="submit" className="erp-btn erp-btn-primary w-full py-3 text-sm" disabled={loading || googleLoading}>
+	                {loading ? "Signing in..." : "Sign In"}
+	              </button>
+	            </form>
+
+	            <div className="my-4 flex items-center gap-3">
+	              <span className="h-px flex-1 bg-slate-200" />
+	              <span className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">or</span>
+	              <span className="h-px flex-1 bg-slate-200" />
+	            </div>
+
+	            <button
+	              type="button"
+	              className="erp-btn erp-btn-soft w-full py-3 text-sm"
+	              onClick={loginWithGoogle}
+	              disabled={loading || googleLoading}
+	            >
+	              {googleLoading ? "Connecting to Google..." : "Continue with Google"}
+	            </button>
+	          </div>
+	        </div>
+	      </div>
     );
   }
 
