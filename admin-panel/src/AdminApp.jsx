@@ -4,9 +4,11 @@ import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
 import { auth as firebaseAuth, initializeFirebaseClient } from "./firebase";
 import BookingsManagement from "./BookingsManagement";
 import TaskoMartManagement from "./TaskoMartManagement";
+import UserManagement from "./UserManagement";
 
 const NAV_ITEMS = [
   { label: "Dashboard", path: "/dashboard" },
+  { label: "User Management", path: "/user-management" },
   { label: "Worker Hiring Requests", path: "/worker-hiring-requests" },
   { label: "Worker Management", path: "/worker-management" },
   { label: "Bookings", path: "/bookings" },
@@ -243,8 +245,9 @@ export default function AdminApp() {
   const loadData = async () => {
     setLoadingData(true);
     try {
-      const [applicationsRes, workersRes, bookingsRes, categoriesRes, analyticsRes] = await Promise.allSettled([
+      const [applicationsRes, usersRes, workersRes, bookingsRes, categoriesRes, analyticsRes] = await Promise.allSettled([
         api.get("/api/admin/worker-applications", { params: { sessionToken, limit: 20 } }),
+        api.get("/api/admin/users", { params: { sessionToken, limit: 100 } }),
         api.get("/api/workers", { params: { limit: 20 } }),
         api.get("/api/bookings", { params: { limit: 20 } }),
         api.get("/api/admin/categories", { params: { sessionToken } }),
@@ -259,6 +262,10 @@ export default function AdminApp() {
         workersRes.status === "fulfilled" && Array.isArray(workersRes.value.data)
           ? workersRes.value.data.map(normalizeWorker)
           : [];
+      const nextUsers =
+        usersRes.status === "fulfilled" && Array.isArray(usersRes.value.data?.users)
+          ? usersRes.value.data.users
+          : [];
       const nextCategoriesRaw =
         categoriesRes.status === "fulfilled" && Array.isArray(categoriesRes.value.data?.categories)
           ? categoriesRes.value.data.categories
@@ -270,7 +277,7 @@ export default function AdminApp() {
 
       setApplications(nextApplications);
       setWorkers(nextWorkers);
-      setUsers([]);
+      setUsers(nextUsers);
       setBookings(bookingsRes.status === "fulfilled" && Array.isArray(bookingsRes.value.data) ? bookingsRes.value.data : []);
       setCategories(nextCategories);
       const analyticsPayload =
@@ -1015,8 +1022,8 @@ export default function AdminApp() {
               </section>
             ) : null}
 
-            {active === "Worker Management" ? (
-              <section className="erp-card overflow-x-auto p-5">
+	            {active === "Worker Management" ? (
+	              <section className="erp-card overflow-x-auto p-5">
                 <h2 className="mb-4 text-lg font-semibold text-slate-900">Workers</h2>
                 <table className="erp-table">
                   <thead>
@@ -1050,11 +1057,13 @@ export default function AdminApp() {
                     )}
                   </tbody>
                 </table>
-              </section>
-            ) : null}
+	              </section>
+	            ) : null}
 
-            {active === "Bookings" ? (
-              <BookingsManagement
+	            {active === "User Management" ? <UserManagement users={users} /> : null}
+
+	            {active === "Bookings" ? (
+	              <BookingsManagement
                 bookings={bookings}
                 workers={workers}
                 users={users}

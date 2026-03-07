@@ -399,6 +399,34 @@ function readQueryLimit(value: unknown, fallback: number, max = 100): number {
   return Math.min(max, Math.trunc(parsed));
 }
 
+function getAdminSessionToken(req: Request): string {
+  const headerToken = readQueryText(req.header("x-admin-session-token"));
+  if (headerToken) {
+    return headerToken;
+  }
+
+  const authorizationHeader = readQueryText(req.header("authorization"));
+  if (authorizationHeader.toLowerCase().startsWith("bearer ")) {
+    return authorizationHeader.slice(7).trim();
+  }
+
+  const queryToken = readQueryText(req.query.sessionToken);
+  if (queryToken) {
+    return queryToken;
+  }
+
+  return isRecord(req.body) ? readQueryText(req.body.sessionToken) : "";
+}
+
+function ensureValidAdminSessionRequest(req: Request, res: Response): string | null {
+  const sessionToken = getAdminSessionToken(req);
+  if (!sessionToken || !isValidAdminSession(sessionToken)) {
+    res.status(401).json({ message: "Admin session is invalid or expired" });
+    return null;
+  }
+  return sessionToken;
+}
+
 async function syncUserRoleRecord({
   uid,
   email,
@@ -1125,6 +1153,201 @@ app.get("/api/users", async (req: Request, res: Response) => {
     return res.json(users);
   } catch (error) {
     return sendDashboardReadFallback(res, "/api/users", toInMemoryUserList(), error);
+  }
+});
+
+app.get("/api/admin/users", async (req: Request, res: Response) => {
+  if (!ensureValidAdminSessionRequest(req, res)) {
+    return;
+  }
+
+  const limit = readQueryLimit(req.query.limit, 100, 250);
+  const normalizeText = (value: unknown) => readQueryText(value);
+  const normalizeDateText = (value: unknown) => {
+    const text = normalizeText(value);
+    if (!text) return "";
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+  };
+  const toDateValue = (value: string) => {
+    if (!value) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  try {
+    const [usersResult, bookingsResult, taskoMartOrdersResult, packagesResult] = await Promise.allSettled([
+      db.collection("users").limit(limit).get(),
+      db.collection("bookings").get(),
+      db.collection("taskomart_orders").get(),
+      db.collection("packages").get()
+    ]);
+
+    const usersRaw: Array<Record<string, unknown>> =
+      usersResult.status === "fulfilled"
+        ? usersResult.value.docs.map((document) => ({
+            id: document.id,
+            ...(document.data() as Record<string, unknown>)
+          }))
+        : toInMemoryUserList().slice(0, limit);
+    const bookingsRaw: Array<Record<string, unknown>> =
+      bookingsResult.status === "fulfilled"
+        ? bookingsResult.value.docs.map((document) => ({
+            id: document.id,
+            ...(document.data() as Record<string, unknown>)
+          }))
+        : [];
+    const taskoMartOrdersRaw: Array<Record<string, unknown>> =
+      taskoMartOrdersResult.status === "fulfilled"
+        ? taskoMartOrdersResult.value.docs.map((document) => ({
+            id: document.id,
+            ...(document.data() as Record<string, unknown>)
+          }))
+        : [];
+    const packagesRaw: Array<Record<string, unknown>> =
+      packagesResult.status === "fulfilled"
+        ? packagesResult.value.docs.map((document) => ({
+            id: document.id,
+            ...(document.data() as Record<string, unknown>)
+          }))
+        : [];
+    const packageNameById = new Map<string, string>(
+      packagesRaw
+        .map((record) => {
+          const packageId = normalizeText(record.package_id || record.id);
+          const packageName =
+            normalizeText(record.package_name || record.name || record.title) || `Package ${packageId || "-"}`;
+          return [packageId, packageName] as const;
+        })
+        .filter(([packageId]) => packageId)
+    );
+
+    const users = usersRaw
+      .map((record) => {
+        const uid = normalizeText(record.uid || record.id);
+        const role = normalizeText(record.role).toLowerCase();
+        if (!uid) return null;
+        if (role === "worker" || role === "admin") return null;
+
+        const name =
+          normalizeText(record.name || record.full_name || record.fullName) ||
+          normalizeText(record.email || record.mail) ||
+          uid;
+        const email = normalizeText(record.email || record.mail);
+        const phone = normalizeText(record.mobile || record.number || record.phone);
+        const address = normalizeText(record.address);
+        const createdAt = normalizeDateText(record.createdAt || record.created_at);
+        const updatedAt = normalizeDateText(record.updatedAt || record.updated_at);
+
+        const serviceBookings = bookingsRaw
+          .filter((booking) => normalizeText(booking.userId || booking.user_id) === uid)
+          .map((booking) => {
+            const bookingType = normalizeText(booking.booking_type || booking.bookingType || booking.serviceType || booking.planType);
+            const packageId = normalizeText(booking.packageId || booking.package_id);
+            return {
+              bookingId: normalizeText(booking.booking_id || booking.bookingId || booking.id),
+              category: normalizeText(
+                booking.serviceCategory ||
+                  booking.service_category ||
+                  booking.service_category_name ||
+                  booking.service_category_id ||
+                  booking.category
+              ),
+              subCategory: normalizeText(
+                booking.subCategory ||
+                  booking.sub_category ||
+                  booking.sub_category_name ||
+                  booking.sub_category_id ||
+                  booking.category
+              ),
+              bookingType: bookingType === "package" ? "package" : "one-time",
+              status: normalizeText(booking.status) || "pending",
+              serviceDate: normalizeDateText(booking.booking_date || booking.serviceDate || booking.date),
+              packageId,
+              packageName: packageId ? packageNameById.get(packageId) || `Package ${packageId}` : "",
+              address: normalizeText(booking.address || booking.serviceAddress || booking.service_address || address)
+            };
+          })
+          .sort((left, right) => toDateValue(right.serviceDate) - toDateValue(left.serviceDate));
+
+        const taskoMartOrders = taskoMartOrdersRaw
+          .filter((order) => {
+            const orderUserId = normalizeText(order.userId);
+            const orderEmail = normalizeText(order.userEmail).toLowerCase();
+            const orderPhone = normalizeText(order.userPhone);
+            if (orderUserId && orderUserId === uid) return true;
+            if (email && orderEmail && orderEmail === email.toLowerCase()) return true;
+            if (phone && orderPhone && orderPhone === phone) return true;
+            return false;
+          })
+          .map((order) => ({
+            orderId: normalizeText(order.orderId || order.id),
+            totalAmount: Number.isFinite(Number(order.totalAmount)) ? Number(order.totalAmount) : 0,
+            orderStatus: normalizeText(order.orderStatus) || "pending",
+            paymentStatus: normalizeText(order.paymentStatus) || "pending",
+            orderDate: normalizeDateText(order.orderDate || order.createdAt),
+            deliveryAddress: normalizeText(order.deliveryAddress || address)
+          }))
+          .sort((left, right) => toDateValue(right.orderDate) - toDateValue(left.orderDate));
+
+        const packageMap = new Map<string, { packageId: string; packageName: string; bookingCount: number; lastBookedAt: string }>();
+        serviceBookings
+          .filter((booking) => booking.bookingType === "package" && booking.packageId)
+          .forEach((booking) => {
+            const packageKey = booking.packageId;
+            const current = packageMap.get(packageKey) || {
+              packageId: booking.packageId,
+              packageName: booking.packageName || `Package ${booking.packageId}`,
+              bookingCount: 0,
+              lastBookedAt: ""
+            };
+            current.bookingCount += 1;
+            if (toDateValue(booking.serviceDate) > toDateValue(current.lastBookedAt)) {
+              current.lastBookedAt = booking.serviceDate;
+            }
+            packageMap.set(packageKey, current);
+          });
+
+        const packages = Array.from(packageMap.values()).sort(
+          (left, right) => toDateValue(right.lastBookedAt) - toDateValue(left.lastBookedAt)
+        );
+        const latestActivity = Math.max(
+          toDateValue(updatedAt),
+          toDateValue(createdAt),
+          toDateValue(serviceBookings[0]?.serviceDate || ""),
+          toDateValue(taskoMartOrders[0]?.orderDate || "")
+        );
+
+        return {
+          id: uid,
+          uid,
+          name,
+          email,
+          phone,
+          address,
+          role: role || "user",
+          createdAt,
+          updatedAt,
+          orderCount: serviceBookings.length + taskoMartOrders.length,
+          serviceBookingCount: serviceBookings.length,
+          taskoMartOrderCount: taskoMartOrders.length,
+          packageCount: packages.length,
+          packageNames: packages.map((item) => item.packageName),
+          latestActivityAt: latestActivity ? new Date(latestActivity).toISOString() : "",
+          serviceBookings,
+          taskoMartOrders,
+          packages
+        };
+      })
+      .filter((record): record is NonNullable<typeof record> => record !== null)
+      .sort((left, right) => toDateValue(right.latestActivityAt) - toDateValue(left.latestActivityAt));
+
+    return res.json({ users });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch admin users",
+      error: getErrorMessage(error)
+    });
   }
 });
 
