@@ -6,6 +6,14 @@ import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { db } from "./firebaseAdmin";
 import {
+  PricingType,
+  ServicePricing,
+  buildPriceSummary,
+  isVariablePricing,
+  normalizeServicePricing,
+  validateServicePricingPayload
+} from "./servicePricing";
+import {
   isWorkerApplicationStatusNotifiable,
   sendEmail,
   sendWorkerApplicationStatusEmail
@@ -59,6 +67,11 @@ type SubcategoryRecord = {
   name: string;
   createdAt: string;
   updatedAt: string;
+} & Pick<ServicePricing, "pricingType" | "price" | "unitLabel" | "pricingNotes">;
+
+type ServiceCatalogEntry = {
+  category: CategoryRecord;
+  subcategory: SubcategoryRecord;
 };
 
 type SessionRecord = {
@@ -767,10 +780,15 @@ function normalizeCategoryRecord(categoryId: string, data: Record<string, unknow
 
 function normalizeSubcategoryRecord(subcategoryId: string, data: Record<string, unknown>): SubcategoryRecord {
   const now = new Date().toISOString();
+  const pricing = normalizeServicePricing(data, readTrimmedString(data.name));
   return {
     id: subcategoryId,
     categoryId: readTrimmedString(data.categoryId) || readTrimmedString(data.category_id),
     name: normalizeCategoryName(data.name),
+    pricingType: pricing.pricingType,
+    price: pricing.price,
+    unitLabel: pricing.unitLabel,
+    pricingNotes: pricing.pricingNotes,
     createdAt:
       readTrimmedString(data.createdAt) || readTrimmedString(data.created_at) || now,
     updatedAt:
@@ -789,14 +807,91 @@ function toCategoryResponse(category: CategoryRecord, subcategoryCount: number):
 }
 
 function toSubcategoryResponse(subcategory: SubcategoryRecord): Record<string, unknown> {
+  const priceSummary = buildPriceSummary(subcategory);
   return {
     id: subcategory.id,
     categoryId: subcategory.categoryId,
     category_id: subcategory.categoryId,
     name: subcategory.name,
+    pricingType: subcategory.pricingType,
+    price: subcategory.price,
+    unitLabel: subcategory.unitLabel,
+    pricingNotes: subcategory.pricingNotes,
+    priceSummary,
+    isVariablePrice: isVariablePricing(subcategory.pricingType),
     createdAt: subcategory.createdAt,
     updatedAt: subcategory.updatedAt
   };
+}
+
+function readIsoTime(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+}
+
+function compareRecordsForCanonicalKeep<
+  T extends {
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+  }
+>(left: T, right: T): number {
+  const createdDelta = readIsoTime(left.createdAt) - readIsoTime(right.createdAt);
+  if (createdDelta !== 0) {
+    return createdDelta;
+  }
+
+  const updatedDelta = readIsoTime(left.updatedAt) - readIsoTime(right.updatedAt);
+  if (updatedDelta !== 0) {
+    return updatedDelta;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function splitDuplicateSubcategories(records: SubcategoryRecord[]): {
+  unique: SubcategoryRecord[];
+  duplicates: SubcategoryRecord[];
+} {
+  const grouped = new Map<string, SubcategoryRecord[]>();
+  records.forEach((record) => {
+    const key = `${record.categoryId.toLowerCase()}::${record.name.toLowerCase()}`;
+    const current = grouped.get(key) || [];
+    current.push(record);
+    grouped.set(key, current);
+  });
+
+  const unique: SubcategoryRecord[] = [];
+  const duplicates: SubcategoryRecord[] = [];
+
+  grouped.forEach((group) => {
+    const sorted = [...group].sort(compareRecordsForCanonicalKeep);
+    unique.push(sorted[0]);
+    duplicates.push(...sorted.slice(1));
+  });
+
+  unique.sort((left, right) => left.name.localeCompare(right.name));
+  return { unique, duplicates };
+}
+
+async function cleanupDuplicateSubcategories(records: SubcategoryRecord[]): Promise<SubcategoryRecord[]> {
+  const { unique, duplicates } = splitDuplicateSubcategories(records);
+  if (duplicates.length === 0) {
+    return unique;
+  }
+
+  duplicates.forEach((record) => inMemorySubcategories.delete(record.id));
+  unique.forEach((record) => inMemorySubcategories.set(record.id, record));
+
+  try {
+    await Promise.all(duplicates.map((record) => db.collection("subcategories").doc(record.id).delete()));
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return unique;
 }
 
 function ensureInMemoryDefaultCategories(): CategoryRecord[] {
@@ -859,10 +954,16 @@ async function ensureDefaultSubcategoriesForCategories(categories: CategoryRecor
         return;
       }
       existingNames.add(normalizedName.toLowerCase());
+      const pricing = normalizeServicePricing({ name: normalizedName }, normalizedName);
+      const baseId = `sub-${category.id}-${toSlug(normalizedName)}`;
       recordsToSeed.push({
-        id: `sub-${crypto.randomUUID()}`,
+        id: baseId,
         categoryId: category.id,
         name: normalizedName,
+        pricingType: pricing.pricingType,
+        price: pricing.price,
+        unitLabel: pricing.unitLabel,
+        pricingNotes: pricing.pricingNotes,
         createdAt: now,
         updatedAt: now
       });
@@ -880,6 +981,10 @@ async function ensureDefaultSubcategoriesForCategories(categories: CategoryRecor
           {
             categoryId: record.categoryId,
             name: record.name,
+            pricingType: record.pricingType,
+            price: record.price,
+            unitLabel: record.unitLabel,
+            pricingNotes: record.pricingNotes,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt
           },
@@ -979,17 +1084,17 @@ async function listSubcategories(categoryId?: string): Promise<SubcategoryRecord
           (!categoryId || record.categoryId === categoryId)
       )
       .sort((left, right) => left.name.localeCompare(right.name));
-    subcategories.forEach((record) => inMemorySubcategories.set(record.id, record));
-    return subcategories;
+    return await cleanupDuplicateSubcategories(subcategories);
   } catch (error) {
     if (!isFirestoreUnavailableError(error)) {
       throw error;
     }
   }
 
-  return Array.from(inMemorySubcategories.values())
+  const deduped = Array.from(inMemorySubcategories.values())
     .filter((record) => !categoryId || record.categoryId === categoryId)
     .sort((left, right) => left.name.localeCompare(right.name));
+  return cleanupDuplicateSubcategories(deduped);
 }
 
 async function getSubcategoryById(subcategoryId: string): Promise<SubcategoryRecord | null> {
@@ -1130,9 +1235,9 @@ async function deleteCategory(
 
 async function createSubcategory(
   categoryId: string,
-  name: string
+  payload: Record<string, unknown>
 ): Promise<{ subcategory: SubcategoryRecord | null; created: boolean }> {
-  const normalizedName = normalizeCategoryName(name);
+  const normalizedName = normalizeCategoryName(payload.name);
   if (!normalizedName) {
     throw new Error("Subcategory name is required.");
   }
@@ -1147,12 +1252,21 @@ async function createSubcategory(
     return { subcategory: null, created: false };
   }
 
+  const { pricing, error } = validateServicePricingPayload(payload);
+  if (!pricing) {
+    throw new Error(error || "Pricing details are required.");
+  }
+
   const now = new Date().toISOString();
   const subcategoryId = `sub-${crypto.randomUUID()}`;
   const subcategory: SubcategoryRecord = {
     id: subcategoryId,
     categoryId,
     name: normalizedName,
+    pricingType: pricing.pricingType,
+    price: pricing.price,
+    unitLabel: pricing.unitLabel,
+    pricingNotes: pricing.pricingNotes,
     createdAt: now,
     updatedAt: now
   };
@@ -1162,6 +1276,10 @@ async function createSubcategory(
       {
         categoryId: subcategory.categoryId,
         name: subcategory.name,
+        pricingType: subcategory.pricingType,
+        price: subcategory.price,
+        unitLabel: subcategory.unitLabel,
+        pricingNotes: subcategory.pricingNotes,
         createdAt: subcategory.createdAt,
         updatedAt: subcategory.updatedAt
       },
@@ -1180,9 +1298,9 @@ async function createSubcategory(
 async function updateSubcategory(
   categoryId: string,
   subcategoryId: string,
-  name: string
+  payload: Record<string, unknown>
 ): Promise<{ subcategory: SubcategoryRecord | null; updated: boolean }> {
-  const normalizedName = normalizeCategoryName(name);
+  const normalizedName = normalizeCategoryName(payload.name);
   if (!normalizedName) {
     throw new Error("Subcategory name is required.");
   }
@@ -1202,9 +1320,18 @@ async function updateSubcategory(
     return { subcategory: null, updated: false };
   }
 
+  const { pricing, error } = validateServicePricingPayload(payload);
+  if (!pricing) {
+    throw new Error(error || "Pricing details are required.");
+  }
+
   const next: SubcategoryRecord = {
     ...current,
     name: normalizedName,
+    pricingType: pricing.pricingType,
+    price: pricing.price,
+    unitLabel: pricing.unitLabel,
+    pricingNotes: pricing.pricingNotes,
     updatedAt: new Date().toISOString()
   };
 
@@ -1212,6 +1339,10 @@ async function updateSubcategory(
     await db.collection("subcategories").doc(subcategoryId).set(
       {
         name: next.name,
+        pricingType: next.pricingType,
+        price: next.price,
+        unitLabel: next.unitLabel,
+        pricingNotes: next.pricingNotes,
         updatedAt: next.updatedAt
       },
       { merge: true }
@@ -1245,6 +1376,68 @@ async function deleteSubcategory(
 
   inMemorySubcategories.delete(subcategoryId);
   return { deleted: true };
+}
+
+function namesMatch(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+export async function getServiceCatalogEntry(options: {
+  categoryId?: string;
+  subcategoryId?: string;
+  categoryName?: string;
+  subcategoryName?: string;
+}): Promise<ServiceCatalogEntry | null> {
+  const categoryId = readTrimmedString(options.categoryId);
+  const subcategoryId = readTrimmedString(options.subcategoryId);
+  const categoryName = normalizeCategoryName(options.categoryName);
+  const subcategoryName = normalizeCategoryName(options.subcategoryName);
+
+  if (subcategoryId) {
+    const subcategory = await getSubcategoryById(subcategoryId);
+    if (!subcategory) {
+      return null;
+    }
+    const category = await getCategoryById(subcategory.categoryId);
+    if (!category) {
+      return null;
+    }
+    if (categoryId && category.id !== categoryId) {
+      return null;
+    }
+    if (categoryName && !namesMatch(category.name, categoryName)) {
+      return null;
+    }
+    if (subcategoryName && !namesMatch(subcategory.name, subcategoryName)) {
+      return null;
+    }
+    return { category, subcategory };
+  }
+
+  let category: CategoryRecord | null = null;
+  if (categoryId) {
+    category = await getCategoryById(categoryId);
+  } else if (categoryName) {
+    const categories = await listCategories();
+    category = categories.find((record) => namesMatch(record.name, categoryName)) || null;
+  }
+
+  if (!category) {
+    return null;
+  }
+
+  if (!subcategoryName) {
+    return null;
+  }
+
+  const subcategories = await listSubcategories(category.id);
+  const subcategory =
+    subcategories.find((record) => namesMatch(record.name, subcategoryName)) || null;
+  if (!subcategory) {
+    return null;
+  }
+
+  return { category, subcategory };
 }
 
 function buildDocumentUrl(
@@ -1364,6 +1557,34 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
       return res.json(applications.map((application) => toApplicationResponse(req, sessionToken, application)));
     } catch (error) {
       return res.status(500).json({ message: "Failed to load worker applications", error: getErrorMessage(error) });
+    }
+  });
+
+  app.get("/api/service-catalog", async (_req: Request, res: Response) => {
+    try {
+      const categories = await listCategories();
+      const subcategories = await listSubcategories();
+      const subcategoriesByCategoryId = new Map<string, SubcategoryRecord[]>();
+      subcategories.forEach((subcategory) => {
+        const current = subcategoriesByCategoryId.get(subcategory.categoryId) || [];
+        current.push(subcategory);
+        subcategoriesByCategoryId.set(subcategory.categoryId, current);
+      });
+
+      return res.json({
+        categories: categories.map((category) => {
+          const categorySubcategories =
+            (subcategoriesByCategoryId.get(category.id) || []).sort((left, right) =>
+              left.name.localeCompare(right.name)
+            );
+          return {
+            ...toCategoryResponse(category, categorySubcategories.length),
+            subcategories: categorySubcategories.map((subcategory) => toSubcategoryResponse(subcategory))
+          };
+        })
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to load service catalog", error: getErrorMessage(error) });
     }
   });
 
@@ -1520,12 +1741,13 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(400).json({ message: "categoryId is required." });
       }
 
-      const name = normalizeCategoryName((req.body as { name?: unknown }).name);
+      const payload = (req.body as Record<string, unknown>) || {};
+      const name = normalizeCategoryName(payload.name);
       if (!name) {
         return res.status(400).json({ message: "Subcategory name is required." });
       }
 
-      const { subcategory, created } = await createSubcategory(categoryId, name);
+      const { subcategory, created } = await createSubcategory(categoryId, payload);
       if (!created || !subcategory) {
         const category = await getCategoryById(categoryId);
         if (!category) {
@@ -1556,12 +1778,13 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(400).json({ message: "categoryId and subcategoryId are required." });
       }
 
-      const name = normalizeCategoryName((req.body as { name?: unknown }).name);
+      const payload = (req.body as Record<string, unknown>) || {};
+      const name = normalizeCategoryName(payload.name);
       if (!name) {
         return res.status(400).json({ message: "Subcategory name is required." });
       }
 
-      const { subcategory, updated } = await updateSubcategory(categoryId, subcategoryId, name);
+      const { subcategory, updated } = await updateSubcategory(categoryId, subcategoryId, payload);
       if (!updated || !subcategory) {
         const category = await getCategoryById(categoryId);
         if (!category) {

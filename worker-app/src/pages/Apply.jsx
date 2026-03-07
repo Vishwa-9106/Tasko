@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import BrandLogo from "../components/landing/BrandLogo";
+import TaskoBrandMark from "../components/TaskoBrandMark";
 
 const serviceCategories = [
   "Home Cleaning",
@@ -104,137 +104,144 @@ export default function ApplyPage() {
   };
 
   return (
-    <div className="auth-page">
-      <div className="worker-shell auth-shell">
-        <aside className="auth-aside glass-card">
-          <Link to="/" className="auth-home-link" aria-label="Back to home">
-            <BrandLogo compact />
+    <div className="auth-page worker-auth-page">
+      <header className="auth-nav">
+        <div className="auth-shell auth-nav-row">
+          <Link className="auth-brand" to="/" aria-label="Tasko worker home">
+            <TaskoBrandMark className="auth-brand-mark auth-brand-mark-image" />
+            <span className="auth-brand-text">TASKO</span>
           </Link>
-          <p className="auth-eyebrow">Worker Hiring Application</p>
-          <h1>Apply for a Tasko Employee Position</h1>
-          <p>
-            Submit your details and documents for verification. Our hiring team will review your application and
-            contact you directly.
-          </p>
-          <ul className="auth-highlight-list">
-            <li>No self account creation at this stage</li>
-            <li>Document-based verification workflow</li>
-            <li>Employee credentials issued by Tasko admin</li>
-          </ul>
-        </aside>
+          <nav className="auth-nav-links" aria-label="Worker navigation">
+            <a href="/#categories">CATEGORIES</a>
+            <a href="/#benefits">BENEFITS</a>
+            <a href="/#standards">STANDARDS</a>
+            <a href="/#stories">STORIES</a>
+          </nav>
+          <Link to="/login" className="auth-nav-cta">
+            EMPLOYEE LOGIN
+          </Link>
+        </div>
+      </header>
 
-        <section className="auth-card glass-card auth-login-card">
-          <header className="auth-card-head">
-            <p className="section-eyebrow">Hiring Application</p>
-            <h2>Apply Now</h2>
-          </header>
+      <section className="auth-section">
+        <div className="auth-shell auth-grid worker-auth-grid-wide">
+          <div className="auth-copy">
+            <p className="auth-copy-eyebrow">TASKO HIRING APPLICATION</p>
+            <h1>
+              APPLY TO JOIN
+              <span>THE TASKO TEAM.</span>
+            </h1>
+            <p>Submit your details and proofs for review. Approved workers receive credentials directly from Tasko admin.</p>
+            <ul className="auth-copy-points">
+              <li>DOCUMENT-BASED VERIFICATION</li>
+              <li>ROLE-SPECIFIC HIRING REVIEW</li>
+              <li>NO SELF-CREATED EMPLOYEE ACCOUNT</li>
+            </ul>
+          </div>
 
-          <form className="auth-fields" onSubmit={onSubmit}>
-            <label className="auth-field">
-              <span>Full Name</span>
+          <div className="auth-panel worker-auth-panel">
+            <p className="auth-panel-eyebrow">APPLICATION FORM</p>
+            <h2>START YOUR ONBOARDING</h2>
+            <form className="auth-form worker-auth-form" onSubmit={onSubmit}>
               <input
                 className="auth-input"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
-                placeholder="Enter your full name"
+                placeholder="Full name"
                 autoComplete="name"
                 required
               />
-            </label>
-
-            <label className="auth-field">
-              <span>Mobile Number</span>
               <input
                 className="auth-input"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                placeholder="Enter your mobile number"
+                placeholder="Mobile number"
                 autoComplete="tel"
                 required
               />
-            </label>
-
-            <label className="auth-field">
-              <span>Email Address</span>
               <input
                 type="email"
                 className="auth-input"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@example.com"
+                placeholder="Email address"
                 autoComplete="email"
                 required
               />
-            </label>
-
-            <label className="auth-field">
-              <span>Full Residential Address</span>
               <textarea
-                className="auth-input"
-                rows={3}
+                className="auth-input worker-auth-textarea"
+                rows={4}
                 value={address}
                 onChange={(event) => setAddress(event.target.value)}
-                placeholder="Enter complete residential address"
+                placeholder="Full residential address"
                 required
               />
-            </label>
 
-            <div className="auth-field">
-              <span>Service Category Applying For</span>
-              <div className="apply-category-grid" role="group" aria-label="Service Category Applying For">
-                {serviceCategories.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    className={`apply-category-card ${categoryApplied.includes(category) ? "is-selected" : ""}`}
-                    aria-pressed={categoryApplied.includes(category)}
-                    onClick={() => toggleCategory(category)}
-                  >
-                    {category}
-                  </button>
-                ))}
+              <div className="worker-auth-fieldset">
+                <p className="worker-auth-field-label">SERVICE CATEGORIES</p>
+                <div className="worker-auth-category-grid" role="group" aria-label="Service categories">
+                  {serviceCategories.map((category) => {
+                    const selected = categoryApplied.includes(category);
+                    return (
+                      <button
+                        key={category}
+                        type="button"
+                        className={`worker-auth-category-btn${selected ? " is-selected" : ""}`}
+                        aria-pressed={selected}
+                        onClick={() => toggleCategory(category)}
+                      >
+                        {category}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="worker-auth-help">Select one or more categories that match your skills.</p>
               </div>
-              <small className="auth-helper-text">Click cards to select one or more categories.</small>
+
+              <label className="worker-auth-upload">
+                <span>ID PROOF</span>
+                <input
+                  type="file"
+                  className="auth-input worker-auth-file"
+                  accept=".pdf,image/*"
+                  onChange={(event) => setIdProofFile(event.target.files?.[0] || null)}
+                  required
+                />
+              </label>
+
+              <label className="worker-auth-upload">
+                <span>ADDRESS PROOF</span>
+                <input
+                  type="file"
+                  className="auth-input worker-auth-file"
+                  accept=".pdf,image/*"
+                  onChange={(event) => setAddressProofFile(event.target.files?.[0] || null)}
+                  required
+                />
+              </label>
+
+              {error ? <p className="auth-error">{error}</p> : null}
+              {successMessage ? <p className="worker-auth-success">{successMessage}</p> : null}
+
+              <button type="submit" className="auth-primary-btn" disabled={submitting}>
+                {submitting ? "SUBMITTING..." : "SUBMIT APPLICATION"}
+              </button>
+            </form>
+
+            <div className="auth-divider-wrap">
+              <span />
+              <p>ACCESS</p>
+              <span />
             </div>
-
-            <label className="auth-field">
-              <span>Upload ID Proof</span>
-              <input
-                type="file"
-                className="auth-input"
-                accept=".pdf,image/*"
-                onChange={(event) => setIdProofFile(event.target.files?.[0] || null)}
-                required
-              />
-            </label>
-
-            <label className="auth-field">
-              <span>Upload Address Proof</span>
-              <input
-                type="file"
-                className="auth-input"
-                accept=".pdf,image/*"
-                onChange={(event) => setAddressProofFile(event.target.files?.[0] || null)}
-                required
-              />
-            </label>
-
-            {error ? <p className="auth-error">{error}</p> : null}
-            {successMessage ? <p className="auth-success">{successMessage}</p> : null}
-
-            <button type="submit" className="btn-luxury-primary btn-glow auth-submit-btn" disabled={submitting}>
-              {submitting ? "Submitting..." : "Submit Application"}
-            </button>
-          </form>
-
-          <p className="auth-footnote">
-            Already have credentials?{" "}
-            <Link to="/login" className="auth-inline-link">
-              Employee Login
-            </Link>
-          </p>
-        </section>
-      </div>
+            <div className="worker-auth-support">
+              <p>Already have credentials from Tasko admin?</p>
+              <Link to="/login" className="auth-social-btn worker-auth-link-btn">
+                EMPLOYEE LOGIN
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

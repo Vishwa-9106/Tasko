@@ -21,6 +21,22 @@ const CATEGORY_LIST_PATH = NAV_PATH_BY_LABEL.Category;
 
 const defaultRequestNotes = {};
 const defaultSalaryDraft = {};
+const pricingTypeOptions = [
+  { value: "fixed", label: "Fixed Price" },
+  { value: "per_unit", label: "Per Unit" },
+  { value: "per_hour", label: "Per Hour" },
+  { value: "starting_at", label: "Starting At" }
+];
+
+function createEmptySubcategoryDraft() {
+  return {
+    name: "",
+    pricingType: "fixed",
+    price: "",
+    unitLabel: "",
+    pricingNotes: ""
+  };
+}
 
 const date = (value) => {
   const parsed = new Date(value || "");
@@ -111,8 +127,85 @@ function normalizeSubcategory(record) {
     id: String(record?.id || "").trim(),
     categoryId: String(record?.categoryId || record?.category_id || "").trim(),
     name: String(record?.name || "").trim(),
+    pricingType: String(record?.pricingType || "fixed").trim() || "fixed",
+    price: Number.isFinite(Number(record?.price)) ? Number(record.price) : null,
+    unitLabel: String(record?.unitLabel || "").trim(),
+    pricingNotes: String(record?.pricingNotes || "").trim(),
+    priceSummary: String(record?.priceSummary || "").trim(),
+    isVariablePrice: Boolean(record?.isVariablePrice),
     createdAt: record?.createdAt || "",
     updatedAt: record?.updatedAt || ""
+  };
+}
+
+function normalizeSubcategoryDraft(record) {
+  return {
+    name: String(record?.name || "").trim(),
+    pricingType: String(record?.pricingType || "fixed").trim() || "fixed",
+    price:
+      record?.price === null || record?.price === undefined || record?.price === ""
+        ? ""
+        : String(record.price),
+    unitLabel: String(record?.unitLabel || "").trim(),
+    pricingNotes: String(record?.pricingNotes || "").trim()
+  };
+}
+
+function buildSubcategoryPriceSummary(record) {
+  if (record?.priceSummary) {
+    return record.priceSummary;
+  }
+
+  if (!Number.isFinite(Number(record?.price))) {
+    return "Pricing on request";
+  }
+
+  const amount = money(record.price);
+  const unitLabel = String(record?.unitLabel || "").trim();
+  switch (record?.pricingType) {
+    case "per_unit":
+      return `${amount} per ${unitLabel || "unit"}`;
+    case "per_hour":
+      return `${amount} per ${unitLabel || "hour"}`;
+    case "starting_at":
+      return `Starts at ${amount}`;
+    case "fixed":
+    default:
+      return `${amount} fixed`;
+  }
+}
+
+function validateSubcategoryDraft(draft) {
+  const normalizedName = String(draft?.name || "").trim().replace(/\s+/g, " ");
+  const pricingType = String(draft?.pricingType || "").trim();
+  const price = Number(draft?.price);
+  const unitLabel = String(draft?.unitLabel || "").trim().replace(/\s+/g, " ");
+
+  if (!normalizedName) {
+    return { error: "Subcategory name is required.", payload: null };
+  }
+
+  if (!pricingTypeOptions.some((option) => option.value === pricingType)) {
+    return { error: "Pricing type is required.", payload: null };
+  }
+
+  if (!Number.isFinite(price) || price < 0) {
+    return { error: "Price must be a valid non-negative number.", payload: null };
+  }
+
+  if ((pricingType === "per_unit" || pricingType === "per_hour") && !unitLabel) {
+    return { error: "Unit label is required for per-unit or per-hour pricing.", payload: null };
+  }
+
+  return {
+    error: "",
+    payload: {
+      name: normalizedName,
+      pricingType,
+      price,
+      unitLabel,
+      pricingNotes: String(draft?.pricingNotes || "").trim()
+    }
   };
 }
 
@@ -203,7 +296,7 @@ export default function AdminApp() {
   const [subcategories, setSubcategories] = useState([]);
   const [loadedSubcategoryCategoryId, setLoadedSubcategoryCategoryId] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
-  const [newSubcategoryName, setNewSubcategoryName] = useState("");
+  const [newSubcategoryDraft, setNewSubcategoryDraft] = useState(createEmptySubcategoryDraft);
   const [addingCategory, setAddingCategory] = useState(false);
   const [addingSubcategory, setAddingSubcategory] = useState(false);
   const [categoryEditModal, setCategoryEditModal] = useState(null);
@@ -734,11 +827,12 @@ export default function AdminApp() {
   const addSubcategory = async (event) => {
     event.preventDefault();
     if (!selectedCategory?.id) return;
-    const normalizedName = newSubcategoryName.trim().replace(/\s+/g, " ");
-    if (!normalizedName) {
-      setError("Subcategory name is required.");
+    const validation = validateSubcategoryDraft(newSubcategoryDraft);
+    if (!validation.payload) {
+      setError(validation.error);
       return;
     }
+    const normalizedName = validation.payload.name;
 
     if (subcategories.some((item) => item.name.toLowerCase() === normalizedName.toLowerCase())) {
       setError("Subcategory already exists in this category.");
@@ -749,10 +843,10 @@ export default function AdminApp() {
     setError("");
     try {
       await api.post(`/api/admin/categories/${selectedCategory.id}/subcategories`, {
-        name: normalizedName,
+        ...validation.payload,
         sessionToken
       });
-      setNewSubcategoryName("");
+      setNewSubcategoryDraft(createEmptySubcategoryDraft());
       await loadSubcategories(selectedCategory.id);
       await loadData();
       pushToast("success", "Subcategory added successfully.");
@@ -775,15 +869,18 @@ export default function AdminApp() {
   };
 
   const openSubcategoryEdit = (subcategory) => {
-    setSubcategoryEditModal({ id: subcategory.id, name: subcategory.name });
+    setSubcategoryEditModal({
+      id: subcategory.id,
+      ...normalizeSubcategoryDraft(subcategory)
+    });
   };
 
   const saveSubcategoryEdit = async (event) => {
     event.preventDefault();
     if (!selectedCategory?.id || !subcategoryEditModal?.id) return;
-    const normalizedName = subcategoryEditModal.name.trim().replace(/\s+/g, " ");
-    if (!normalizedName) {
-      setError("Subcategory name is required.");
+    const validation = validateSubcategoryDraft(subcategoryEditModal);
+    if (!validation.payload) {
+      setError(validation.error);
       return;
     }
 
@@ -793,7 +890,7 @@ export default function AdminApp() {
       await api.patch(
         `/api/admin/categories/${selectedCategory.id}/subcategories/${subcategoryEditModal.id}`,
         {
-          name: normalizedName,
+          ...validation.payload,
           sessionToken
         }
       );
@@ -1177,21 +1274,99 @@ export default function AdminApp() {
                       </button>
                     </div>
 
-                    <form className="mb-5 flex flex-wrap items-end gap-2" onSubmit={addSubcategory}>
-                      <label className="block flex-1 min-w-[220px]">
+                    <form className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4" onSubmit={addSubcategory}>
+                      <label className="block xl:col-span-2">
                         <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Add Sub Category</span>
                         <input
                           type="text"
                           className="erp-input"
-                          value={newSubcategoryName}
-                          onChange={(event) => setNewSubcategoryName(event.target.value)}
+                          value={newSubcategoryDraft.name}
+                          onChange={(event) =>
+                            setNewSubcategoryDraft((current) => ({ ...current, name: event.target.value }))
+                          }
                           placeholder="Enter sub category name"
                           maxLength={80}
                         />
                       </label>
-                      <button type="submit" className="erp-btn erp-btn-primary" disabled={addingSubcategory}>
-                        {addingSubcategory ? "Adding..." : "Add Sub Category"}
-                      </button>
+                      <label className="block">
+                        <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Pricing Type</span>
+                        <select
+                          className="erp-input"
+                          value={newSubcategoryDraft.pricingType}
+                          onChange={(event) =>
+                            setNewSubcategoryDraft((current) => ({
+                              ...current,
+                              pricingType: event.target.value,
+                              unitLabel:
+                                event.target.value === "per_hour"
+                                  ? current.unitLabel || "hour"
+                                  : event.target.value === "fixed" || event.target.value === "starting_at"
+                                    ? ""
+                                    : current.unitLabel
+                            }))
+                          }
+                        >
+                          {pricingTypeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Price</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="erp-input"
+                          value={newSubcategoryDraft.price}
+                          onChange={(event) =>
+                            setNewSubcategoryDraft((current) => ({ ...current, price: event.target.value }))
+                          }
+                          placeholder="Enter price"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Unit Label</span>
+                        <input
+                          type="text"
+                          className="erp-input"
+                          value={newSubcategoryDraft.unitLabel}
+                          onChange={(event) =>
+                            setNewSubcategoryDraft((current) => ({ ...current, unitLabel: event.target.value }))
+                          }
+                          placeholder={
+                            newSubcategoryDraft.pricingType === "per_hour"
+                              ? "hour"
+                              : newSubcategoryDraft.pricingType === "per_unit"
+                                ? "set, bathroom, camera"
+                                : "Not needed for fixed pricing"
+                          }
+                          disabled={
+                            newSubcategoryDraft.pricingType === "fixed" ||
+                            newSubcategoryDraft.pricingType === "starting_at"
+                          }
+                        />
+                      </label>
+                      <label className="block md:col-span-2 xl:col-span-3">
+                        <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Pricing Notes</span>
+                        <input
+                          type="text"
+                          className="erp-input"
+                          value={newSubcategoryDraft.pricingNotes}
+                          onChange={(event) =>
+                            setNewSubcategoryDraft((current) => ({ ...current, pricingNotes: event.target.value }))
+                          }
+                          placeholder="Optional note such as material charges extra"
+                          maxLength={180}
+                        />
+                      </label>
+                      <div className="flex items-end">
+                        <button type="submit" className="erp-btn erp-btn-primary w-full" disabled={addingSubcategory}>
+                          {addingSubcategory ? "Adding..." : "Add Sub Category"}
+                        </button>
+                      </div>
                     </form>
 
                     <div className="overflow-x-auto">
@@ -1200,23 +1375,30 @@ export default function AdminApp() {
                           <tr>
                             <th>Serial Number</th>
                             <th>Sub Category Name</th>
+                            <th>Pricing</th>
                             <th>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {loadingSubcategories ? (
                             <tr>
-                              <td colSpan={3} className="text-center text-slate-500">Loading sub categories...</td>
+                              <td colSpan={4} className="text-center text-slate-500">Loading sub categories...</td>
                             </tr>
                           ) : subcategories.length === 0 ? (
                             <tr>
-                              <td colSpan={3} className="text-center text-slate-500">No sub categories found.</td>
+                              <td colSpan={4} className="text-center text-slate-500">No sub categories found.</td>
                             </tr>
                           ) : (
                             subcategories.map((subcategory, index) => (
                               <tr key={subcategory.id}>
                                 <td>{index + 1}</td>
                                 <td>{subcategory.name}</td>
+                                <td>
+                                  <div className="text-sm font-medium text-slate-900">{buildSubcategoryPriceSummary(subcategory)}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {subcategory.pricingNotes || "No extra pricing note."}
+                                  </div>
+                                </td>
                                 <td>
                                   <div className="flex flex-wrap gap-2">
                                     <button type="button" className="erp-btn erp-btn-soft" onClick={() => openSubcategoryEdit(subcategory)}>
@@ -1388,14 +1570,14 @@ export default function AdminApp() {
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">Edit Sub Category</h3>
-                <p className="text-sm text-slate-500">Update sub category name</p>
+                <p className="text-sm text-slate-500">Update sub category pricing and display details</p>
               </div>
               <button type="button" className="erp-icon-btn" onClick={() => setSubcategoryEditModal(null)} disabled={savingSubcategoryEdit}>
                 X
               </button>
             </div>
 
-            <form className="space-y-3" onSubmit={saveSubcategoryEdit}>
+            <form className="grid gap-3 md:grid-cols-2" onSubmit={saveSubcategoryEdit}>
               <label className="block">
                 <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Sub Category Name</span>
                 <input
@@ -1409,7 +1591,80 @@ export default function AdminApp() {
                   required
                 />
               </label>
-              <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Pricing Type</span>
+                <select
+                  className="erp-input"
+                  value={subcategoryEditModal.pricingType}
+                  onChange={(event) =>
+                    setSubcategoryEditModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            pricingType: event.target.value,
+                            unitLabel:
+                              event.target.value === "per_hour"
+                                ? current.unitLabel || "hour"
+                                : event.target.value === "fixed" || event.target.value === "starting_at"
+                                  ? ""
+                                  : current.unitLabel
+                          }
+                        : current
+                    )
+                  }
+                >
+                  {pricingTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Price</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="erp-input"
+                  value={subcategoryEditModal.price}
+                  onChange={(event) =>
+                    setSubcategoryEditModal((current) => (current ? { ...current, price: event.target.value } : current))
+                  }
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Unit Label</span>
+                <input
+                  type="text"
+                  className="erp-input"
+                  value={subcategoryEditModal.unitLabel}
+                  onChange={(event) =>
+                    setSubcategoryEditModal((current) => (current ? { ...current, unitLabel: event.target.value } : current))
+                  }
+                  disabled={
+                    subcategoryEditModal.pricingType === "fixed" ||
+                    subcategoryEditModal.pricingType === "starting_at"
+                  }
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Pricing Notes</span>
+                <input
+                  type="text"
+                  className="erp-input"
+                  value={subcategoryEditModal.pricingNotes}
+                  onChange={(event) =>
+                    setSubcategoryEditModal((current) =>
+                      current ? { ...current, pricingNotes: event.target.value } : current
+                    )
+                  }
+                  placeholder="Optional note such as material charges extra"
+                  maxLength={180}
+                />
+              </label>
+              <div className="flex flex-wrap justify-end gap-2 pt-2 md:col-span-2">
                 <button type="button" className="erp-btn erp-btn-soft" onClick={() => setSubcategoryEditModal(null)} disabled={savingSubcategoryEdit}>
                   Cancel
                 </button>

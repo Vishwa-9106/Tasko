@@ -4,102 +4,54 @@ import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
 import { serviceCategories } from "./homeData";
-
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function dedupeNames(items) {
-  return Array.from(new Set(items.map((item) => String(item || "").trim()).filter(Boolean)));
-}
-
-function toCategoryKey(value) {
-  return normalizeText(value);
-}
+import { flattenServiceCatalog, normalizeServiceCatalog, normalizeText, toCategoryKey } from "../utils/serviceCatalog";
 
 function guessIcon(categoryName) {
   const matched = serviceCategories.find((category) => toCategoryKey(category.name) === toCategoryKey(categoryName));
   return matched?.icon || "cleaning";
 }
 
-const fallbackSubcategoryCatalog = serviceCategories.reduce((acc, category) => {
-  acc[category.name] = category.subcategories;
-  return acc;
-}, {});
-
 export default function ServiceSubcategoriesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [services, setServices] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [detailsItem, setDetailsItem] = useState(null);
   const selectedCategory = searchParams.get("category") || "";
   const search = searchParams.get("search") || "";
 
   useEffect(() => {
-    const loadServices = async () => {
-      const response = await api.get("/api/services");
-      const list = Array.isArray(response.data) ? response.data : [];
-      setServices(list);
+    const loadCatalog = async () => {
+      const response = await api.get("/api/service-catalog");
+      setCatalog(normalizeServiceCatalog(response.data));
       setLoading(false);
     };
 
-    loadServices()
+    loadCatalog()
       .catch(() => {
-        setServices([]);
+        setCatalog(normalizeServiceCatalog({}));
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const availableCategories = useMemo(() => {
-    const fromApi = dedupeNames(services.map((service) => service?.category));
-    const fromCatalog = serviceCategories.map((category) => category.name);
-    return dedupeNames([...fromCatalog, ...fromApi]);
-  }, [services]);
+  const availableCategories = useMemo(() => catalog.map((category) => category.name).filter(Boolean), [catalog]);
 
   const subcategories = useMemo(() => {
-    const grouped = new Map();
-
-    services.forEach((service) => {
-      const categoryName = String(service?.category || "").trim();
-      const serviceName = String(service?.name || service?.category || "").trim();
-      if (!categoryName || !serviceName) return;
-      if (!grouped.has(categoryName)) {
-        grouped.set(categoryName, []);
-      }
-      grouped.get(categoryName).push(serviceName);
-    });
-
     const normalizedSelected = toCategoryKey(selectedCategory);
     const normalizedSearch = normalizeText(search);
-    const normalizedGroups = Array.from(grouped.entries()).map(([categoryName, names]) => ({
-      categoryName,
-      names: dedupeNames(names)
-    }));
 
-    const fromApi = normalizedGroups
-      .filter((group) => !normalizedSelected || toCategoryKey(group.categoryName) === normalizedSelected)
-      .flatMap((group) => group.names.map((name) => ({ categoryName: group.categoryName, name })));
+    return flattenServiceCatalog(catalog).filter((item) => {
+      if (normalizedSelected && toCategoryKey(item.categoryName) !== normalizedSelected) {
+        return false;
+      }
 
-    const fromFallback = Object.entries(fallbackSubcategoryCatalog)
-      .filter(([categoryName]) => !normalizedSelected || toCategoryKey(categoryName) === normalizedSelected)
-      .flatMap(([categoryName, names]) => names.map((name) => ({ categoryName, name })));
+      if (!normalizedSearch) {
+        return true;
+      }
 
-    const merged = dedupeNames(
-      [...fromApi, ...fromFallback].map((item) => `${item.categoryName}||${item.name}`)
-    ).map((value) => {
-      const [categoryName, name] = value.split("||");
-      return { categoryName, name };
+      return normalizeText(`${item.categoryName} ${item.subCategoryName}`).includes(normalizedSearch);
     });
-
-    if (!normalizedSearch) {
-      return merged;
-    }
-
-    return merged.filter((item) => normalizeText(`${item.categoryName} ${item.name}`).includes(normalizedSearch));
-  }, [search, selectedCategory, services]);
+  }, [catalog, search, selectedCategory]);
 
   const pageTitle = selectedCategory ? `${selectedCategory} Subcategories` : "Service Subcategories";
 
@@ -108,7 +60,7 @@ export default function ServiceSubcategoriesPage() {
       <section className="tasko-page-header">
         <p>Service Discovery</p>
         <h1>{pageTitle}</h1>
-        <p>Pick a subcategory and continue directly to booking.</p>
+        <p>Check pricing details first, then continue to booking with the exact service.</p>
       </section>
 
       <section className="tasko-content-panel">
@@ -169,21 +121,78 @@ export default function ServiceSubcategoriesPage() {
         ) : (
           <div className="tasko-subcategory-grid">
             {subcategories.map((item) => (
-              <article key={`${item.categoryName}-${item.name}`} className="tasko-card">
+              <article key={`${item.categoryId}-${item.subcategoryId || item.subCategoryName}`} className="tasko-card">
                 <span className="tasko-card-icon">
                   <CategoryIcon name={guessIcon(item.categoryName)} className="tasko-line-icon" />
                 </span>
-                <h3>{item.name}</h3>
+                <h3>{item.subCategoryName}</h3>
                 <p>{item.categoryName}</p>
-                <button type="button" onClick={() => navigate(`/booking?category=${encodeURIComponent(item.name)}`)}>
-                  Book Now
-                </button>
+                <p className="tasko-service-price">{item.priceSummary}</p>
+                <div className="tasko-card-actions">
+                  <button type="button" className="tasko-secondary-button" onClick={() => setDetailsItem(item)}>
+                    View Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/booking?categoryId=${encodeURIComponent(item.categoryId)}&category=${encodeURIComponent(item.categoryName)}&subcategoryId=${encodeURIComponent(item.subcategoryId || "")}&subcategory=${encodeURIComponent(item.subCategoryName)}`
+                      )
+                    }
+                  >
+                    Book Now
+                  </button>
+                </div>
               </article>
             ))}
           </div>
         )}
       </section>
+
+      {detailsItem ? (
+        <div className="tasko-modal-overlay" onClick={() => setDetailsItem(null)}>
+          <div className="tasko-modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="tasko-modal-head">
+              <div>
+                <p>Pricing Details</p>
+                <h3>{detailsItem.subCategoryName}</h3>
+              </div>
+              <button type="button" className="tasko-secondary-button" onClick={() => setDetailsItem(null)}>
+                Close
+              </button>
+            </div>
+            <div className="tasko-modal-body">
+              <p>
+                <strong>Category:</strong> {detailsItem.categoryName}
+              </p>
+              <p>
+                <strong>Price:</strong> {detailsItem.priceSummary}
+              </p>
+              <p>
+                <strong>Pricing Model:</strong> {String(detailsItem.pricingType || "fixed").replace(/_/g, " ")}
+              </p>
+              <p>
+                <strong>Notes:</strong> {detailsItem.pricingNotes || "No extra pricing note."}
+              </p>
+            </div>
+            <div className="tasko-card-actions">
+              <button type="button" className="tasko-secondary-button" onClick={() => setDetailsItem(null)}>
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(
+                    `/booking?categoryId=${encodeURIComponent(detailsItem.categoryId)}&category=${encodeURIComponent(detailsItem.categoryName)}&subcategoryId=${encodeURIComponent(detailsItem.subcategoryId || "")}&subcategory=${encodeURIComponent(detailsItem.subCategoryName)}`
+                  )
+                }
+              >
+                Book Now
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </UserPortalShell>
   );
 }
-

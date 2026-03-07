@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, WORKER_ID_KEY, WORKER_SESSION_TOKEN_KEY } from "../api";
-import BrandLogo from "../components/landing/BrandLogo";
+import TaskoBrandMark from "../components/TaskoBrandMark";
 
 const tabs = [
   { id: "dashboard", label: "Dashboard", href: "/dashboard" },
   { id: "earnings", label: "My Earnings", href: "/my-earnings" },
   { id: "profile", label: "Profile", href: "/profile" }
 ];
+
 const workerDashboardPollIntervalMs = 60000;
 
 function resolveDateTime(job) {
@@ -26,6 +27,45 @@ function normalizeDateKey(value) {
   return new Date(value).toISOString().slice(0, 10);
 }
 
+function toStatusLabel(value) {
+  const normalized = String(value || "assigned")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
+
+  if (!normalized) return "Assigned";
+
+  return normalized
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getInitials(value) {
+  return String(value || "Worker")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0))
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function formatJobSlot(job) {
+  const resolved = resolveDateTime(job);
+  if (!resolved) {
+    return [job?.date || "-", job?.time || "-"];
+  }
+
+  return [
+    new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(resolved),
+    job?.time ||
+      new Intl.DateTimeFormat("en-IN", {
+        timeStyle: "short"
+      }).format(resolved)
+  ];
+}
+
 export default function WorkerWorkspacePage({ activeTab }) {
   const navigate = useNavigate();
   const [worker, setWorker] = useState(null);
@@ -37,7 +77,7 @@ export default function WorkerWorkspacePage({ activeTab }) {
 
   const online = Boolean(worker?.online);
   const workerName = worker?.name || "Worker";
-  const workerInitial = workerName.trim().charAt(0).toUpperCase() || "W";
+  const workerInitials = getInitials(workerName);
 
   const clearWorkerSession = () => {
     localStorage.removeItem(WORKER_SESSION_TOKEN_KEY);
@@ -166,146 +206,192 @@ export default function WorkerWorkspacePage({ activeTab }) {
 
   if (loading) {
     return (
-      <div className="worker-console-shell">
-        <div className="worker-shell worker-console-loading-card">
-          <p className="section-eyebrow">Loading</p>
-          <h2>Preparing your dashboard...</h2>
-        </div>
+      <div className="user-console-page landing-sync worker-sync-console">
+        <main className="user-shell user-console-main">
+          <section className="user-console-hero">
+            <p className="user-console-eyebrow">Worker Console</p>
+            <h1>Loading workspace</h1>
+            <p>Preparing your assignments and profile data.</p>
+          </section>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="worker-console-shell">
-      <header className="worker-console-nav-wrap">
-        <div className="worker-shell worker-console-nav">
-          <Link to="/dashboard" className="worker-console-logo" aria-label="Tasko worker dashboard">
-            <BrandLogo compact />
+    <div className="user-console-page landing-sync worker-sync-console">
+      <header className="user-console-nav-wrap">
+        <div className="user-shell user-console-nav">
+          <Link to="/dashboard" className="user-console-brand" aria-label="Tasko worker dashboard">
+            <TaskoBrandMark />
+            <span>TASKO</span>
           </Link>
 
-          <nav className="worker-console-menu" aria-label="Worker dashboard navigation">
+          <nav className="user-console-menu" aria-label="Worker dashboard navigation">
             {tabs.map((tab) => (
-              <Link
-                key={tab.id}
-                to={tab.href}
-                className={`worker-console-menu-link ${activeTab === tab.id ? "is-active" : ""}`}
-              >
+              <Link key={tab.id} to={tab.href} className={`user-console-menu-link ${activeTab === tab.id ? "is-active" : ""}`}>
                 {tab.label}
               </Link>
             ))}
           </nav>
 
-          <div className="worker-console-actions">
+          <div className="worker-sync-nav-actions">
             <button
               type="button"
-              className={`worker-availability-toggle ${online ? "is-online" : "is-offline"}`}
+              className={`worker-sync-status-btn${online ? " is-online" : ""}`}
               onClick={toggleOnlineStatus}
               disabled={statusUpdating}
             >
-              <span
-                className={`worker-availability-dot ${online ? "is-online" : "is-offline"}`}
-                aria-hidden="true"
-              />
-              {statusUpdating ? "Updating..." : online ? "Online" : "Offline"}
+              <span className={`worker-sync-status-dot${online ? " is-online" : ""}`} aria-hidden="true" />
+              {statusUpdating ? "Updating..." : online ? "Available" : "Offline"}
             </button>
 
-            <div className="worker-profile-indicator" title={`${workerName} is ${online ? "online" : "offline"}`}>
-              <span className={`worker-profile-status-dot ${online ? "is-online" : "is-offline"}`} aria-hidden="true" />
-              <span className="worker-profile-avatar" aria-hidden="true">
-                {workerInitial}
+            <button
+              type="button"
+              className="user-profile-icon-btn"
+              onClick={() => navigate("/profile")}
+              aria-label="Open worker profile"
+              title="Profile"
+            >
+              <span className={`user-profile-icon-dot${online ? "" : " worker-sync-dot-offline"}`} aria-hidden="true" />
+              <span className="user-profile-icon-text" aria-hidden="true">
+                {workerInitials}
               </span>
-            </div>
+            </button>
 
-            <button type="button" className="worker-logout-btn" onClick={logout}>
+            <button type="button" className="user-btn secondary tasko-inline-btn" onClick={logout}>
               Logout
             </button>
           </div>
         </div>
       </header>
 
-      <main className="worker-shell worker-console-main">
-        <section className="worker-hero-panel">
-          <p className="section-eyebrow">Worker Console</p>
+      <main className="user-shell user-console-main">
+        <section className="user-console-hero">
+          <p className="user-console-eyebrow">Worker Console</p>
           <h1>Welcome, {workerName}</h1>
-          <p>Manage assignments, track your progress, and control availability from one premium workspace.</p>
-          <div className="worker-meta-row">
-            <span className="worker-meta-pill">Primary Category: {worker?.category || "-"}</span>
-            <span className={`worker-meta-pill ${online ? "is-online" : "is-offline"}`}>
-              Status: {online ? "Available for jobs" : "Unavailable"}
-            </span>
+          <p>Manage assignments, availability, and your worker account from the same Tasko dashboard system.</p>
+          <div className="user-pill-tabs worker-sync-meta-tabs">
+            <span className="user-pill-tab active">Primary Category: {worker?.category || "-"}</span>
+            <span className={`user-pill-tab${online ? " active" : ""}`}>Status: {online ? "Available for jobs" : "Unavailable"}</span>
           </div>
         </section>
 
-        {error ? <p className="auth-error">{error}</p> : null}
+        {error ? <p className="user-empty worker-sync-error">{error}</p> : null}
 
         {activeTab === "dashboard" ? (
           <>
-            <section className="worker-grid-metrics">
-              <article className="worker-metric-card">
-                <p>Assigned Jobs</p>
-                <h3>{dailyProgress.assigned}</h3>
+            <section className="sync-overview-grid">
+              <article className="user-card sync-stat-card">
+                <p className="sync-stat-label">Assigned Jobs</p>
+                <h2>{dailyProgress.assigned}</h2>
+                <p>Open jobs currently under your responsibility.</p>
               </article>
-              <article className="worker-metric-card">
-                <p>Upcoming Jobs</p>
-                <h3>{dailyProgress.upcoming}</h3>
+              <article className="user-card sync-stat-card">
+                <p className="sync-stat-label">Upcoming Jobs</p>
+                <h2>{dailyProgress.upcoming}</h2>
+                <p>Scheduled tasks that are next in your queue.</p>
               </article>
-              <article className="worker-metric-card">
-                <p>Completed Today</p>
-                <h3>{dailyProgress.completedToday}</h3>
+              <article className="user-card sync-stat-card">
+                <p className="sync-stat-label">Completed Today</p>
+                <h2>{dailyProgress.completedToday}</h2>
+                <p>Jobs marked completed on today&apos;s date.</p>
               </article>
             </section>
 
-            <section className="worker-grid-panels">
-              <article className="worker-data-card">
+            <section className="worker-sync-panel-grid">
+              <article className="user-card">
                 <h2>Assigned Jobs</h2>
                 {assignedJobs.length === 0 ? (
-                  <p className="worker-empty-state">No assigned jobs yet.</p>
+                  <p className="user-empty">No assigned jobs yet.</p>
                 ) : (
-                  <div className="worker-job-list">
-                    {assignedJobs.map((job) => (
-                      <div key={job.id} className="worker-job-item">
-                        <h3>{job.category || "Service Job"}</h3>
-                        <p>
-                          {job.date || "-"} {job.time ? `at ${job.time}` : ""}
-                        </p>
-                        <span className="worker-job-status">Status: {job.status || "assigned"}</span>
-                      </div>
-                    ))}
+                  <div className="user-list">
+                    {assignedJobs.map((job) => {
+                      const [dateLabel, timeLabel] = formatJobSlot(job);
+                      return (
+                        <article key={job.id} className="user-list-item sync-assignment-card">
+                          <div className="user-list-item-head">
+                            <h3>{job.category || "Service Job"}</h3>
+                            <span className="user-status-tag">{toStatusLabel(job.status)}</span>
+                          </div>
+                          <div className="sync-meta-grid">
+                            <p>
+                              <strong>Date:</strong> {dateLabel}
+                            </p>
+                            <p>
+                              <strong>Time:</strong> {timeLabel}
+                            </p>
+                            <p>
+                              <strong>Job ID:</strong> {job.id || "-"}
+                            </p>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </article>
 
-              <article className="worker-data-card">
+              <article className="user-card">
                 <h2>Upcoming Jobs</h2>
                 {upcomingJobs.length === 0 ? (
-                  <p className="worker-empty-state">No upcoming jobs in schedule.</p>
+                  <p className="user-empty">No upcoming jobs in your schedule.</p>
                 ) : (
-                  <div className="worker-job-list">
-                    {upcomingJobs.map((job) => (
-                      <div key={`${job.id}-upcoming`} className="worker-job-item">
-                        <h3>{job.category || "Service Job"}</h3>
-                        <p>
-                          {job.date || "-"} {job.time ? `at ${job.time}` : ""}
-                        </p>
-                        <span className="worker-job-status">Priority: Upcoming</span>
-                      </div>
-                    ))}
+                  <div className="user-list">
+                    {upcomingJobs.map((job) => {
+                      const [dateLabel, timeLabel] = formatJobSlot(job);
+                      return (
+                        <article key={`${job.id}-upcoming`} className="user-list-item sync-assignment-card">
+                          <div className="user-list-item-head">
+                            <h3>{job.category || "Service Job"}</h3>
+                            <span className="user-status-tag">Upcoming</span>
+                          </div>
+                          <div className="sync-meta-grid">
+                            <p>
+                              <strong>Date:</strong> {dateLabel}
+                            </p>
+                            <p>
+                              <strong>Time:</strong> {timeLabel}
+                            </p>
+                            <p>
+                              <strong>Status:</strong> {toStatusLabel(job.status)}
+                            </p>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </article>
             </section>
           </>
         ) : activeTab === "earnings" ? (
-          <section className="worker-placeholder-card">
-            <p className="section-eyebrow">My Earnings</p>
-            <h2>Earnings dashboard is coming soon</h2>
-            <p>This page is reserved for payout history, weekly summaries, and transaction insights.</p>
+          <section className="user-card">
+            <h2>My Earnings</h2>
+            <p>Earnings summaries, payout history, and weekly breakdowns will appear here.</p>
+            <div className="user-list">
+              <article className="user-list-item">
+                <div className="user-list-item-head">
+                  <h3>Upcoming payout tools</h3>
+                  <span className="user-status-tag is-muted">Soon</span>
+                </div>
+                <p>Track transaction records and payout cycles in the same dashboard pattern used across Tasko.</p>
+              </article>
+            </div>
           </section>
         ) : (
-          <section className="worker-placeholder-card">
-            <p className="section-eyebrow">Profile</p>
-            <h2>Profile management is coming soon</h2>
-            <p>This page will include your professional details and account settings.</p>
+          <section className="user-card">
+            <h2>Profile</h2>
+            <p>Professional details, worker account settings, and onboarding records will be managed here.</p>
+            <div className="user-list">
+              <article className="user-list-item">
+                <div className="user-list-item-head">
+                  <h3>Profile tools in progress</h3>
+                  <span className="user-status-tag is-muted">Soon</span>
+                </div>
+                <p>Use the availability toggle above while the rest of profile management is being connected.</p>
+              </article>
+            </div>
           </section>
         )}
       </main>

@@ -383,6 +383,35 @@
   margin-top: 0.35rem;
 }
 
+.tasko-service-price {
+  color: #1f1f1f;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tasko-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.tasko-card-actions button {
+  flex: 1 1 160px;
+}
+
+.tasko-secondary-button {
+  border: 1px solid rgba(58, 58, 58, 0.24);
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.tasko-secondary-button:hover {
+  background: #efefef;
+}
+
 .tasko-card-icon {
   width: 42px;
   height: 42px;
@@ -928,6 +957,37 @@
   grid-column: 1 / -1;
 }
 
+.tasko-pricing-summary {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(183, 151, 77, 0.32);
+  background: rgba(198, 167, 94, 0.12);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+}
+
+.tasko-pricing-summary-label {
+  margin: 0;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tasko-pricing-summary h3 {
+  margin: 0.3rem 0 0;
+  color: #1c1c1c;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+}
+
+.tasko-pricing-summary p:last-child {
+  margin: 0.35rem 0 0;
+  color: #555;
+  font-size: 0.92rem;
+}
+
 .tasko-booking-actions-row {
   margin-top: 0.12rem;
   display: flex;
@@ -1041,6 +1101,59 @@
 .tasko-booking-meta-grid strong,
 .tasko-booking-notes strong {
   color: #1f1f1f;
+}
+
+.tasko-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(17, 17, 17, 0.5);
+  padding: 1rem;
+}
+
+.tasko-modal-card {
+  width: min(100%, 560px);
+  border-radius: 18px;
+  border: 1px solid rgba(58, 58, 58, 0.16);
+  background: #fff;
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.tasko-modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.tasko-modal-head p,
+.tasko-modal-body p {
+  margin: 0;
+}
+
+.tasko-modal-head p {
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tasko-modal-head h3 {
+  margin: 0.35rem 0 0;
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+}
+
+.tasko-modal-body {
+  display: grid;
+  gap: 0.7rem;
+  color: #555;
 }
 
 .tasko-site-footer {

@@ -3,8 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import UserPortalShell from "../components/UserPortalShell";
-import { serviceCategories } from "./homeData";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
+import { buildPriceSummary, flattenServiceCatalog, normalizeServiceCatalog, normalizeText } from "../utils/serviceCatalog";
 
 const tabs = [
   { id: "current", label: "Current" },
@@ -14,54 +14,32 @@ const tabs = [
 
 const oldStatuses = new Set(["completed", "cancelled"]);
 
-const fallbackServiceCatalog = serviceCategories.flatMap((category) =>
-  category.subcategories.map((subCategoryName) => ({
-    categoryName: category.name,
-    subCategoryName
-  }))
-);
-
 function formatTodayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
+function findCatalogItem(catalog, options = {}) {
+  const categoryId = String(options.categoryId || "").trim();
+  const subcategoryId = String(options.subcategoryId || "").trim();
+  const categoryName = String(options.categoryName || "").trim();
+  const subcategoryName = String(options.subcategoryName || "").trim();
 
-function toCatalogKey(categoryName, subCategoryName) {
-  return `${normalizeText(categoryName)}||${normalizeText(subCategoryName)}`;
-}
-
-function resolveServiceSelection(queryValue, catalog) {
-  const normalizedQuery = normalizeText(queryValue);
-  if (!normalizedQuery) {
-    return { serviceCategory: "", subCategory: "" };
-  }
-
-  const categoryMatch = catalog.find((item) => normalizeText(item.categoryName) === normalizedQuery);
-  if (categoryMatch) {
-    return {
-      serviceCategory: categoryMatch.categoryName,
-      subCategory: ""
-    };
-  }
-
-  const subCategoryMatch = catalog.find((item) => normalizeText(item.subCategoryName) === normalizedQuery);
-  if (subCategoryMatch) {
-    return {
-      serviceCategory: subCategoryMatch.categoryName,
-      subCategory: subCategoryMatch.subCategoryName
-    };
-  }
-
-  return {
-    serviceCategory: "",
-    subCategory: String(queryValue || "").trim()
-  };
+  return (
+    catalog.find((item) => {
+      if (subcategoryId && item.subcategoryId === subcategoryId) {
+        return true;
+      }
+      if (
+        subcategoryName &&
+        normalizeText(item.subCategoryName) === normalizeText(subcategoryName) &&
+        (!categoryId || item.categoryId === categoryId) &&
+        (!categoryName || normalizeText(item.categoryName) === normalizeText(categoryName))
+      ) {
+        return true;
+      }
+      return false;
+    }) || null
+  );
 }
 
 function toStatusLabel(status) {
@@ -183,7 +161,7 @@ function resolveWorkerInfo(booking) {
 export default function BookingPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const [services, setServices] = useState([]);
+  const [catalogCategories, setCatalogCategories] = useState([]);
   const [packages, setPackages] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [activeTab, setActiveTab] = useState("current");
@@ -194,8 +172,10 @@ export default function BookingPage() {
   const [updatingBookingId, setUpdatingBookingId] = useState("");
 
   const [formData, setFormData] = useState({
+    categoryId: searchParams.get("categoryId") || "",
     serviceCategory: "",
-    subCategory: searchParams.get("category") || "",
+    subCategoryId: searchParams.get("subcategoryId") || "",
+    subCategory: searchParams.get("subcategory") || searchParams.get("category") || "",
     serviceType: "one-time",
     packageId: "",
     workDescription: "",
@@ -208,61 +188,46 @@ export default function BookingPage() {
 
   useEffect(() => {
     const loadCatalogs = async () => {
-      const cachedServices = readSessionCache("services:list", 5 * 60 * 1000);
+      const cachedCatalog = readSessionCache("service-catalog:v1", 5 * 60 * 1000);
       const cachedPackages = readSessionCache("packages:list", 5 * 60 * 1000);
-      if (Array.isArray(cachedServices) && Array.isArray(cachedPackages)) {
-        setServices(cachedServices);
+      if (Array.isArray(cachedCatalog) && Array.isArray(cachedPackages)) {
+        setCatalogCategories(cachedCatalog);
         setPackages(cachedPackages);
         return;
       }
 
-      const [servicesRes, packagesRes] = await Promise.all([api.get("/api/services"), api.get("/api/packages")]);
-      const nextServices = Array.isArray(servicesRes.data) ? servicesRes.data : [];
+      const [catalogRes, packagesRes] = await Promise.all([api.get("/api/service-catalog"), api.get("/api/packages")]);
+      const nextCatalog = normalizeServiceCatalog(catalogRes.data);
       const nextPackages = Array.isArray(packagesRes.data) ? packagesRes.data : [];
-      setServices(nextServices);
+      setCatalogCategories(nextCatalog);
       setPackages(nextPackages);
-      writeSessionCache("services:list", nextServices);
+      writeSessionCache("service-catalog:v1", nextCatalog);
       writeSessionCache("packages:list", nextPackages);
     };
 
     loadCatalogs().catch(() => {
-      setServices([
-        { id: "home-cleaning", category: "Cleaning", name: "House Cleaning" },
-        { id: "plumbing", category: "Plumbing", name: "Pipe Leakage Fix" },
-        { id: "ac-repair", category: "Technical & Installation Services", name: "AC Repair" }
-      ]);
+      setCatalogCategories(normalizeServiceCatalog({}));
       setPackages([]);
     });
   }, []);
 
-  const serviceCatalog = useMemo(() => {
-    const fromApi = services
-      .map((service) => ({
-        categoryName: String(service?.category || "").trim(),
-        subCategoryName: String(service?.name || service?.category || "").trim()
-      }))
-      .filter((item) => item.categoryName && item.subCategoryName);
-
-    const merged = new Map();
-
-    [...fallbackServiceCatalog, ...fromApi].forEach((item) => {
-      const key = toCatalogKey(item.categoryName, item.subCategoryName);
-      if (!key || merged.has(key)) return;
-      merged.set(key, item);
-    });
-
-    return Array.from(merged.values());
-  }, [services]);
+  const serviceCatalog = useMemo(() => flattenServiceCatalog(catalogCategories), [catalogCategories]);
 
   useEffect(() => {
-    const categoryFromQuery = searchParams.get("category");
-    if (!categoryFromQuery) return;
+    const selection = findCatalogItem(serviceCatalog, {
+      categoryId: searchParams.get("categoryId"),
+      subcategoryId: searchParams.get("subcategoryId"),
+      categoryName: searchParams.get("category"),
+      subcategoryName: searchParams.get("subcategory") || searchParams.get("category")
+    });
+    if (!selection) return;
 
-    const selection = resolveServiceSelection(categoryFromQuery, serviceCatalog);
     setFormData((current) => ({
       ...current,
-      serviceCategory: selection.serviceCategory,
-      subCategory: selection.subCategory
+      categoryId: selection.categoryId,
+      serviceCategory: selection.categoryName,
+      subCategoryId: selection.subcategoryId,
+      subCategory: selection.subCategoryName
     }));
   }, [searchParams, serviceCatalog]);
 
@@ -306,23 +271,38 @@ export default function BookingPage() {
     });
   }, [loadBookings]);
 
-  const categoryOptions = useMemo(
-    () => Array.from(new Set(serviceCatalog.map((item) => item.categoryName))),
-    [serviceCatalog]
-  );
+  const categoryOptions = useMemo(() => {
+    const seen = new Set();
+    return serviceCatalog.filter((item) => {
+      const key = `${item.categoryId}||${item.categoryName}`;
+      if (!item.categoryName || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }, [serviceCatalog]);
 
   const subCategoryOptions = useMemo(() => {
-    const normalizedCategory = normalizeText(formData.serviceCategory);
-    if (!normalizedCategory) return [];
+    if (!formData.categoryId && !formData.serviceCategory) return [];
 
-    return Array.from(
-      new Set(
-        serviceCatalog
-          .filter((item) => normalizeText(item.categoryName) === normalizedCategory)
-          .map((item) => item.subCategoryName)
-      )
+    return serviceCatalog.filter(
+      (item) =>
+        (formData.categoryId && item.categoryId === formData.categoryId) ||
+        (!formData.categoryId && normalizeText(item.categoryName) === normalizeText(formData.serviceCategory))
     );
-  }, [formData.serviceCategory, serviceCatalog]);
+  }, [formData.categoryId, formData.serviceCategory, serviceCatalog]);
+
+  const selectedSubcategory = useMemo(
+    () =>
+      findCatalogItem(serviceCatalog, {
+        categoryId: formData.categoryId,
+        subcategoryId: formData.subCategoryId,
+        categoryName: formData.serviceCategory,
+        subcategoryName: formData.subCategory
+      }),
+    [formData.categoryId, formData.serviceCategory, formData.subCategory, formData.subCategoryId, serviceCatalog]
+  );
 
   const packageOptions = useMemo(
     () =>
@@ -400,7 +380,9 @@ export default function BookingPage() {
         userId: user.uid,
         userName: user.displayName || "",
         userEmail: user.email || "",
+        categoryId: selectedSubcategory?.categoryId || formData.categoryId,
         serviceCategory: formData.serviceCategory,
+        subCategoryId: selectedSubcategory?.subcategoryId || formData.subCategoryId,
         subCategory: formData.subCategory,
         serviceType: formData.serviceType,
         workDescription: formData.workDescription,
@@ -414,7 +396,12 @@ export default function BookingPage() {
         time: formData.preferredTimeSlot,
         notes: formData.specialInstructions,
         planType: formData.serviceType,
-        packageId: formData.serviceType === "package" ? formData.packageId : ""
+        packageId: formData.serviceType === "package" ? formData.packageId : "",
+        pricingType: selectedSubcategory?.pricingType || "fixed",
+        price: selectedSubcategory?.price,
+        unitLabel: selectedSubcategory?.unitLabel || "",
+        pricingNotes: selectedSubcategory?.pricingNotes || "",
+        priceSummary: selectedSubcategory?.priceSummary || buildPriceSummary(selectedSubcategory || {})
       });
 
       setFormData((current) => ({
@@ -504,20 +491,29 @@ export default function BookingPage() {
           <label className="tasko-booking-field">
             <span>Service Category</span>
             <select
-              value={formData.serviceCategory}
+              value={formData.categoryId || formData.serviceCategory}
               onChange={(event) =>
-                setFormData((current) => ({
-                  ...current,
-                  serviceCategory: event.target.value,
-                  subCategory: ""
-                }))
+                setFormData((current) => {
+                  const nextCategory =
+                    categoryOptions.find(
+                      (item) =>
+                        item.categoryId === event.target.value || item.categoryName === event.target.value
+                    ) || null;
+                  return {
+                    ...current,
+                    categoryId: nextCategory?.categoryId || "",
+                    serviceCategory: nextCategory?.categoryName || event.target.value,
+                    subCategoryId: "",
+                    subCategory: ""
+                  };
+                })
               }
               required
             >
               <option value="">Select service category</option>
-              {categoryOptions.map((categoryName) => (
-                <option key={categoryName} value={categoryName}>
-                  {categoryName}
+              {categoryOptions.map((category) => (
+                <option key={`${category.categoryId}-${category.categoryName}`} value={category.categoryId || category.categoryName}>
+                  {category.categoryName}
                 </option>
               ))}
             </select>
@@ -526,15 +522,31 @@ export default function BookingPage() {
           <label className="tasko-booking-field">
             <span>Sub Category</span>
             <select
-              value={formData.subCategory}
-              onChange={(event) => setFormData((current) => ({ ...current, subCategory: event.target.value }))}
+              value={formData.subCategoryId || formData.subCategory}
+              onChange={(event) =>
+                setFormData((current) => {
+                  const nextSubcategory =
+                    subCategoryOptions.find(
+                      (item) =>
+                        item.subcategoryId === event.target.value || item.subCategoryName === event.target.value
+                    ) || null;
+                  return {
+                    ...current,
+                    subCategoryId: nextSubcategory?.subcategoryId || "",
+                    subCategory: nextSubcategory?.subCategoryName || event.target.value
+                  };
+                })
+              }
               required
-              disabled={!formData.serviceCategory}
+              disabled={!formData.categoryId && !formData.serviceCategory}
             >
               <option value="">Select sub category</option>
-              {subCategoryOptions.map((subCategoryName) => (
-                <option key={subCategoryName} value={subCategoryName}>
-                  {subCategoryName}
+              {subCategoryOptions.map((subCategory) => (
+                <option
+                  key={`${subCategory.categoryId}-${subCategory.subcategoryId || subCategory.subCategoryName}`}
+                  value={subCategory.subcategoryId || subCategory.subCategoryName}
+                >
+                  {subCategory.subCategoryName}
                 </option>
               ))}
             </select>
@@ -643,6 +655,12 @@ export default function BookingPage() {
             />
           </label>
 
+          <div className="tasko-pricing-summary">
+            <p className="tasko-pricing-summary-label">Pricing Snapshot</p>
+            <h3>{selectedSubcategory?.priceSummary || "Select a sub category to view pricing."}</h3>
+            <p>{selectedSubcategory?.pricingNotes || "Price details from the catalog will appear here before confirmation."}</p>
+          </div>
+
           <div className="tasko-booking-actions-row">
             <button type="submit" className="tasko-booking-submit" disabled={submitting}>
               {submitting ? "Submitting..." : "Confirm Booking"}
@@ -715,6 +733,12 @@ export default function BookingPage() {
                       {booking.packageId ? packageLabelMap[booking.packageId] || booking.packageId : "-"}
                     </p>
                     <p>
+                      <strong>Price:</strong> {booking.priceSummary || buildPriceSummary(booking)}
+                    </p>
+                    <p>
+                      <strong>Price Status:</strong> {toStatusLabel(booking.priceStatus || "pending")}
+                    </p>
+                    <p>
                       <strong>Duration:</strong> {booking.duration || "-"}
                     </p>
                     <p>
@@ -743,6 +767,10 @@ export default function BookingPage() {
 
                   <p className="tasko-booking-notes">
                     <strong>Special Instructions:</strong> {booking.specialInstructions || booking.notes || "No special instructions."}
+                  </p>
+
+                  <p className="tasko-booking-notes">
+                    <strong>Pricing Notes:</strong> {booking.pricingNotes || "No extra pricing note."}
                   </p>
 
                   {canCancel ? (

@@ -6,8 +6,9 @@ import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
 import { ensurePackagesBootstrapData, registerPackageRoutes } from "./packagesRoutes";
+import { buildPriceSummary, normalizeServicePricing } from "./servicePricing";
 import { registerTaskoMartRoutes } from "./taskomartRoutes";
-import { registerWorkerHiringRoutes } from "./workerHiringRoutes";
+import { getServiceCatalogEntry, registerWorkerHiringRoutes } from "./workerHiringRoutes";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
@@ -1356,8 +1357,16 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     const readText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
     const userId = readText(req.body.userId);
-    const serviceCategory = readText(req.body.serviceCategory) || readText(req.body.category);
-    const subCategory = readText(req.body.subCategory) || readText(req.body.category);
+    const requestedCategoryId =
+      readText(req.body.categoryId) ||
+      readText(req.body.serviceCategoryId) ||
+      readText(req.body.category_id);
+    const requestedSubcategoryId =
+      readText(req.body.subCategoryId) ||
+      readText(req.body.subcategoryId) ||
+      readText(req.body.sub_category_id);
+    let serviceCategory = readText(req.body.serviceCategory) || readText(req.body.category);
+    let subCategory = readText(req.body.subCategory) || readText(req.body.category);
     const serviceDate = readText(req.body.serviceDate) || readText(req.body.date);
     const preferredTimeSlot = readText(req.body.preferredTimeSlot) || readText(req.body.time);
     const workDescription = readText(req.body.workDescription);
@@ -1371,6 +1380,22 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     let userName = readText(req.body.userName);
     let userEmail = readText(req.body.userEmail);
     let userPhone = readText(req.body.userPhone) || readText(req.body.mobile) || readText(req.body.number);
+
+    const catalogEntry = await getServiceCatalogEntry({
+      categoryId: requestedCategoryId,
+      subcategoryId: requestedSubcategoryId,
+      categoryName: serviceCategory,
+      subcategoryName: subCategory
+    });
+
+    if (requestedSubcategoryId && !catalogEntry) {
+      return res.status(400).json({ message: "Selected subcategory is invalid." });
+    }
+
+    if (catalogEntry) {
+      serviceCategory = catalogEntry.category.name;
+      subCategory = catalogEntry.subcategory.name;
+    }
 
     if (!userId || !serviceCategory || !subCategory || !serviceDate || !preferredTimeSlot) {
       return res
@@ -1419,12 +1444,34 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       }
     }
 
+    const pricingFromRequest = normalizeServicePricing(
+      {
+        pricingType: req.body.pricingType,
+        price: req.body.price ?? req.body.quotedPrice,
+        unitLabel: req.body.unitLabel,
+        pricingNotes: req.body.pricingNotes
+      },
+      subCategory
+    );
+    const pricing = catalogEntry
+      ? {
+          pricingType: catalogEntry.subcategory.pricingType,
+          price: catalogEntry.subcategory.price,
+          unitLabel: catalogEntry.subcategory.unitLabel,
+          pricingNotes: catalogEntry.subcategory.pricingNotes,
+          priceSummary: buildPriceSummary(catalogEntry.subcategory),
+          isVariablePrice: catalogEntry.subcategory.pricingType !== "fixed"
+        }
+      : pricingFromRequest;
+    const priceStatus =
+      pricing.price === null ? "pending" : pricing.isVariablePrice ? "estimated" : "fixed";
+
     const bookingRef = db.collection("bookings").doc();
     await bookingRef.set({
       booking_id: bookingRef.id,
       user_id: userId,
-      service_category_id: serviceCategory,
-      sub_category_id: subCategory,
+      service_category_id: catalogEntry?.category.id || requestedCategoryId || "",
+      sub_category_id: catalogEntry?.subcategory.id || requestedSubcategoryId || "",
       booking_date: serviceDate,
       time_slot: preferredTimeSlot,
       address,
@@ -1432,7 +1479,9 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       assigned_worker_id: "",
       created_at: timestamp(),
       userId,
+      serviceCategoryId: catalogEntry?.category.id || requestedCategoryId || "",
       serviceCategory,
+      subCategoryId: catalogEntry?.subcategory.id || requestedSubcategoryId || "",
       subCategory,
       serviceType,
       workDescription,
@@ -1462,6 +1511,13 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       user_email: userEmail,
       userPhone,
       user_phone: userPhone,
+      pricingType: pricing.pricingType,
+      price: pricing.price,
+      unitLabel: pricing.unitLabel,
+      pricingNotes: pricing.pricingNotes,
+      priceSummary: pricing.priceSummary,
+      priceStatus,
+      isVariablePrice: pricing.isVariablePrice,
       status: "pending",
       createdAt: timestamp()
     });

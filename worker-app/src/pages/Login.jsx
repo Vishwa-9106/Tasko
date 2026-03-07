@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, WORKER_ID_KEY, WORKER_SESSION_TOKEN_KEY } from "../api";
-import BrandLogo from "../components/landing/BrandLogo";
+import TaskoBrandMark from "../components/TaskoBrandMark";
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -39,69 +40,91 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="auth-page">
-      <div className="worker-shell auth-shell auth-login-shell">
-        <aside className="auth-aside glass-card">
-          <Link to="/" className="auth-home-link" aria-label="Back to home">
-            <BrandLogo compact />
+    <div className="auth-page worker-auth-page">
+      <header className="auth-nav">
+        <div className="auth-shell auth-nav-row">
+          <Link className="auth-brand" to="/" aria-label="Tasko worker home">
+            <TaskoBrandMark className="auth-brand-mark auth-brand-mark-image" />
+            <span className="auth-brand-text">TASKO</span>
           </Link>
-          <p className="auth-eyebrow">Employee Access</p>
-          <h1>Tasko Worker Login</h1>
-          <p>Login using your Employee ID or registered mobile number and the password shared by Tasko admin.</p>
-          <ul className="auth-highlight-list">
-            <li>Employee ID or mobile based login</li>
-            <li>Admin-approved account activation</li>
-            <li>Secure session-based access</li>
-          </ul>
-        </aside>
+          <nav className="auth-nav-links" aria-label="Worker navigation">
+            <a href="/#categories">CATEGORIES</a>
+            <a href="/#benefits">BENEFITS</a>
+            <a href="/#standards">STANDARDS</a>
+            <a href="/#stories">STORIES</a>
+          </nav>
+          <Link to="/apply" className="auth-nav-cta">
+            APPLY NOW
+          </Link>
+        </div>
+      </header>
 
-        <section className="auth-card glass-card auth-login-card">
-          <header className="auth-card-head">
-            <p className="section-eyebrow">Login</p>
-            <h2>Employee Sign In</h2>
-          </header>
+      <section className="auth-section">
+        <div className="auth-shell auth-grid">
+          <div className="auth-copy">
+            <p className="auth-copy-eyebrow">TASKO EMPLOYEE ACCESS</p>
+            <h1>
+              SIGN IN TO
+              <span>YOUR WORKSPACE.</span>
+            </h1>
+            <p>Access your assignments, availability controls, and profile details with the credentials issued by Tasko.</p>
+            <ul className="auth-copy-points">
+              <li>EMPLOYEE ID OR MOBILE LOGIN</li>
+              <li>ADMIN-APPROVED ACCESS</li>
+              <li>SECURE SESSION WORKSPACE</li>
+            </ul>
+          </div>
 
-          <form className="auth-fields" onSubmit={onSubmit}>
-            <label className="auth-field">
-              <span>Employee ID or Mobile Number</span>
+          <div className="auth-panel">
+            <p className="auth-panel-eyebrow">WORKER LOGIN</p>
+            <h2>EMPLOYEE SIGN IN</h2>
+            <form onSubmit={onSubmit} className="auth-form">
               <input
                 className="auth-input"
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}
-                placeholder="TASKO-W-1001 or 9876543210"
+                placeholder="Employee ID or mobile number"
                 autoComplete="username"
                 required
               />
-            </label>
-
-            <label className="auth-field">
-              <span>Password</span>
-              <input
-                type="password"
-                className="auth-input"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter your password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
-
-            {error ? <p className="auth-error">{error}</p> : null}
-
-            <button type="submit" className="btn-luxury-primary btn-glow auth-submit-btn" disabled={loading}>
-              {loading ? "Signing in..." : "Login"}
-            </button>
-          </form>
-
-          <p className="auth-footnote">
-            New applicant?{" "}
-            <Link to="/apply" className="auth-inline-link">
-              Submit hiring application
-            </Link>
-          </p>
-        </section>
-      </div>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  className="auth-input pr-20"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Password"
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-900"
+                  onClick={() => setShowPassword((current) => !current)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
+              {error ? <p className="auth-error">{error}</p> : null}
+              <button type="submit" className="auth-primary-btn" disabled={loading}>
+                {loading ? "SIGNING IN..." : "LOGIN"}
+              </button>
+            </form>
+            <div className="auth-divider-wrap">
+              <span />
+              <p>HIRING</p>
+              <span />
+            </div>
+            <div className="worker-auth-support">
+              <p>New to Tasko? Submit your hiring application before requesting credentials.</p>
+              <Link to="/apply" className="auth-social-btn worker-auth-link-btn">
+                START APPLICATION
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
