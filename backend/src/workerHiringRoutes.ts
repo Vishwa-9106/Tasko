@@ -1,3 +1,4 @@
+import bcrypt from "bcrypt";
 import crypto from "crypto";
 import fs from "fs/promises";
 import { Express, Request, Response } from "express";
@@ -387,12 +388,18 @@ function clearWorkerSession(sessionToken: string): void {
 }
 
 function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-  return `scrypt:${salt}:${hash}`;
+  return bcrypt.hashSync(password, 10);
 }
 
 function verifyPassword(password: string, storedHash: string): boolean {
+  if (storedHash.startsWith("$2a$") || storedHash.startsWith("$2b$") || storedHash.startsWith("$2y$")) {
+    try {
+      return bcrypt.compareSync(password, storedHash);
+    } catch {
+      return false;
+    }
+  }
+
   const [algorithm, salt, expectedHash] = storedHash.split(":");
   if (algorithm !== "scrypt" || !salt || !expectedHash) {
     return false;
@@ -411,7 +418,52 @@ function normalizeWorkerId(value: unknown): string {
 }
 
 function isValidWorkerId(workerId: string): boolean {
-  return /^[A-Z0-9_-]{4,32}$/.test(workerId);
+  return /^[A-Z0-9@_-]{4,32}$/.test(workerId);
+}
+
+function buildAutoWorkerId(sequenceNumber: number): string {
+  return `TASKO@${String(sequenceNumber).padStart(3, "0")}`;
+}
+
+function generateWorkerPassword(phone: string): string {
+  const normalizedPhone = normalizePhone(phone);
+  if (normalizedPhone.length < 4) {
+    throw new Error("Worker phone number must contain at least 4 digits.");
+  }
+  return `Tasko@${normalizedPhone.slice(0, 4)}`;
+}
+
+function getUsedWorkerIds(workers: WorkerRecord[]): Set<string> {
+  const usedIds = new Set<string>();
+
+  workers.forEach((worker) => {
+    const workerId = normalizeWorkerId(worker.worker_id);
+    if (workerId) {
+      usedIds.add(workerId);
+    }
+  });
+
+  inMemoryWorkers.forEach((worker) => {
+    const workerId = normalizeWorkerId(worker.worker_id);
+    if (workerId) {
+      usedIds.add(workerId);
+    }
+  });
+
+  return usedIds;
+}
+
+function generateNextWorkerId(workers: WorkerRecord[]): string {
+  const usedWorkerIds = getUsedWorkerIds(workers);
+  let nextSequence = workers.length + 1;
+  let nextWorkerId = buildAutoWorkerId(nextSequence);
+
+  while (usedWorkerIds.has(nextWorkerId)) {
+    nextSequence += 1;
+    nextWorkerId = buildAutoWorkerId(nextSequence);
+  }
+
+  return nextWorkerId;
 }
 
 function normalizeWorkerRecord(workerId: string, data: Record<string, unknown>): WorkerRecord {
@@ -1799,28 +1851,11 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(409).json({ message: "A worker account already exists with this phone or email." });
       }
 
-      const workerId = normalizeWorkerId((req.body as { workerId?: unknown }).workerId);
-      const accountPassword = readTrimmedString((req.body as { password?: unknown }).password);
-      if (!workerId) {
-        return res.status(400).json({ message: "workerId is required." });
-      }
+      const workerId = generateNextWorkerId(allWorkers);
       if (!isValidWorkerId(workerId)) {
-        return res
-          .status(400)
-          .json({ message: "workerId must be 4-32 characters (A-Z, 0-9, _ or -)." });
+        return res.status(500).json({ message: "Generated workerId is invalid." });
       }
-      if (!accountPassword) {
-        return res.status(400).json({ message: "password is required." });
-      }
-      if (accountPassword.length < 6) {
-        return res.status(400).json({ message: "password must be at least 6 characters long." });
-      }
-      if (
-        inMemoryWorkers.has(workerId) ||
-        allWorkers.some((worker) => worker.worker_id.toUpperCase() === workerId)
-      ) {
-        return res.status(409).json({ message: "This workerId is already in use." });
-      }
+      const accountPassword = generateWorkerPassword(application.phone);
 
       const passwordHash = hashPassword(accountPassword);
       const now = new Date().toISOString();
@@ -1857,22 +1892,50 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
 
       const adminNotes = readTrimmedString((req.body as { adminNotes?: unknown }).adminNotes);
       const updatedApplication = await updateWorkerApplication(applicationId, {
-        status: "Account Created",
+        status: "Approved",
         admin_notes: adminNotes || application.admin_notes,
         reviewed_at: now,
         approved_worker_id: workerId
       });
 
-      const workerLoginLink = process.env.WORKER_LOGIN_URL || "http://localhost:3001/login";
-      await sendEmail(
+      const emailDelivery = await sendEmail(
         application.email,
-        "Tasko Worker Account Activated",
-        `Employee ID: ${workerId}\nPassword: ${accountPassword}\nLogin: ${workerLoginLink}`
+        "Your Tasko Worker Account Has Been Created",
+        `Hello ${application.full_name},
+
+Congratulations! Your worker account has been approved and created successfully on Tasko.
+
+Here are your login credentials:
+
+Worker ID: ${workerId}
+Password: ${accountPassword}
+
+You can log in to the Tasko Worker App using these credentials.
+
+For security reasons, we recommend changing your password after your first login.
+
+Welcome to Tasko!
+
+Regards,
+Tasko Team`
       );
 
+      if (!emailDelivery.sent && emailDelivery.error) {
+        // eslint-disable-next-line no-console
+        console.error(`Failed to send worker account email for ${workerId}: ${emailDelivery.error}`);
+      }
+
       return res.status(201).json({
-        message: "Worker account created successfully.",
+        message: emailDelivery.sent
+          ? "Worker account created successfully and login details sent to email."
+          : "Worker account created but email notification failed.",
         workerId,
+        email: {
+          attempted: true,
+          sent: emailDelivery.sent,
+          skipped: emailDelivery.skipped,
+          error: emailDelivery.error || ""
+        },
         application: updatedApplication ? toApplicationResponse(req, sessionToken, updatedApplication) : null
       });
     } catch (error) {

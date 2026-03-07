@@ -71,7 +71,8 @@ function normalizeApplication(record) {
     addressProofUrl: record.address_proof_url || "",
     status: statusLabel(record.status),
     adminNotes: record.admin_notes || "",
-    appliedAt: record.applied_at || record.createdAt || ""
+    appliedAt: record.applied_at || record.createdAt || "",
+    approvedWorkerId: record.approved_worker_id || ""
   };
 }
 
@@ -153,7 +154,6 @@ export default function AdminApp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [showCreateAccountPassword, setShowCreateAccountPassword] = useState(false);
   const [sessionToken, setSessionToken] = useState(localStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || "");
   const [locationPath, setLocationPath] = useState(() => initialPath);
   const active = useMemo(() => activeNavFromPath(locationPath), [locationPath]);
@@ -190,7 +190,6 @@ export default function AdminApp() {
   const [drawer, setDrawer] = useState(null);
   const [requestNotes, setRequestNotes] = useState(defaultRequestNotes);
   const [salaryDraft, setSalaryDraft] = useState(defaultSalaryDraft);
-  const [createAccountModal, setCreateAccountModal] = useState(null);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const subcategoryRouteCategoryId = useMemo(() => parseSubcategoryRoute(locationPath), [locationPath]);
   
@@ -392,7 +391,7 @@ export default function AdminApp() {
     }
   };
 
-  const updateApplicationStatus = async (applicationId, statusValue) => {
+  const updateApplicationStatus = async (applicationId, statusValue, options = {}) => {
     try {
       const response = await api.patch(`/api/admin/worker/status/${applicationId}`, {
         status: statusValue,
@@ -405,6 +404,9 @@ export default function AdminApp() {
         await loadData();
       }
       setBanner(response.data?.message || `Application ${applicationId} updated to ${statusValue}.`);
+      if (options.closeDrawerOnSuccess) {
+        setDrawer(null);
+      }
     } catch (updateError) {
       if (updateError?.response?.status === 401) {
         setError("Admin session expired. Please login again.");
@@ -415,33 +417,22 @@ export default function AdminApp() {
     }
   };
 
-  const openCreateAccountModal = (application) => {
+  const approveAndCreateAccount = async (application) => {
     if (!application?.id) return;
-    setError("");
-    setShowCreateAccountPassword(false);
-    setCreateAccountModal({
-      applicationId: application.id,
-      applicantName: application.fullName || "-",
-      workerId: "",
-      password: "",
-      salary: String(salaryDraft[application.id] ?? 18000)
-    });
-  };
 
-  const closeCreateAccountModal = () => {
-    if (creatingAccount) return;
-    setShowCreateAccountPassword(false);
-    setCreateAccountModal(null);
-  };
+    const salary = Number(salaryDraft[application.id] ?? 18000);
+    if (!Number.isFinite(salary) || salary < 0) {
+      setError("Salary must be a valid positive number.");
+      return;
+    }
 
-  const approveAndCreateAccount = async ({ applicationId, workerId, password, salary }) => {
     setCreatingAccount(true);
     try {
-      const response = await api.post(`/api/admin/worker-applications/${applicationId}/approve-create-account`, {
-        workerId,
-        password,
-        salary: Number.isFinite(Number(salary)) ? Number(salary) : Number(salaryDraft[applicationId] || 18000),
-        adminNotes: requestNotes[applicationId] || "",
+      setError("");
+      setBanner("");
+      const response = await api.post(`/api/admin/worker-applications/${application.id}/approve-create-account`, {
+        salary,
+        adminNotes: requestNotes[application.id] || "",
         sessionToken
       });
 
@@ -452,10 +443,15 @@ export default function AdminApp() {
       }
       await loadData();
 
-      const createdWorkerId = response.data?.workerId || "-";
-      setSalaryDraft((current) => ({ ...current, [applicationId]: Number.isFinite(Number(salary)) ? Number(salary) : 18000 }));
-      setCreateAccountModal(null);
-      setBanner(`Account created for ${createdWorkerId}.`);
+      const message = response.data?.message || "Worker account created successfully and login details sent to email.";
+      setSalaryDraft((current) => ({ ...current, [application.id]: salary }));
+      setDrawer((current) => (current?.id === application.id ? null : current));
+
+      if (response.data?.email?.sent) {
+        setBanner(message);
+      } else {
+        pushToast("warning", message);
+      }
     } catch (approveError) {
       if (approveError?.response?.status === 401) {
         setError("Admin session expired. Please login again.");
@@ -471,40 +467,6 @@ export default function AdminApp() {
     } finally {
       setCreatingAccount(false);
     }
-  };
-
-  const submitCreateAccount = async (event) => {
-    event.preventDefault();
-    if (!createAccountModal) return;
-
-    const workerId = createAccountModal.workerId.trim().toUpperCase();
-    const password = createAccountModal.password.trim();
-    const salary = Number(createAccountModal.salary);
-
-    if (!workerId) {
-      setError("Worker ID is required.");
-      return;
-    }
-    if (!/^[A-Z0-9_-]{4,32}$/.test(workerId)) {
-      setError("Worker ID must be 4-32 characters and can contain A-Z, 0-9, _ and -.");
-      return;
-    }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
-    if (!Number.isFinite(salary) || salary < 0) {
-      setError("Salary must be a valid positive number.");
-      return;
-    }
-
-    setError("");
-    await approveAndCreateAccount({
-      applicationId: createAccountModal.applicationId,
-      workerId,
-      password,
-      salary
-    });
   };
 
   const addCategory = async (event) => {
@@ -804,7 +766,7 @@ export default function AdminApp() {
       applications: applications.length,
       underReview: applications.filter((application) => application.status === "Under Review").length,
       visitRequired: applications.filter((application) => application.status === "Visit Required").length,
-      accountCreated: applications.filter((application) => application.status === "Account Created").length
+      accountCreated: applications.filter((application) => Boolean(application.approvedWorkerId)).length
     }),
     [applications]
   );
@@ -972,9 +934,10 @@ export default function AdminApp() {
                               <button
                                 type="button"
                                 className="erp-btn erp-btn-primary"
-                                onClick={() => openCreateAccountModal(application)}
+                                onClick={() => approveAndCreateAccount(application)}
+                                disabled={creatingAccount || Boolean(application.approvedWorkerId)}
                               >
-                                Approve & Create Account
+                                {application.approvedWorkerId ? "Account Created" : "Approve & Create Account"}
                               </button>
                             </div>
                           </td>
@@ -1221,6 +1184,12 @@ export default function AdminApp() {
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs uppercase tracking-wide text-slate-500">Address</p><p className="mt-1 text-sm text-slate-900">{drawer.address}</p></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs uppercase tracking-wide text-slate-500">Category Applied</p><p className="mt-1 text-sm text-slate-900">{drawer.categoryApplied}</p></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs uppercase tracking-wide text-slate-500">Test Result</p><p className="mt-1 text-sm text-slate-900">{drawer.testResult || "-"}</p></div>
+              {drawer.approvedWorkerId ? (
+                <div className="rounded-xl bg-emerald-50 p-3">
+                  <p className="text-xs uppercase tracking-wide text-emerald-700">Created Worker ID</p>
+                  <p className="mt-1 text-sm font-semibold text-emerald-900">{drawer.approvedWorkerId}</p>
+                </div>
+              ) : null}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
@@ -1269,106 +1238,26 @@ export default function AdminApp() {
               </label>
 
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(drawer.id, drawer.status)}>Save Review</button>
+                <button
+                  type="button"
+                  className="erp-btn erp-btn-soft"
+                  onClick={() => updateApplicationStatus(drawer.id, drawer.status, { closeDrawerOnSuccess: true })}
+                >
+                  Save Review
+                </button>
                 <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(drawer.id, "Approved")}>Approve</button>
                 <button type="button" className="erp-btn erp-btn-danger" onClick={() => updateApplicationStatus(drawer.id, "Rejected")}>Reject</button>
                 <button
                   type="button"
                   className="erp-btn erp-btn-primary"
-                  onClick={() => openCreateAccountModal(drawer)}
+                  onClick={() => approveAndCreateAccount(drawer)}
+                  disabled={creatingAccount || Boolean(drawer.approvedWorkerId)}
                 >
-                  Approve & Create Account
+                  {drawer.approvedWorkerId ? "Account Created" : "Approve & Create Account"}
                 </button>
               </div>
             </div>
           </aside>
-        </div>
-      ) : null}
-
-      {createAccountModal ? (
-        <div className="erp-drawer-overlay items-center justify-center" onClick={closeCreateAccountModal}>
-          <div
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">Create Worker Account</h3>
-                <p className="text-sm text-slate-500">{createAccountModal.applicantName}</p>
-              </div>
-              <button type="button" className="erp-icon-btn" onClick={closeCreateAccountModal} disabled={creatingAccount}>
-                X
-              </button>
-            </div>
-
-            <form className="space-y-3" onSubmit={submitCreateAccount}>
-              <label className="block">
-                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Worker ID</span>
-                <input
-                  type="text"
-                  className="erp-input"
-                  value={createAccountModal.workerId}
-                  onChange={(event) =>
-                    setCreateAccountModal((current) =>
-                      current
-                        ? { ...current, workerId: event.target.value.toUpperCase().replace(/\s+/g, "") }
-                        : current
-                    )
-                  }
-                  placeholder="TASKO-W-1001"
-                  required
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Password</span>
-                <div className="relative">
-                  <input
-                    type={showCreateAccountPassword ? "text" : "password"}
-                    className="erp-input pr-16"
-                    value={createAccountModal.password}
-                    onChange={(event) =>
-                      setCreateAccountModal((current) => (current ? { ...current, password: event.target.value } : current))
-                    }
-                    placeholder="Minimum 6 characters"
-                    minLength={6}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-600 hover:text-slate-900"
-                    onClick={() => setShowCreateAccountPassword((current) => !current)}
-                    aria-label={showCreateAccountPassword ? "Hide password" : "Show password"}
-                  >
-                    {showCreateAccountPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Salary</span>
-                <input
-                  type="number"
-                  min="0"
-                  className="erp-input"
-                  value={createAccountModal.salary}
-                  onChange={(event) =>
-                    setCreateAccountModal((current) => (current ? { ...current, salary: event.target.value } : current))
-                  }
-                  required
-                />
-              </label>
-
-              <div className="flex flex-wrap justify-end gap-2 pt-2">
-                <button type="button" className="erp-btn erp-btn-soft" onClick={closeCreateAccountModal} disabled={creatingAccount}>
-                  Cancel
-                </button>
-                <button type="submit" className="erp-btn erp-btn-primary" disabled={creatingAccount}>
-                  {creatingAccount ? "Creating..." : "Create Account"}
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
       ) : null}
 
@@ -1489,6 +1378,8 @@ export default function AdminApp() {
               className={`rounded-xl border px-3 py-2 text-sm shadow-lg ${
                 toast.type === "error"
                   ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : toast.type === "warning"
+                    ? "border-amber-200 bg-amber-50 text-amber-700"
                   : "border-emerald-200 bg-emerald-50 text-emerald-700"
               }`}
             >
