@@ -38,19 +38,27 @@ export default function ApplyPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
-  const [categoryApplied, setCategoryApplied] = useState(serviceCategories[0]);
+  const [categoryApplied, setCategoryApplied] = useState([]);
   const [idProofFile, setIdProofFile] = useState(null);
   const [addressProofFile, setAddressProofFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
+  const toggleCategory = (category) => {
+    setCategoryApplied((previous) =>
+      previous.includes(category)
+        ? previous.filter((value) => value !== category)
+        : [...previous, category]
+    );
+  };
+
   const onSubmit = async (event) => {
     event.preventDefault();
     setError("");
     setSuccessMessage("");
 
-    if (!fullName.trim() || !phone.trim() || !email.trim() || !address.trim() || !categoryApplied) {
+    if (!fullName.trim() || !phone.trim() || !email.trim() || !address.trim() || categoryApplied.length === 0) {
       setError("Please fill all required fields.");
       return;
     }
@@ -72,7 +80,7 @@ export default function ApplyPage() {
         phone: phone.replace(/\D/g, ""),
         email: email.trim().toLowerCase(),
         address: address.trim(),
-        categoryApplied,
+        categoryApplied: categoryApplied.join(", "),
         idProof,
         addressProof
       });
@@ -85,7 +93,7 @@ export default function ApplyPage() {
       setPhone("");
       setEmail("");
       setAddress("");
-      setCategoryApplied(serviceCategories[0]);
+      setCategoryApplied([]);
       setIdProofFile(null);
       setAddressProofFile(null);
     } catch (submitError) {
@@ -171,21 +179,23 @@ export default function ApplyPage() {
               />
             </label>
 
-            <label className="auth-field">
+            <div className="auth-field">
               <span>Service Category Applying For</span>
-              <select
-                className="auth-input"
-                value={categoryApplied}
-                onChange={(event) => setCategoryApplied(event.target.value)}
-                required
-              >
+              <div className="apply-category-grid" role="group" aria-label="Service Category Applying For">
                 {serviceCategories.map((category) => (
-                  <option key={category} value={category}>
+                  <button
+                    key={category}
+                    type="button"
+                    className={`apply-category-card ${categoryApplied.includes(category) ? "is-selected" : ""}`}
+                    aria-pressed={categoryApplied.includes(category)}
+                    onClick={() => toggleCategory(category)}
+                  >
                     {category}
-                  </option>
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+              <small className="auth-helper-text">Click cards to select one or more categories.</small>
+            </div>
 
             <label className="auth-field">
               <span>Upload ID Proof</span>

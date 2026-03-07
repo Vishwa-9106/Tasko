@@ -4,6 +4,11 @@ import { Express, Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { db } from "./firebaseAdmin";
+import {
+  isWorkerApplicationStatusNotifiable,
+  sendEmail,
+  sendWorkerApplicationStatusEmail
+} from "./services/mailService";
 
 type WorkerApplicationStatus = "Under Review" | "Visit Required" | "Approved" | "Rejected" | "Account Created";
 type WorkerStatus = "Active" | "Suspended" | "Terminated";
@@ -156,13 +161,6 @@ const defaultSubcategoriesByCategoryName: Record<string, string[]> = {
 const uploadsRoot = path.resolve(__dirname, "../uploads");
 const workerDocumentsRoot = path.join(uploadsRoot, "worker-documents");
 const maxDocumentBytes = 5 * 1024 * 1024;
-const workerApplicationStatuses: WorkerApplicationStatus[] = [
-  "Under Review",
-  "Visit Required",
-  "Approved",
-  "Rejected",
-  "Account Created"
-];
 const allowedDocumentMimeTypes: Record<string, string> = {
   "application/pdf": "pdf",
   "image/jpeg": "jpg",
@@ -312,15 +310,22 @@ function normalizeWorkerApplicationStatus(value: unknown): WorkerApplicationStat
   return "Under Review";
 }
 
+function parseWorkerApplicationStatus(value: unknown): WorkerApplicationStatus | null {
+  const normalized = readTrimmedString(value).toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ");
+  if (!normalized) return null;
+  if (normalized === "under review") return "Under Review";
+  if (normalized === "visit required") return "Visit Required";
+  if (normalized === "approved") return "Approved";
+  if (normalized === "rejected") return "Rejected";
+  if (normalized === "account created") return "Account Created";
+  return null;
+}
+
 function normalizeWorkerStatus(value: unknown): WorkerStatus {
   const normalized = readTrimmedString(value).toLowerCase();
   if (normalized === "suspended") return "Suspended";
   if (normalized === "terminated") return "Terminated";
   return "Active";
-}
-
-function isValidWorkerApplicationStatus(value: unknown): value is WorkerApplicationStatus {
-  return workerApplicationStatuses.includes(value as WorkerApplicationStatus);
 }
 
 function getAdminSessionToken(req: Request): string {
@@ -487,26 +492,6 @@ async function persistDocument(input: unknown, label: "id-proof" | "address-proo
   return path.join("worker-documents", storedFileName).replace(/\\/g, "/");
 }
 
-async function sendEmail(to: string, subject: string, text: string): Promise<void> {
-  const webhookUrl = readTrimmedString(process.env.EMAIL_WEBHOOK_URL);
-  if (!webhookUrl) {
-    // eslint-disable-next-line no-console
-    console.log(`[Email Stub] To: ${to}; Subject: ${subject}; Body: ${text}`);
-    return;
-  }
-
-  try {
-    await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to, subject, text })
-    });
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error(`Email delivery failed: ${getErrorMessage(error)}`);
-  }
-}
-
 function normalizeWorkerApplicationRecord(
   applicationId: string,
   data: Record<string, unknown>
@@ -542,6 +527,28 @@ async function getWorkerApplicationById(applicationId: string): Promise<WorkerAp
     }
   }
   return inMemoryRecord || null;
+}
+
+async function resolveWorkerApplicationForStatusUpdate(
+  workerIdentifier: string
+): Promise<WorkerApplicationRecord | null> {
+  const normalizedIdentifier = readTrimmedString(workerIdentifier);
+  if (!normalizedIdentifier) {
+    return null;
+  }
+
+  const byApplicationId = await getWorkerApplicationById(normalizedIdentifier);
+  if (byApplicationId) {
+    return byApplicationId;
+  }
+
+  const allApplications = await listWorkerApplications();
+  const normalizedWorkerId = normalizedIdentifier.toUpperCase();
+  return (
+    allApplications.find(
+      (application) => readTrimmedString(application.approved_worker_id).toUpperCase() === normalizedWorkerId
+    ) || null
+  );
 }
 
 async function listWorkerApplications(limit?: number): Promise<WorkerApplicationRecord[]> {
@@ -598,6 +605,44 @@ async function updateWorkerApplication(
 
   inMemoryWorkerApplications.set(applicationId, nextRecord);
   return nextRecord;
+}
+
+async function deleteWorkerApplication(
+  applicationId: string
+): Promise<{ deleted: boolean; application: WorkerApplicationRecord | null }> {
+  const current = await getWorkerApplicationById(applicationId);
+  if (!current) {
+    return { deleted: false, application: null };
+  }
+
+  try {
+    await db.collection("worker_applications").doc(applicationId).delete();
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemoryWorkerApplications.delete(applicationId);
+  return { deleted: true, application: current };
+}
+
+async function deleteWorkerDocument(storedRelativePath: string): Promise<void> {
+  const relative = readTrimmedString(storedRelativePath);
+  if (!relative) return;
+
+  const absolutePath = path.resolve(uploadsRoot, relative);
+  const normalizedUploadsRoot = path.resolve(uploadsRoot);
+  if (!absolutePath.startsWith(normalizedUploadsRoot)) return;
+
+  try {
+    await fs.unlink(absolutePath);
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code !== "ENOENT") {
+      throw error;
+    }
+  }
 }
 
 async function getWorkerById(workerId: string): Promise<WorkerRecord | null> {
@@ -1545,14 +1590,20 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(400).json({ message: "applicationId is required" });
       }
 
-      const status = readTrimmedString((req.body as { status?: unknown }).status);
+      const rawStatus = (req.body as { status?: unknown }).status;
+      const status = parseWorkerApplicationStatus(rawStatus);
       const adminNotes = readTrimmedString((req.body as { adminNotes?: unknown }).adminNotes);
-      if (status && !isValidWorkerApplicationStatus(status)) {
+      if (rawStatus !== undefined && rawStatus !== null && !status) {
         return res.status(400).json({ message: "Invalid application status" });
       }
 
+      const existingApplication = await getWorkerApplicationById(applicationId);
+      if (!existingApplication) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
       const updatedApplication = await updateWorkerApplication(applicationId, {
-        status: status ? (status as WorkerApplicationStatus) : undefined,
+        status: status || undefined,
         admin_notes: adminNotes || undefined,
         reviewed_at: new Date().toISOString()
       });
@@ -1561,12 +1612,157 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(404).json({ message: "Application not found" });
       }
 
+      const emailNotification = {
+        attempted: false,
+        sent: false,
+        skipped: false,
+        error: ""
+      };
+
+      if (
+        Boolean(status) &&
+        existingApplication.status !== updatedApplication.status &&
+        isWorkerApplicationStatusNotifiable(updatedApplication.status)
+      ) {
+        emailNotification.attempted = true;
+        const delivery = await sendWorkerApplicationStatusEmail({
+          workerEmail: updatedApplication.email,
+          workerName: updatedApplication.full_name,
+          applicationStatus: updatedApplication.status,
+          optionalMessage: adminNotes || undefined
+        });
+        emailNotification.sent = delivery.sent;
+        emailNotification.skipped = delivery.skipped;
+        emailNotification.error = delivery.error || "";
+        if (!delivery.sent && delivery.error) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `Failed to send status email for worker application ${updatedApplication.id}: ${delivery.error}`
+          );
+        }
+      }
+
+      const message =
+        emailNotification.attempted && !emailNotification.sent
+          ? "Application updated, but status email could not be sent."
+          : "Application updated";
+
       return res.json({
-        message: "Application updated",
+        message,
+        email: emailNotification,
         application: toApplicationResponse(req, sessionToken, updatedApplication)
       });
     } catch (error) {
       return res.status(500).json({ message: "Failed to update application", error: getErrorMessage(error) });
+    }
+  });
+
+  app.patch("/api/admin/worker/status/:workerId", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const workerId = readTrimmedString(req.params.workerId);
+      if (!workerId) {
+        return res.status(400).json({ message: "workerId is required" });
+      }
+
+      const status = parseWorkerApplicationStatus((req.body as { status?: unknown }).status);
+      if (!status) {
+        return res.status(400).json({ message: "Invalid application status" });
+      }
+      if (!isWorkerApplicationStatusNotifiable(status)) {
+        return res
+          .status(400)
+          .json({ message: "Only Approved, Rejected, or Visit Required are allowed for this endpoint." });
+      }
+      const adminNotes = readTrimmedString((req.body as { adminNotes?: unknown }).adminNotes);
+
+      const application = await resolveWorkerApplicationForStatusUpdate(workerId);
+      if (!application) {
+        return res.status(404).json({ message: "Worker application not found" });
+      }
+
+      const statusChanged = application.status !== status;
+      const updatedApplication = await updateWorkerApplication(application.id, {
+        status,
+        admin_notes: adminNotes || undefined,
+        reviewed_at: new Date().toISOString()
+      });
+
+      if (!updatedApplication) {
+        return res.status(404).json({ message: "Worker application not found" });
+      }
+
+      const emailNotification = {
+        attempted: false,
+        sent: false,
+        skipped: false,
+        error: ""
+      };
+      if (statusChanged) {
+        emailNotification.attempted = true;
+        const delivery = await sendWorkerApplicationStatusEmail({
+          workerEmail: updatedApplication.email,
+          workerName: updatedApplication.full_name,
+          applicationStatus: status,
+          optionalMessage: adminNotes || undefined
+        });
+        emailNotification.sent = delivery.sent;
+        emailNotification.skipped = delivery.skipped;
+        emailNotification.error = delivery.error || "";
+        if (!delivery.sent && delivery.error) {
+          // eslint-disable-next-line no-console
+          console.error(`Failed to send worker status email for ${workerId}: ${delivery.error}`);
+        }
+      }
+
+      const message =
+        emailNotification.attempted && !emailNotification.sent
+          ? "Worker application status updated, but email could not be sent."
+          : "Worker application status updated.";
+
+      return res.json({
+        message,
+        workerId,
+        email: emailNotification,
+        application: toApplicationResponse(req, sessionToken, updatedApplication)
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to update worker application status",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.delete("/api/admin/worker-applications/:applicationId", async (req: Request, res: Response) => {
+    const sessionToken = getAdminSessionToken(req);
+    if (!sessionToken || !options.validateAdminSession(sessionToken)) {
+      return res.status(401).json({ message: "Admin session is invalid or expired" });
+    }
+
+    try {
+      const applicationId = readTrimmedString(req.params.applicationId);
+      if (!applicationId) {
+        return res.status(400).json({ message: "applicationId is required" });
+      }
+
+      const { deleted, application } = await deleteWorkerApplication(applicationId);
+      if (!deleted || !application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      await Promise.all([
+        deleteWorkerDocument(application.id_proof_url).catch(() => {}),
+        deleteWorkerDocument(application.address_proof_url).catch(() => {})
+      ]);
+
+      return res.json({ message: "Application deleted successfully." });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to delete application", error: getErrorMessage(error) });
     }
   });
 

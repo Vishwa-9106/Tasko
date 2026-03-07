@@ -66,6 +66,7 @@ function normalizeApplication(record) {
     email: record.email || "-",
     address: record.address || "-",
     categoryApplied: record.category_applied || record.category || "-",
+    testResult: record.test_result || record.testResult || record.assessment_result || "-",
     idProofUrl: record.id_proof_url || "",
     addressProofUrl: record.address_proof_url || "",
     status: statusLabel(record.status),
@@ -151,6 +152,8 @@ export default function AdminApp() {
   const initialPath = normalizeAdminPath(window.location.pathname);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showCreateAccountPassword, setShowCreateAccountPassword] = useState(false);
   const [sessionToken, setSessionToken] = useState(localStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || "");
   const [locationPath, setLocationPath] = useState(() => initialPath);
   const active = useMemo(() => activeNavFromPath(locationPath), [locationPath]);
@@ -391,7 +394,7 @@ export default function AdminApp() {
 
   const updateApplicationStatus = async (applicationId, statusValue) => {
     try {
-      const response = await api.patch(`/api/admin/worker-applications/${applicationId}`, {
+      const response = await api.patch(`/api/admin/worker/status/${applicationId}`, {
         status: statusValue,
         adminNotes: requestNotes[applicationId] || "",
         sessionToken
@@ -401,7 +404,7 @@ export default function AdminApp() {
       } else {
         await loadData();
       }
-      setBanner(`Application ${applicationId} updated to ${statusValue}.`);
+      setBanner(response.data?.message || `Application ${applicationId} updated to ${statusValue}.`);
     } catch (updateError) {
       if (updateError?.response?.status === 401) {
         setError("Admin session expired. Please login again.");
@@ -415,6 +418,7 @@ export default function AdminApp() {
   const openCreateAccountModal = (application) => {
     if (!application?.id) return;
     setError("");
+    setShowCreateAccountPassword(false);
     setCreateAccountModal({
       applicationId: application.id,
       applicantName: application.fullName || "-",
@@ -426,6 +430,7 @@ export default function AdminApp() {
 
   const closeCreateAccountModal = () => {
     if (creatingAccount) return;
+    setShowCreateAccountPassword(false);
     setCreateAccountModal(null);
   };
 
@@ -635,6 +640,17 @@ export default function AdminApp() {
     });
   };
 
+  const requestWorkerApplicationDelete = (application) => {
+    if (!application?.id) return;
+    setConfirmDialog({
+      kind: "delete-worker-application",
+      title: "Delete Worker Application",
+      message: `Are you sure you want to delete the application for "${application.fullName || "-"}"?`,
+      warning: "This action permanently removes the application and uploaded documents.",
+      applicationId: application.id
+    });
+  };
+
   const executeConfirmAction = async () => {
     if (!confirmDialog) return;
     setConfirmingAction(true);
@@ -666,6 +682,15 @@ export default function AdminApp() {
         }
         await loadData();
         pushToast("success", "Subcategory deleted successfully.");
+      } else if (confirmDialog.kind === "delete-worker-application") {
+        await api.delete(`/api/admin/worker-applications/${confirmDialog.applicationId}`, {
+          data: { sessionToken }
+        });
+        if (drawer?.id === confirmDialog.applicationId) {
+          setDrawer(null);
+        }
+        await loadData();
+        pushToast("success", "Worker application deleted successfully.");
       }
       setConfirmDialog(null);
     } catch (deleteError) {
@@ -807,14 +832,24 @@ export default function AdminApp() {
 
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Password
-                <input
-                  type="password"
-                  className="erp-input mt-1"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Enter password"
-                  required
-                />
+                <div className="relative mt-1">
+                  <input
+                    type={showLoginPassword ? "text" : "password"}
+                    className="erp-input pr-16"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Enter password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                    onClick={() => setShowLoginPassword((current) => !current)}
+                    aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                  >
+                    {showLoginPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </label>
 
               {error ? <p className="text-sm text-rose-600">{error}</p> : null}
@@ -903,8 +938,10 @@ export default function AdminApp() {
                   <thead>
                     <tr>
                       <th>Applicant Name</th>
+                      <th>Email</th>
                       <th>Phone</th>
                       <th>Category</th>
+                      <th>Test Result</th>
                       <th>Applied Date</th>
                       <th>Status</th>
                       <th>Actions</th>
@@ -913,21 +950,25 @@ export default function AdminApp() {
                   <tbody>
                     {applications.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="text-center text-slate-500">No worker applications found.</td>
+                        <td colSpan={8} className="text-center text-slate-500">No worker applications found.</td>
                       </tr>
                     ) : (
                       applications.map((application) => (
                         <tr key={application.id}>
                           <td>{application.fullName}</td>
+                          <td>{application.email}</td>
                           <td>{application.phone}</td>
                           <td>{application.categoryApplied}</td>
+                          <td>{application.testResult}</td>
                           <td>{date(application.appliedAt)}</td>
                           <td><Badge value={application.status} /></td>
                           <td>
                             <div className="flex flex-wrap gap-2">
                               <button type="button" className="erp-btn erp-btn-soft" onClick={() => setDrawer(application)}>View Details</button>
+                              <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(application.id, "Approved")}>Approve</button>
                               <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(application.id, "Visit Required")}>Mark as Visit Required</button>
                               <button type="button" className="erp-btn erp-btn-danger" onClick={() => updateApplicationStatus(application.id, "Rejected")}>Reject</button>
+                              <button type="button" className="erp-btn erp-btn-danger" onClick={() => requestWorkerApplicationDelete(application)}>Delete</button>
                               <button
                                 type="button"
                                 className="erp-btn erp-btn-primary"
@@ -1179,6 +1220,7 @@ export default function AdminApp() {
               </div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs uppercase tracking-wide text-slate-500">Address</p><p className="mt-1 text-sm text-slate-900">{drawer.address}</p></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs uppercase tracking-wide text-slate-500">Category Applied</p><p className="mt-1 text-sm text-slate-900">{drawer.categoryApplied}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs uppercase tracking-wide text-slate-500">Test Result</p><p className="mt-1 text-sm text-slate-900">{drawer.testResult || "-"}</p></div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
@@ -1228,6 +1270,7 @@ export default function AdminApp() {
 
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(drawer.id, drawer.status)}>Save Review</button>
+                <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(drawer.id, "Approved")}>Approve</button>
                 <button type="button" className="erp-btn erp-btn-danger" onClick={() => updateApplicationStatus(drawer.id, "Rejected")}>Reject</button>
                 <button
                   type="button"
@@ -1279,17 +1322,27 @@ export default function AdminApp() {
 
               <label className="block">
                 <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Password</span>
-                <input
-                  type="password"
-                  className="erp-input"
-                  value={createAccountModal.password}
-                  onChange={(event) =>
-                    setCreateAccountModal((current) => (current ? { ...current, password: event.target.value } : current))
-                  }
-                  placeholder="Minimum 6 characters"
-                  minLength={6}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showCreateAccountPassword ? "text" : "password"}
+                    className="erp-input pr-16"
+                    value={createAccountModal.password}
+                    onChange={(event) =>
+                      setCreateAccountModal((current) => (current ? { ...current, password: event.target.value } : current))
+                    }
+                    placeholder="Minimum 6 characters"
+                    minLength={6}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                    onClick={() => setShowCreateAccountPassword((current) => !current)}
+                    aria-label={showCreateAccountPassword ? "Hide password" : "Show password"}
+                  >
+                    {showCreateAccountPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </label>
 
               <label className="block">
