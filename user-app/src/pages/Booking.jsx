@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import UserPortalShell from "../components/UserPortalShell";
@@ -190,6 +190,7 @@ function resolveWorkerInfo(booking) {
 }
 
 export default function BookingPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [catalogCategories, setCatalogCategories] = useState([]);
@@ -198,6 +199,7 @@ export default function BookingPage() {
   const [activeTab, setActiveTab] = useState("current");
   const [formMessage, setFormMessage] = useState("");
   const [bookingsMessage, setBookingsMessage] = useState("");
+  const [bookingSuccessModal, setBookingSuccessModal] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [updatingBookingId, setUpdatingBookingId] = useState("");
@@ -635,7 +637,10 @@ export default function BookingPage() {
         specialInstructions: ""
       }));
 
-      setFormMessage("Booking submitted successfully and saved to database.");
+      setBookingSuccessModal({
+        title: "Booking Confirmed",
+        message: "Your booking was submitted successfully and saved to the database."
+      });
       await loadBookings();
       setActiveTab("upcoming");
     } catch (error) {
@@ -701,6 +706,40 @@ export default function BookingPage() {
       </section>
 
       <section className="tasko-content-panel">
+        {bookingSuccessModal ? (
+          <div className="tasko-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tasko-booking-success-title">
+            <div className="tasko-modal-card tasko-success-modal-card">
+              <div className="tasko-modal-head">
+                <div>
+                  <p>Booking Status</p>
+                  <h3 id="tasko-booking-success-title">{bookingSuccessModal.title}</h3>
+                </div>
+              </div>
+              <div className="tasko-modal-body">
+                <p>{bookingSuccessModal.message}</p>
+                <p>Your booking is now in Tasko and you can review it from the upcoming bookings section.</p>
+              </div>
+              <div className="tasko-modal-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("upcoming");
+                    setBookingSuccessModal(null);
+                  }}
+                >
+                  View Upcoming Bookings
+                </button>
+                <button type="button" className="tasko-secondary-button" onClick={() => setBookingSuccessModal(null)}>
+                  Book Another
+                </button>
+                <button type="button" className="tasko-secondary-button" onClick={() => navigate("/home")}>
+                  Go Home
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="tasko-section-head">
           <p>Create</p>
           <h2>New Booking</h2>

@@ -6,6 +6,29 @@ import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 
 const tabs = ["ongoing", "upcoming", "completed"];
 
+function readText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "object") {
+    const seconds = Number(value.seconds ?? value._seconds);
+    const nanoseconds = Number(value.nanoseconds ?? value._nanoseconds ?? 0);
+    if (Number.isFinite(seconds)) {
+      return new Date(seconds * 1000 + Math.floor(nanoseconds / 1000000));
+    }
+  }
+  return null;
+}
+
 function getBookingDate(booking) {
   if (!booking?.date) return null;
   const parsed = new Date(`${booking.date} ${booking.time || ""}`);
@@ -27,6 +50,70 @@ function getBookingBucket(booking) {
   return "ongoing";
 }
 
+function buildOtpNotifications(booking) {
+  const bookingId = readText(booking?.id) || readText(booking?.bookingId) || readText(booking?.booking_id);
+  const status = String(booking?.status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (!bookingId || ["completed", "cancelled"].includes(status)) {
+    return [];
+  }
+
+  const serviceName = readText(booking?.subCategory) || readText(booking?.category) || readText(booking?.serviceCategory) || "Service";
+  const workerName = readText(booking?.assignedWorkerName) || readText(booking?.assigned_worker_name) || "Assigned worker";
+  const notifications = [];
+
+  const startOtp =
+    readText(booking?.startOtp) ||
+    readText(booking?.start_otp) ||
+    readText(booking?.jobStartOtp) ||
+    readText(booking?.job_start_otp);
+  const arrivedAt = readDate(booking?.workerArrivedAt) || readDate(booking?.worker_arrived_at);
+  if (startOtp && arrivedAt && !["in_progress", "completed", "cancelled"].includes(status)) {
+    notifications.push({
+      id: `${bookingId}:start:${startOtp}`,
+      type: "start",
+      title: readText(booking?.arrivalNotificationTitle) || readText(booking?.arrival_notification_title) || "Worker Arrived",
+      message:
+        readText(booking?.arrivalNotificationMessage) ||
+        readText(booking?.arrival_notification_message) ||
+        "Your worker has arrived. Share the OTP to start the job.",
+      otp: startOtp,
+      eventAt: arrivedAt,
+      serviceName,
+      workerName
+    });
+  }
+
+  const completionOtp =
+    readText(booking?.completionOtp) ||
+    readText(booking?.completion_otp) ||
+    readText(booking?.jobCompletionOtp) ||
+    readText(booking?.job_completion_otp);
+  const completionRequestedAt = readDate(booking?.completionOtpRequestedAt) || readDate(booking?.completion_otp_requested_at);
+  if (completionOtp && completionRequestedAt && status === "in_progress") {
+    notifications.push({
+      id: `${bookingId}:completion:${completionOtp}`,
+      type: "completion",
+      title:
+        readText(booking?.completionNotificationTitle) ||
+        readText(booking?.completion_notification_title) ||
+        "Completion OTP Ready",
+      message:
+        readText(booking?.completionNotificationMessage) ||
+        readText(booking?.completion_notification_message) ||
+        "Your worker is ready to complete the service. Share the OTP to finish the job.",
+      otp: completionOtp,
+      eventAt: completionRequestedAt,
+      serviceName,
+      workerName
+    });
+  }
+
+  return notifications;
+}
+
 export default function AssignsPage() {
   const { user } = useAuth();
   const [bookings, setBookings] = useState([]);
@@ -41,7 +128,6 @@ export default function AssignsPage() {
       const cachedBookings = readSessionCache(cacheKey, 30 * 1000);
       if (Array.isArray(cachedBookings)) {
         setBookings(cachedBookings);
-        return;
       }
 
       const response = await api.get("/api/bookings", {
@@ -69,6 +155,14 @@ export default function AssignsPage() {
   );
 
   const filteredBookings = bookings.filter((booking) => getBookingBucket(booking) === activeTab);
+  const otpNotifications = useMemo(
+    () =>
+      bookings
+        .flatMap((booking) => buildOtpNotifications(booking))
+        .filter(Boolean)
+        .sort((left, right) => right.eventAt.getTime() - left.eventAt.getTime()),
+    [bookings]
+  );
 
   const cancelBooking = async (bookingId) => {
     setMessage("");
@@ -111,6 +205,48 @@ export default function AssignsPage() {
           <h2>{bookingCounts.completed}</h2>
           <p>Delivered services including cancelled items.</p>
         </article>
+      </section>
+
+      <section className="user-card">
+        <h2>Notifications</h2>
+        {otpNotifications.length === 0 ? (
+          <p className="user-empty">No OTP notifications yet.</p>
+        ) : (
+          <div className="user-list">
+            {otpNotifications.map((notification) => (
+              <article key={notification.id} className="user-list-item sync-assignment-card">
+                <div className="user-list-item-head">
+                  <h3>{notification.title}</h3>
+                  <span className="user-status-tag">{notification.type === "completion" ? "COMPLETE OTP" : "START OTP"}</span>
+                </div>
+                <div className="sync-meta-grid">
+                  <p>
+                    <strong>Service:</strong> {notification.serviceName}
+                  </p>
+                  <p>
+                    <strong>Worker:</strong> {notification.workerName}
+                  </p>
+                  <p>
+                    <strong>{notification.type === "completion" ? "Requested At:" : "Arrived At:"}</strong>{" "}
+                    {notification.eventAt.toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
+                  </p>
+                </div>
+                <p className="user-empty">{notification.message}</p>
+                <div className="user-actions">
+                  <button type="button" className="user-btn primary">
+                    {notification.type === "completion" ? "Completion OTP" : "Start OTP"}: {notification.otp}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="user-card">

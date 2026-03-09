@@ -4,11 +4,12 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./index.css";
 import { AuthProvider } from "./context/AuthContext";
-import { initializeFirebaseClient } from "./firebase";
+import { initializeFirebaseClient, waitForInitialAuthSession } from "./firebase";
 
 async function bootstrap() {
   try {
     await initializeFirebaseClient();
+    await waitForInitialAuthSession();
     ReactDOM.createRoot(document.getElementById("root")).render(
       <BrowserRouter>
         <AuthProvider>

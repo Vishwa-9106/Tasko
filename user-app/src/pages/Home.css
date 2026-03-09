@@ -1156,6 +1156,33 @@
   color: #555;
 }
 
+.tasko-otp-highlight {
+  border-radius: 14px;
+  border: 1px dashed rgba(183, 151, 77, 0.55);
+  background: rgba(198, 167, 94, 0.12);
+  color: #1f1f1f;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 0.9rem 1rem;
+  text-align: center;
+}
+
+.tasko-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.tasko-modal-actions button {
+  flex: 1 1 160px;
+}
+
+.tasko-success-modal-card {
+  box-shadow: 0 24px 80px rgba(17, 17, 17, 0.16);
+}
+
 .tasko-service-card {
   min-height: 100%;
 }

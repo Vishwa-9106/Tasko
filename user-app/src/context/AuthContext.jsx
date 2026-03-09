@@ -15,10 +15,15 @@ import api from "../api";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(() => auth?.currentUser || null);
+  const [loading, setLoading] = useState(() => !auth);
 
   useEffect(() => {
+    if (!auth) {
+      setLoading(false);
+      return undefined;
+    }
+
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);

@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { Express, Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
 import path from "path";
-import { db } from "./firebaseAdmin";
+import { db, timestamp } from "./firebaseAdmin";
 import {
   PricingType,
   ServicePricing,
@@ -81,6 +81,7 @@ type SessionRecord = {
 
 type RegisterWorkerHiringOptions = {
   validateAdminSession: (token: string) => boolean;
+  clearBookingCache?: () => void;
 };
 
 const workerSessions = new Map<string, SessionRecord>();
@@ -239,6 +240,12 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function generateNumericOtp(length = 4): string {
+  const min = 10 ** Math.max(0, length - 1);
+  const max = 10 ** Math.max(1, length);
+  return String(crypto.randomInt(min, max));
+}
+
 function getWorkerProfileFromCache(workerId: string): WorkerRecord | null {
   const cached = workerProfileCache.get(workerId);
   if (!cached) return null;
@@ -275,6 +282,70 @@ function setWorkerJobsCache(workerId: string, value: Array<Record<string, unknow
 
 function clearWorkerJobsCache(workerId: string): void {
   workerJobsCache.delete(workerId);
+}
+
+function uniqueNonEmptyStrings(values: unknown[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  values.forEach((value) => {
+    const normalized = readTrimmedString(value);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    result.push(normalized);
+  });
+
+  return result;
+}
+
+function normalizeWorkerJobRecord(
+  bookingId: string,
+  data: Record<string, unknown>,
+  userData?: Record<string, unknown> | null
+): Record<string, unknown> {
+  const normalizedBookingId =
+    readTrimmedString(data.booking_id) || readTrimmedString(data.bookingId) || readTrimmedString(data.id) || bookingId;
+  const normalizedUserId = readTrimmedString(data.userId) || readTrimmedString(data.user_id);
+  const normalizedUserName =
+    readTrimmedString(data.userName) ||
+    readTrimmedString(data.user_name) ||
+    readTrimmedString(userData?.name) ||
+    readTrimmedString(userData?.full_name) ||
+    readTrimmedString(userData?.fullName);
+  const normalizedUserPhone =
+    readTrimmedString(data.userPhone) ||
+    readTrimmedString(data.user_phone) ||
+    readTrimmedString(userData?.mobile) ||
+    readTrimmedString(userData?.number) ||
+    readTrimmedString(userData?.phone);
+  const normalizedAddress =
+    readTrimmedString(data.address) ||
+    readTrimmedString(data.serviceAddress) ||
+    readTrimmedString(data.service_address) ||
+    readTrimmedString(userData?.address);
+  const normalizedUserEmail =
+    readTrimmedString(data.userEmail) ||
+    readTrimmedString(data.user_email) ||
+    readTrimmedString(userData?.email) ||
+    readTrimmedString(userData?.mail);
+
+  return {
+    id: bookingId,
+    ...data,
+    booking_id: normalizedBookingId,
+    bookingId: normalizedBookingId,
+    userId: normalizedUserId,
+    user_id: normalizedUserId,
+    userName: normalizedUserName,
+    user_name: normalizedUserName,
+    userPhone: normalizedUserPhone,
+    user_phone: normalizedUserPhone,
+    userEmail: normalizedUserEmail,
+    user_email: normalizedUserEmail,
+    address: normalizedAddress,
+    serviceAddress: normalizedAddress,
+    service_address: normalizedAddress
+  };
 }
 
 function isFirestoreUnavailableError(error: unknown): boolean {
@@ -2360,11 +2431,214 @@ Tasko Team`
       }
 
       const snapshot = await db.collection("bookings").where("assignedWorkerId", "==", workerId).limit(20).get();
-      const jobs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const rawJobs: Array<Record<string, unknown>> = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...(doc.data() as Record<string, unknown>)
+      }));
+      const userIdsNeedingBackfill = uniqueNonEmptyStrings(
+        rawJobs
+          .filter((job) => {
+            const hasPhone = readTrimmedString(job.userPhone) || readTrimmedString(job.user_phone);
+            const hasAddress =
+              readTrimmedString(job.address) || readTrimmedString(job.serviceAddress) || readTrimmedString(job.service_address);
+            return !hasPhone || !hasAddress;
+          })
+          .map((job) => job.userId || job.user_id)
+      );
+
+      const usersById = new Map<string, Record<string, unknown>>();
+      if (userIdsNeedingBackfill.length > 0) {
+        const userSnapshots = await Promise.all(
+          userIdsNeedingBackfill.map(async (userId) => {
+            const userDoc = await db.collection("users").doc(userId).get();
+            if (!userDoc.exists) return null;
+            return [userId, userDoc.data() as Record<string, unknown>] as const;
+          })
+        );
+
+        userSnapshots.forEach((entry) => {
+          if (!entry) return;
+          usersById.set(entry[0], entry[1]);
+        });
+      }
+
+      const jobs = rawJobs.map((job) => {
+        const userId = readTrimmedString(job.userId) || readTrimmedString(job.user_id);
+        const userData = userId ? usersById.get(userId) || null : null;
+        return normalizeWorkerJobRecord(String(job.id || ""), job, userData);
+      });
       setWorkerJobsCache(workerId, jobs);
       return res.json(jobs);
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch assigned jobs", error: getErrorMessage(error) });
+    }
+  });
+
+  app.post("/api/workers/my-jobs/:bookingId/arrived", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = getWorkerSessionToken(req);
+      if (!sessionToken) {
+        return res.status(401).json({ message: "Worker session token is required" });
+      }
+
+      const workerId = resolveWorkerSession(sessionToken);
+      if (!workerId) {
+        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      }
+
+      const bookingId = readTrimmedString(req.params.bookingId);
+      if (!bookingId) {
+        return res.status(400).json({ message: "bookingId is required" });
+      }
+
+      const bookingDoc = await db.collection("bookings").doc(bookingId).get();
+      if (!bookingDoc.exists) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      const bookingData = (bookingDoc.data() || {}) as Record<string, unknown>;
+      const assignedWorkerId =
+        readTrimmedString(bookingData.assignedWorkerId) || readTrimmedString(bookingData.assigned_worker_id);
+      if (!assignedWorkerId || assignedWorkerId !== workerId) {
+        return res.status(403).json({ message: "This booking is not assigned to the current worker." });
+      }
+
+      const normalizedStatus = readTrimmedString(bookingData.status).toLowerCase().replace(/[\s-]+/g, "_");
+      if (["in_progress", "completed", "cancelled"].includes(normalizedStatus)) {
+        return res.status(400).json({ message: "This booking cannot be marked as arrived." });
+      }
+
+      const existingStartOtp =
+        readTrimmedString(bookingData.startOtp) ||
+        readTrimmedString(bookingData.start_otp) ||
+        readTrimmedString(bookingData.jobStartOtp) ||
+        readTrimmedString(bookingData.job_start_otp);
+      const startOtp = existingStartOtp || generateNumericOtp(4);
+      const arrivedAtIso = new Date().toISOString();
+      const serviceName =
+        readTrimmedString(bookingData.subCategory) ||
+        readTrimmedString(bookingData.category) ||
+        readTrimmedString(bookingData.serviceCategory) ||
+        "your service";
+      const notificationMessage = `Your worker has arrived for ${serviceName}. Share OTP ${startOtp} to start the job.`;
+
+      await db.collection("bookings").doc(bookingId).set(
+        {
+          startOtp,
+          start_otp: startOtp,
+          workerArrivedAt: timestamp(),
+          worker_arrived_at: timestamp(),
+          arrivalNotificationTitle: "Worker Arrived",
+          arrival_notification_title: "Worker Arrived",
+          arrivalNotificationMessage: notificationMessage,
+          arrival_notification_message: notificationMessage,
+          updatedAt: timestamp(),
+          updated_at: timestamp()
+        },
+        { merge: true }
+      );
+
+      clearWorkerJobsCache(workerId);
+      options.clearBookingCache?.();
+
+      return res.json({
+        message: "Arrival recorded and OTP shared with the user.",
+        bookingId,
+        startOtp,
+        start_otp: startOtp,
+        workerArrivedAt: arrivedAtIso,
+        worker_arrived_at: arrivedAtIso,
+        arrivalNotificationTitle: "Worker Arrived",
+        arrival_notification_title: "Worker Arrived",
+        arrivalNotificationMessage: notificationMessage,
+        arrival_notification_message: notificationMessage
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to record arrival", error: getErrorMessage(error) });
+    }
+  });
+
+  app.post("/api/workers/my-jobs/:bookingId/request-completion-otp", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = getWorkerSessionToken(req);
+      if (!sessionToken) {
+        return res.status(401).json({ message: "Worker session token is required" });
+      }
+
+      const workerId = resolveWorkerSession(sessionToken);
+      if (!workerId) {
+        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      }
+
+      const bookingId = readTrimmedString(req.params.bookingId);
+      if (!bookingId) {
+        return res.status(400).json({ message: "bookingId is required" });
+      }
+
+      const bookingDoc = await db.collection("bookings").doc(bookingId).get();
+      if (!bookingDoc.exists) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      const bookingData = (bookingDoc.data() || {}) as Record<string, unknown>;
+      const assignedWorkerId =
+        readTrimmedString(bookingData.assignedWorkerId) || readTrimmedString(bookingData.assigned_worker_id);
+      if (!assignedWorkerId || assignedWorkerId !== workerId) {
+        return res.status(403).json({ message: "This booking is not assigned to the current worker." });
+      }
+
+      const normalizedStatus = readTrimmedString(bookingData.status).toLowerCase().replace(/[\s-]+/g, "_");
+      if (normalizedStatus !== "in_progress") {
+        return res.status(400).json({ message: "Completion OTP can only be requested for in-progress jobs." });
+      }
+
+      const existingCompletionOtp =
+        readTrimmedString(bookingData.completionOtp) ||
+        readTrimmedString(bookingData.completion_otp) ||
+        readTrimmedString(bookingData.jobCompletionOtp) ||
+        readTrimmedString(bookingData.job_completion_otp);
+      const completionOtp = existingCompletionOtp || generateNumericOtp(4);
+      const requestedAtIso = new Date().toISOString();
+      const serviceName =
+        readTrimmedString(bookingData.subCategory) ||
+        readTrimmedString(bookingData.category) ||
+        readTrimmedString(bookingData.serviceCategory) ||
+        "your service";
+      const notificationMessage = `Your worker is ready to complete ${serviceName}. Share OTP ${completionOtp} to finish the job.`;
+
+      await db.collection("bookings").doc(bookingId).set(
+        {
+          completionOtp,
+          completion_otp: completionOtp,
+          completionOtpRequestedAt: timestamp(),
+          completion_otp_requested_at: timestamp(),
+          completionNotificationTitle: "Completion OTP Ready",
+          completion_notification_title: "Completion OTP Ready",
+          completionNotificationMessage: notificationMessage,
+          completion_notification_message: notificationMessage,
+          updatedAt: timestamp(),
+          updated_at: timestamp()
+        },
+        { merge: true }
+      );
+
+      clearWorkerJobsCache(workerId);
+      options.clearBookingCache?.();
+
+      return res.json({
+        message: "Completion OTP shared with the user.",
+        bookingId,
+        completionOtp,
+        completion_otp: completionOtp,
+        completionOtpRequestedAt: requestedAtIso,
+        completion_otp_requested_at: requestedAtIso,
+        completionNotificationTitle: "Completion OTP Ready",
+        completion_notification_title: "Completion OTP Ready",
+        completionNotificationMessage: notificationMessage,
+        completion_notification_message: notificationMessage
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to request completion OTP", error: getErrorMessage(error) });
     }
   });
 

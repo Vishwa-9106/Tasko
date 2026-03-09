@@ -193,6 +193,19 @@ function getExpectedOtp(job, kind) {
   return match ? readText(job?.[match]) : "";
 }
 
+function hasArrivalRecord(job) {
+  return Boolean(readDate(job?.workerArrivedAt) || readDate(job?.worker_arrived_at));
+}
+
+function hasCompletionOtpRequested(job) {
+  return Boolean(
+    readDate(job?.completionOtpRequestedAt) ||
+      readDate(job?.completion_otp_requested_at) ||
+      readText(job?.completionOtp) ||
+      readText(job?.completion_otp)
+  );
+}
+
 function sortBySchedule(left, right) {
   const leftDate = resolveJobDateTime(left);
   const rightDate = resolveJobDateTime(right);
@@ -373,6 +386,7 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
       if (serverStatus === "completed") return "completed";
       if (serverStatus === "in_progress") return "in_progress";
       if (serverStatus === "cancelled") return "cancelled";
+      if (hasArrivalRecord(job)) return "arrived";
       if (workerCheckpoints?.[job.id]?.arrivedAt) return "arrived";
       return "assigned";
     },
@@ -536,10 +550,65 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
     }
   };
 
-  const markArrived = (targetJobId) => {
-    setJobCheckpoint(targetJobId, { arrivedAt: new Date().toISOString() });
+  const markArrived = async (targetJobId) => {
+    setJobActionLoading(targetJobId);
     setJobActionError("");
-    setJobActionMessage("Arrival recorded. Enter the start OTP to begin the job.");
+    setJobActionMessage("");
+
+    try {
+      const response = await api.post(`/api/workers/my-jobs/${targetJobId}/arrived`);
+      const arrivalPayload = response?.data || {};
+
+      setJobCheckpoint(targetJobId, {
+        arrivedAt: arrivalPayload.workerArrivedAt || new Date().toISOString()
+      });
+      setJobs((current) =>
+        current.map((job) =>
+          job.id === targetJobId
+            ? {
+                ...job,
+                ...arrivalPayload,
+                updatedAt: new Date().toISOString()
+              }
+            : job
+        )
+      );
+      setJobActionMessage("Arrival recorded. The customer can now view the start OTP in the user app.");
+      loadWorkerWorkspace().catch(() => {});
+    } catch (arrivalError) {
+      setJobActionError(arrivalError?.response?.data?.message || "Failed to record arrival.");
+    } finally {
+      setJobActionLoading("");
+    }
+  };
+
+  const requestCompletionOtp = async (targetJobId) => {
+    setJobActionLoading(targetJobId);
+    setJobActionError("");
+    setJobActionMessage("");
+
+    try {
+      const response = await api.post(`/api/workers/my-jobs/${targetJobId}/request-completion-otp`);
+      const completionPayload = response?.data || {};
+
+      setJobs((current) =>
+        current.map((job) =>
+          job.id === targetJobId
+            ? {
+                ...job,
+                ...completionPayload,
+                updatedAt: new Date().toISOString()
+              }
+            : job
+        )
+      );
+      setJobActionMessage("Completion OTP sent. Ask the customer to check the popup or notification page.");
+      loadWorkerWorkspace().catch(() => {});
+    } catch (completionError) {
+      setJobActionError(completionError?.response?.data?.message || "Failed to request completion OTP.");
+    } finally {
+      setJobActionLoading("");
+    }
   };
 
   const renderJobCard = (job, variant = "upcoming") => {
@@ -873,6 +942,7 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
     const mapHref = getMapHref(selectedJob);
     const [dateLabel, timeLabel] = formatDateTime(selectedJob);
     const actionInFlight = jobActionLoading === selectedJob.id;
+    const completionOtpRequested = hasCompletionOtpRequested(selectedJob);
 
     return (
       <div className="worker-flow-section-stack">
@@ -982,22 +1052,38 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
             {flowStatus === "in_progress" ? (
               <div className="worker-flow-step-card">
                 <h3>Job Status: In Progress</h3>
-                <p>Finish the work, collect the completion OTP, and close the task from this screen.</p>
-                <input
-                  className="worker-flow-input"
-                  value={otpDrafts?.[selectedJob.id]?.completion || ""}
-                  onChange={(event) => updateOtpDraft(selectedJob.id, "completion", event.target.value)}
-                  placeholder="Enter completion OTP"
-                  inputMode="numeric"
-                />
-                <button
-                  type="button"
-                  className="worker-flow-btn worker-flow-btn-primary"
-                  onClick={() => updateJobStatus(selectedJob, "completed", "completion")}
-                  disabled={actionInFlight}
-                >
-                  {actionInFlight ? "Completing..." : "Complete Job"}
-                </button>
+                {completionOtpRequested ? (
+                  <>
+                    <p>The completion OTP has been sent to the customer. Enter it here to finish the job.</p>
+                    <input
+                      className="worker-flow-input"
+                      value={otpDrafts?.[selectedJob.id]?.completion || ""}
+                      onChange={(event) => updateOtpDraft(selectedJob.id, "completion", event.target.value)}
+                      placeholder="Enter completion OTP"
+                      inputMode="numeric"
+                    />
+                    <button
+                      type="button"
+                      className="worker-flow-btn worker-flow-btn-primary"
+                      onClick={() => updateJobStatus(selectedJob, "completed", "completion")}
+                      disabled={actionInFlight}
+                    >
+                      {actionInFlight ? "Completing..." : "Complete Job"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p>Finish the work and request the completion OTP from the customer before closing the job.</p>
+                    <button
+                      type="button"
+                      className="worker-flow-btn worker-flow-btn-primary"
+                      onClick={() => requestCompletionOtp(selectedJob.id)}
+                      disabled={actionInFlight}
+                    >
+                      {actionInFlight ? "Sending..." : "Request Completion OTP"}
+                    </button>
+                  </>
+                )}
               </div>
             ) : null}
 

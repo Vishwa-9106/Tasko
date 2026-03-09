@@ -1013,7 +1013,8 @@ app.post("/api/admin/logout", (req: Request, res: Response) => {
 });
 
 registerWorkerHiringRoutes(app, {
-  validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
+  validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken),
+  clearBookingCache: () => clearDashboardReadCache("bookings:")
 });
 
 registerServiceRoutes(app, {
