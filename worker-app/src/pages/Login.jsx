@@ -31,7 +31,7 @@ export default function LoginPage() {
 
       localStorage.setItem(WORKER_SESSION_TOKEN_KEY, sessionToken);
       localStorage.setItem(WORKER_ID_KEY, workerId);
-      navigate("/dashboard", { replace: true });
+      navigate("/home", { replace: true });
     } catch (loginError) {
       setError(loginError?.response?.data?.message || "Worker login failed.");
     } finally {
@@ -67,7 +67,7 @@ export default function LoginPage() {
               SIGN IN TO
               <span>YOUR WORKSPACE.</span>
             </h1>
-            <p>Access your assignments, availability controls, and profile details with the credentials issued by Tasko.</p>
+            <p>Access assigned jobs, live availability controls, and the worker execution flow with the credentials issued by Tasko.</p>
             <ul className="auth-copy-points">
               <li>EMPLOYEE ID OR MOBILE LOGIN</li>
               <li>ADMIN-APPROVED ACCESS</li>

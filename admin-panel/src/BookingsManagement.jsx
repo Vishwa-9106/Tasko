@@ -31,6 +31,27 @@ function normalizeBookingType(value) {
   return normalized === "package" ? "Package" : "One-time";
 }
 
+function parseWorkerCategories(value) {
+  return String(value || "")
+    .split(",")
+    .map((entry) => normalizeText(entry))
+    .filter(Boolean);
+}
+
+function workerMatchesCategory(workerCategory, bookingCategory) {
+  const normalizedBookingCategory = normalizeText(bookingCategory);
+  if (!normalizedBookingCategory) return true;
+
+  const workerCategories = parseWorkerCategories(workerCategory);
+  if (workerCategories.length === 0) return false;
+
+  return workerCategories.some((category) => {
+    if (category === normalizedBookingCategory) return true;
+    if (category === "all" || category === "all categories") return true;
+    return false;
+  });
+}
+
 function formatDate(value) {
   const parsed = new Date(value || "");
   if (Number.isNaN(parsed.getTime())) return "-";
@@ -267,7 +288,7 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
     const category = normalizeText(bookingForAssignment?.serviceCategory);
     return normalizedWorkers
       .filter((worker) => worker.status === "active")
-      .filter((worker) => !category || normalizeText(worker.category) === category)
+      .filter((worker) => workerMatchesCategory(worker.category, category))
       .sort((left, right) => {
         if (left.online !== right.online) return left.online ? -1 : 1;
         return right.rating - left.rating;

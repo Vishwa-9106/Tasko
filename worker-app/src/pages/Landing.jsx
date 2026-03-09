@@ -22,7 +22,7 @@ const hiringSteps = [
   { title: "SUBMIT APPLICATION", description: "Share your details, address, and required proof documents." },
   { title: "DOCUMENT REVIEW", description: "Tasko verifies your profile, category fit, and submitted proofs." },
   { title: "ADMIN APPROVAL", description: "Approved workers receive employee credentials from the operations team." },
-  { title: "START WORKING", description: "Log in, set availability, and begin managing assigned jobs." }
+  { title: "START WORKING", description: "Log in, open your worker home, and move through assigned jobs in real time." }
 ];
 
 const hiringStandards = [
@@ -52,7 +52,7 @@ const testimonials = [
 
 export default function LandingPage() {
   const workerSession = localStorage.getItem("tasko_worker_session_token");
-  const loginHref = workerSession ? "/dashboard" : "/login";
+  const loginHref = workerSession ? "/home" : "/login";
   const year = new Date().getFullYear();
 
   return (
@@ -70,7 +70,7 @@ export default function LandingPage() {
             <a href="#stories">STORIES</a>
           </nav>
           <Link to={loginHref} className="button-primary compact">
-            {workerSession ? "OPEN DASHBOARD" : "EMPLOYEE LOGIN"}
+            {workerSession ? "OPEN WORKSPACE" : "EMPLOYEE LOGIN"}
           </Link>
         </div>
       </header>
@@ -92,7 +92,7 @@ export default function LandingPage() {
                 APPLY NOW
               </Link>
               <Link to={loginHref} className="button-outline">
-                {workerSession ? "GO TO DASHBOARD" : "EMPLOYEE LOGIN"}
+                {workerSession ? "GO TO WORKSPACE" : "EMPLOYEE LOGIN"}
               </Link>
             </div>
           </div>
@@ -234,7 +234,7 @@ export default function LandingPage() {
               SUBMIT APPLICATION
             </Link>
             <Link to={loginHref} className="button-outline">
-              {workerSession ? "OPEN DASHBOARD" : "LOGIN"}
+              {workerSession ? "OPEN WORKSPACE" : "LOGIN"}
             </Link>
           </div>
           <div className="cta-footer">

@@ -43,6 +43,36 @@ function findCatalogItem(catalog, options = {}) {
   );
 }
 
+function findCatalogItemForService(catalog, serviceDetail) {
+  if (!serviceDetail) {
+    return null;
+  }
+
+  const serviceId = String(serviceDetail.id || "").trim();
+  const serviceName = normalizeText(serviceDetail.name);
+  const categoryName = normalizeText(serviceDetail.category);
+  const categorySlug = normalizeText(serviceDetail.categorySlug);
+
+  return (
+    catalog.find((item) => {
+      const matchesCategory =
+        (categoryName && normalizeText(item.categoryName) === categoryName) ||
+        (categorySlug && normalizeText(item.categoryId) === categorySlug);
+      const matchesSubcategory =
+        (serviceId && item.subcategoryId === serviceId) ||
+        (serviceName && normalizeText(item.subCategoryName) === serviceName);
+
+      return matchesCategory && matchesSubcategory;
+    }) ||
+    catalog.find(
+      (item) =>
+        (serviceId && item.subcategoryId === serviceId) ||
+        (serviceName && normalizeText(item.subCategoryName) === serviceName)
+    ) ||
+    null
+  );
+}
+
 function toStatusLabel(status) {
   const normalized = String(status || "pending")
     .replace(/[_-]+/g, " ")
@@ -294,9 +324,9 @@ export default function BookingPage() {
     );
     setFormData((current) => ({
       ...current,
-      categoryId: current.categoryId || selectedServiceDetail.categorySlug,
+      categoryId: current.categoryId,
       serviceCategory: selectedServiceDetail.category,
-      subCategoryId: selectedServiceDetail.id,
+      subCategoryId: current.subCategoryId || selectedServiceDetail.id,
       subCategory: selectedServiceDetail.name,
       duration: current.duration || selectedServiceDetail.duration || ""
     }));
@@ -354,6 +384,47 @@ export default function BookingPage() {
     });
   }, [serviceCatalog]);
 
+  const selectedServiceCatalogItem = useMemo(
+    () => findCatalogItemForService(serviceCatalog, selectedServiceDetail),
+    [selectedServiceDetail, serviceCatalog]
+  );
+
+  useEffect(() => {
+    if (!selectedServiceDetail) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      categoryId: selectedServiceCatalogItem?.categoryId || current.categoryId || "",
+      serviceCategory: selectedServiceCatalogItem?.categoryName || selectedServiceDetail.category,
+      subCategoryId: selectedServiceCatalogItem?.subcategoryId || current.subCategoryId || selectedServiceDetail.id,
+      subCategory: selectedServiceCatalogItem?.subCategoryName || selectedServiceDetail.name
+    }));
+  }, [selectedServiceCatalogItem, selectedServiceDetail]);
+
+  const resolvedCategoryOptions = useMemo(() => {
+    const selectedValue = String(formData.categoryId || formData.serviceCategory).trim();
+    if (!selectedValue) {
+      return categoryOptions;
+    }
+
+    const alreadyPresent = categoryOptions.some(
+      (item) => item.categoryId === selectedValue || item.categoryName === selectedValue
+    );
+    if (alreadyPresent) {
+      return categoryOptions;
+    }
+
+    return [
+      {
+        categoryId: formData.categoryId,
+        categoryName: formData.serviceCategory || selectedServiceDetail?.category || selectedValue
+      },
+      ...categoryOptions
+    ];
+  }, [categoryOptions, formData.categoryId, formData.serviceCategory, selectedServiceDetail]);
+
   const subCategoryOptions = useMemo(() => {
     if (!formData.categoryId && !formData.serviceCategory) return [];
 
@@ -363,6 +434,29 @@ export default function BookingPage() {
         (!formData.categoryId && normalizeText(item.categoryName) === normalizeText(formData.serviceCategory))
     );
   }, [formData.categoryId, formData.serviceCategory, serviceCatalog]);
+
+  const resolvedSubCategoryOptions = useMemo(() => {
+    const selectedValue = String(formData.subCategoryId || formData.subCategory).trim();
+    if (!selectedValue) {
+      return subCategoryOptions;
+    }
+
+    const alreadyPresent = subCategoryOptions.some(
+      (item) => item.subcategoryId === selectedValue || item.subCategoryName === selectedValue
+    );
+    if (alreadyPresent) {
+      return subCategoryOptions;
+    }
+
+    return [
+      {
+        categoryId: formData.categoryId,
+        subcategoryId: formData.subCategoryId,
+        subCategoryName: formData.subCategory || selectedServiceDetail?.name || selectedValue
+      },
+      ...subCategoryOptions
+    ];
+  }, [formData.categoryId, formData.subCategory, formData.subCategoryId, selectedServiceDetail, subCategoryOptions]);
 
   const selectedSubcategory = useMemo(
     () =>
@@ -662,7 +756,7 @@ export default function BookingPage() {
               required
             >
               <option value="">Select service category</option>
-              {categoryOptions.map((category) => (
+              {resolvedCategoryOptions.map((category) => (
                 <option key={`${category.categoryId}-${category.categoryName}`} value={category.categoryId || category.categoryName}>
                   {category.categoryName}
                 </option>
@@ -692,7 +786,7 @@ export default function BookingPage() {
               disabled={Boolean(selectedServiceDetail) || (!formData.categoryId && !formData.serviceCategory)}
             >
               <option value="">Select sub category</option>
-              {subCategoryOptions.map((subCategory) => (
+              {resolvedSubCategoryOptions.map((subCategory) => (
                 <option
                   key={`${subCategory.categoryId}-${subCategory.subcategoryId || subCategory.subCategoryName}`}
                   value={subCategory.subcategoryId || subCategory.subCategoryName}

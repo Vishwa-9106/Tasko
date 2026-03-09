@@ -1,18 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import TaskoBrandMark from "../components/TaskoBrandMark";
-
-const serviceCategories = [
-  "Home Cleaning",
-  "Plumbing",
-  "Electrical",
-  "Appliance Repair",
-  "Carpentry",
-  "Painting",
-  "Driver Services",
-  "Pest Control"
-];
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -39,11 +28,55 @@ export default function ApplyPage() {
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [categoryApplied, setCategoryApplied] = useState([]);
+  const [serviceCategories, setServiceCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState("");
   const [idProofFile, setIdProofFile] = useState(null);
   const [addressProofFile, setAddressProofFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCategories = async () => {
+      setCategoriesLoading(true);
+      setCategoriesError("");
+
+      try {
+        const response = await api.get("/api/service-catalog");
+        const categories = Array.isArray(response.data?.categories)
+          ? response.data.categories
+              .map((category) => (typeof category?.name === "string" ? category.name.trim() : ""))
+              .filter(Boolean)
+          : [];
+
+        if (!isMounted) return;
+
+        setServiceCategories(categories);
+        setCategoryApplied((current) => current.filter((value) => categories.includes(value)));
+
+        if (categories.length === 0) {
+          setCategoriesError("No service categories are available right now.");
+        }
+      } catch (loadError) {
+        if (!isMounted) return;
+        setServiceCategories([]);
+        setCategoriesError(loadError?.response?.data?.message || "Failed to load service categories.");
+      } finally {
+        if (isMounted) {
+          setCategoriesLoading(false);
+        }
+      }
+    };
+
+    loadCategories().catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const toggleCategory = (category) => {
     setCategoryApplied((previous) =>
@@ -60,6 +93,11 @@ export default function ApplyPage() {
 
     if (!fullName.trim() || !phone.trim() || !email.trim() || !address.trim() || categoryApplied.length === 0) {
       setError("Please fill all required fields.");
+      return;
+    }
+
+    if (serviceCategories.length === 0) {
+      setError("Service categories are not available right now.");
       return;
     }
 
@@ -180,22 +218,26 @@ export default function ApplyPage() {
               <div className="worker-auth-fieldset">
                 <p className="worker-auth-field-label">SERVICE CATEGORIES</p>
                 <div className="worker-auth-category-grid" role="group" aria-label="Service categories">
-                  {serviceCategories.map((category) => {
-                    const selected = categoryApplied.includes(category);
-                    return (
-                      <button
-                        key={category}
-                        type="button"
-                        className={`worker-auth-category-btn${selected ? " is-selected" : ""}`}
-                        aria-pressed={selected}
-                        onClick={() => toggleCategory(category)}
-                      >
-                        {category}
-                      </button>
-                    );
-                  })}
+                  {categoriesLoading ? <p className="worker-auth-help">Loading available categories...</p> : null}
+                  {!categoriesLoading && serviceCategories.length > 0
+                    ? serviceCategories.map((category) => {
+                        const selected = categoryApplied.includes(category);
+                        return (
+                          <button
+                            key={category}
+                            type="button"
+                            className={`worker-auth-category-btn${selected ? " is-selected" : ""}`}
+                            aria-pressed={selected}
+                            onClick={() => toggleCategory(category)}
+                          >
+                            {category}
+                          </button>
+                        );
+                      })
+                    : null}
                 </div>
-                <p className="worker-auth-help">Select one or more categories that match your skills.</p>
+                {categoriesError ? <p className="auth-error">{categoriesError}</p> : null}
+                <p className="worker-auth-help">Select one or more categories that are currently available in Tasko.</p>
               </div>
 
               <label className="worker-auth-upload">
