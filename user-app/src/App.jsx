@@ -4,7 +4,6 @@ import PublicOnlyRoute from "./components/PublicOnlyRoute";
 import LandingPage from "./pages/Landing";
 import AuthPage from "./pages/Auth";
 import HomePage from "./pages/Home";
-import AssignsPage from "./pages/Assigns";
 import PackagesPage from "./pages/Packages";
 import BookingPage from "./pages/Booking";
 import ProfilePage from "./pages/Profile";
@@ -46,14 +45,6 @@ export default function App() {
         element={
           <ProtectedRoute>
             <BookingPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/assigns"
-        element={
-          <ProtectedRoute>
-            <AssignsPage />
           </ProtectedRoute>
         }
       />

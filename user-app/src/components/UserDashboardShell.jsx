@@ -5,7 +5,6 @@ import taskoLogo from "../pages/tasko-logo.png";
 
 const navItems = [
   { id: "home", label: "Home", href: "/home" },
-  { id: "assigns", label: "Assigns", href: "/assigns" },
   { id: "packages", label: "Packages", href: "/packages" }
 ];
 

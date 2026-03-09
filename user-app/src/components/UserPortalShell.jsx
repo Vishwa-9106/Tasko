@@ -63,6 +63,20 @@ function writeSeenOtpNotifications(value) {
   localStorage.setItem(seenOtpNotificationStorageKey, JSON.stringify(value));
 }
 
+function markNotificationsAsSeen(notifications) {
+  if (!Array.isArray(notifications) || notifications.length === 0) {
+    return;
+  }
+
+  const nextSeenNotifications = { ...readSeenOtpNotifications() };
+  notifications.forEach((notification) => {
+    if (notification?.id) {
+      nextSeenNotifications[notification.id] = true;
+    }
+  });
+  writeSeenOtpNotifications(nextSeenNotifications);
+}
+
 function normalizeBookingStatus(value) {
   return String(value || "")
     .trim()
@@ -145,8 +159,9 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [cartCount, setCartCount] = useState(0);
-  const [otpNotification, setOtpNotification] = useState(null);
+  const [otpNotifications, setOtpNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const initials = getInitials(user?.displayName || user?.email);
 
   useEffect(() => {
@@ -158,7 +173,7 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
 
   useEffect(() => {
     if (!user?.uid) {
-      setOtpNotification(null);
+      setOtpNotifications([]);
       setNotificationCount(0);
       return undefined;
     }
@@ -176,16 +191,17 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
         .flatMap((booking) => buildOtpNotifications(booking))
         .filter(Boolean)
         .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+      setOtpNotifications(notifications);
+
+      if (isNotificationsOpen) {
+        markNotificationsAsSeen(notifications);
+        setNotificationCount(0);
+        return;
+      }
+
       const seenNotifications = readSeenOtpNotifications();
       const unseenNotifications = notifications.filter((notification) => !seenNotifications[notification.id]);
-
       setNotificationCount(unseenNotifications.length);
-      setOtpNotification((current) => {
-        if (current && unseenNotifications.some((notification) => notification.id === current.id)) {
-          return current;
-        }
-        return unseenNotifications[0] || null;
-      });
     };
 
     syncOtpNotifications().catch(() => {});
@@ -197,17 +213,12 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
       disposed = true;
       window.clearInterval(poll);
     };
-  }, [user?.uid]);
+  }, [isNotificationsOpen, user?.uid]);
 
-  const dismissOtpNotification = () => {
-    if (!otpNotification) return;
-
-    writeSeenOtpNotifications({
-      ...readSeenOtpNotifications(),
-      [otpNotification.id]: true
-    });
-    setOtpNotification(null);
-    setNotificationCount((current) => Math.max(0, current - 1));
+  const openNotifications = () => {
+    setIsNotificationsOpen(true);
+    markNotificationsAsSeen(otpNotifications);
+    setNotificationCount(0);
   };
 
   const goToContact = () => {
@@ -220,25 +231,61 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
 
   return (
     <div className="tasko-portal-page" id="top">
-      {otpNotification ? (
-        <div className="tasko-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tasko-arrival-otp-title">
-          <div className="tasko-modal-card tasko-success-modal-card">
+      {isNotificationsOpen ? (
+        <div
+          className="tasko-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tasko-notification-center-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsNotificationsOpen(false);
+            }
+          }}
+        >
+          <div className="tasko-modal-card tasko-success-modal-card tasko-message-modal-card">
             <div className="tasko-modal-head">
               <div>
-                <p>Notification</p>
-                <h3 id="tasko-arrival-otp-title">{otpNotification.title}</h3>
+                <p>Messages</p>
+                <h3 id="tasko-notification-center-title">Notifications</h3>
               </div>
             </div>
             <div className="tasko-modal-body">
-              <p>{otpNotification.message}</p>
-              <p className="tasko-otp-highlight">OTP: {otpNotification.otp}</p>
+              {otpNotifications.length === 0 ? (
+                <p className="tasko-notification-empty">No messages yet.</p>
+              ) : (
+                <div className="tasko-notification-list">
+                  {otpNotifications.map((notification) => (
+                    <article key={notification.id} className="tasko-notification-item">
+                      <div className="tasko-notification-item-head">
+                        <h4>{notification.title}</h4>
+                        <span className="tasko-notification-tag">
+                          {notification.type === "completion" ? "COMPLETE OTP" : "START OTP"}
+                        </span>
+                      </div>
+                      <p>{notification.message}</p>
+                      <div className="tasko-notification-meta">
+                        <span>Service: {notification.serviceName}</span>
+                        <span>Worker: {notification.workerName}</span>
+                        <span>
+                          {new Date(notification.createdAt).toLocaleString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })}
+                        </span>
+                      </div>
+                      <p className="tasko-otp-highlight">OTP: {notification.otp}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="tasko-modal-actions">
-              <button type="button" className="tasko-secondary-button" onClick={dismissOtpNotification}>
+              <button type="button" className="tasko-secondary-button" onClick={() => setIsNotificationsOpen(false)}>
                 Close
-              </button>
-              <button type="button" onClick={dismissOtpNotification}>
-                OK
               </button>
             </div>
           </div>
@@ -264,7 +311,7 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
             <button
               type="button"
               className="tasko-icon-btn"
-              onClick={() => navigate("/assigns")}
+              onClick={openNotifications}
               aria-label="Open notifications"
               title="Notifications"
             >

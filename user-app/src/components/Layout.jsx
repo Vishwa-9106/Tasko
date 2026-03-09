@@ -27,9 +27,6 @@ export default function Layout({ children }) {
             <NavLink to="/home" className={linkBase}>
               Home
             </NavLink>
-            <NavLink to="/assigns" className={linkBase}>
-              Assigns
-            </NavLink>
             <NavLink to="/packages" className={linkBase}>
               Packages
             </NavLink>

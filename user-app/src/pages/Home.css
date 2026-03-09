@@ -1183,6 +1183,71 @@
   box-shadow: 0 24px 80px rgba(17, 17, 17, 0.16);
 }
 
+.tasko-message-modal-card {
+  width: min(100%, 720px);
+  max-height: min(80vh, 760px);
+}
+
+.tasko-notification-list {
+  display: grid;
+  gap: 0.8rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.tasko-notification-item {
+  border: 1px solid #d0d0d0;
+  border-radius: 14px;
+  background: #f8f8f8;
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.tasko-notification-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.tasko-notification-item-head h4 {
+  margin: 0;
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tasko-notification-tag {
+  min-height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(58, 58, 58, 0.45);
+  background: rgba(198, 167, 94, 0.25);
+  color: #1c1c1c;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 0.58rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tasko-notification-meta {
+  display: grid;
+  gap: 0.35rem;
+  color: #444;
+  font-size: 0.9rem;
+}
+
+.tasko-notification-empty {
+  color: #5f5f5f;
+}
+
 .tasko-service-card {
   min-height: 100%;
 }
