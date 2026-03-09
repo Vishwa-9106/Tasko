@@ -4,7 +4,14 @@ import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
 import { serviceCategories } from "./homeData";
-import { flattenServiceCatalog, normalizeServiceCatalog, normalizeText, toCategoryKey } from "../utils/serviceCatalog";
+import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
+import {
+  buildServicePath,
+  formatServicePrice,
+  matchesServiceFilter,
+  normalizeServicesResponse
+} from "../utils/services";
+import { toCategoryKey } from "../utils/serviceCatalog";
 
 function guessIcon(categoryName) {
   const matched = serviceCategories.find((category) => toCategoryKey(category.name) === toCategoryKey(categoryName));
@@ -14,53 +21,58 @@ function guessIcon(categoryName) {
 export default function ServiceSubcategoriesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [catalog, setCatalog] = useState([]);
+  const [servicesPayload, setServicesPayload] = useState({ categories: [], services: [] });
   const [loading, setLoading] = useState(true);
-  const [detailsItem, setDetailsItem] = useState(null);
   const selectedCategory = searchParams.get("category") || "";
   const search = searchParams.get("search") || "";
 
   useEffect(() => {
-    const loadCatalog = async () => {
-      const response = await api.get("/api/service-catalog");
-      setCatalog(normalizeServiceCatalog(response.data));
+    const loadServices = async () => {
+      const cached = readSessionCache("services:list:v1", 5 * 60 * 1000);
+      if (cached) {
+        setServicesPayload(normalizeServicesResponse(cached));
+        setLoading(false);
+        return;
+      }
+
+      const response = await api.get("/api/services", {
+        params: { status: "active" }
+      });
+      writeSessionCache("services:list:v1", response.data);
+      setServicesPayload(normalizeServicesResponse(response.data));
       setLoading(false);
     };
 
-    loadCatalog()
+    loadServices()
       .catch(() => {
-        setCatalog(normalizeServiceCatalog({}));
+        setServicesPayload({ categories: [], services: [] });
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const availableCategories = useMemo(() => catalog.map((category) => category.name).filter(Boolean), [catalog]);
+  const availableCategories = useMemo(() => {
+    if (servicesPayload.categories.length > 0) {
+      return servicesPayload.categories;
+    }
 
-  const subcategories = useMemo(() => {
-    const normalizedSelected = toCategoryKey(selectedCategory);
-    const normalizedSearch = normalizeText(search);
+    return Array.from(new Set(servicesPayload.services.map((service) => service.category))).sort((left, right) =>
+      left.localeCompare(right)
+    );
+  }, [servicesPayload]);
 
-    return flattenServiceCatalog(catalog).filter((item) => {
-      if (normalizedSelected && toCategoryKey(item.categoryName) !== normalizedSelected) {
-        return false;
-      }
+  const services = useMemo(
+    () => servicesPayload.services.filter((service) => matchesServiceFilter(service, selectedCategory, search)),
+    [search, selectedCategory, servicesPayload]
+  );
 
-      if (!normalizedSearch) {
-        return true;
-      }
-
-      return normalizeText(`${item.categoryName} ${item.subCategoryName}`).includes(normalizedSearch);
-    });
-  }, [catalog, search, selectedCategory]);
-
-  const pageTitle = selectedCategory ? `${selectedCategory} Subcategories` : "Service Subcategories";
+  const pageTitle = selectedCategory ? `${selectedCategory} Services` : "Service Discovery";
 
   return (
     <UserPortalShell activeNav="home">
       <section className="tasko-page-header">
         <p>Service Discovery</p>
         <h1>{pageTitle}</h1>
-        <p>Check pricing details first, then continue to booking with the exact service.</p>
+        <p>Explore full service details, compare pricing tiers, add-ons, and continue to booking.</p>
       </section>
 
       <section className="tasko-content-panel">
@@ -91,12 +103,12 @@ export default function ServiceSubcategoriesPage() {
               event.preventDefault();
             }}
           >
-            <label htmlFor="subcat-search" className="sr-only">
-              Search subcategories
+            <label htmlFor="service-search" className="sr-only">
+              Search services
             </label>
             <SearchIcon className="tasko-search-icon" />
             <input
-              id="subcat-search"
+              id="service-search"
               type="search"
               value={search}
               onChange={(event) => {
@@ -109,38 +121,37 @@ export default function ServiceSubcategoriesPage() {
                 }
                 setSearchParams(next);
               }}
-              placeholder="Search subcategories"
+              placeholder="Search services"
             />
           </form>
         </div>
 
         {loading ? <p className="tasko-empty-state">Loading services...</p> : null}
 
-        {!loading && subcategories.length === 0 ? (
-          <p className="tasko-empty-state">No subcategories found for the selected filter.</p>
+        {!loading && services.length === 0 ? (
+          <p className="tasko-empty-state">No services found for the selected filter.</p>
         ) : (
           <div className="tasko-subcategory-grid">
-            {subcategories.map((item) => (
-              <article key={`${item.categoryId}-${item.subcategoryId || item.subCategoryName}`} className="tasko-card">
+            {services.map((service) => (
+              <article key={service.id || `${service.categorySlug}-${service.slug}`} className="tasko-card tasko-service-card">
                 <span className="tasko-card-icon">
-                  <CategoryIcon name={guessIcon(item.categoryName)} className="tasko-line-icon" />
+                  <CategoryIcon name={guessIcon(service.category)} className="tasko-line-icon" />
                 </span>
-                <h3>{item.subCategoryName}</h3>
-                <p>{item.categoryName}</p>
-                <p className="tasko-service-price">{item.priceSummary}</p>
+                <div className="tasko-service-card-copy">
+                  <h3>{service.name}</h3>
+                  <p>{service.category}</p>
+                  <p className="tasko-service-card-description">{service.description}</p>
+                </div>
+                <div className="tasko-service-card-meta">
+                  <p className="tasko-service-price">Starting {formatServicePrice(service.startingPrice || service.basePrice)}</p>
+                  <p>{service.duration || "Flexible duration"}</p>
+                  <p>
+                    ⭐ {service.rating.toFixed(1)} ({service.reviewCount} reviews)
+                  </p>
+                </div>
                 <div className="tasko-card-actions">
-                  <button type="button" className="tasko-secondary-button" onClick={() => setDetailsItem(item)}>
+                  <button type="button" onClick={() => navigate(buildServicePath(service))}>
                     View Details
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate(
-                        `/booking?categoryId=${encodeURIComponent(item.categoryId)}&category=${encodeURIComponent(item.categoryName)}&subcategoryId=${encodeURIComponent(item.subcategoryId || "")}&subcategory=${encodeURIComponent(item.subCategoryName)}`
-                      )
-                    }
-                  >
-                    Book Now
                   </button>
                 </div>
               </article>
@@ -148,51 +159,6 @@ export default function ServiceSubcategoriesPage() {
           </div>
         )}
       </section>
-
-      {detailsItem ? (
-        <div className="tasko-modal-overlay" onClick={() => setDetailsItem(null)}>
-          <div className="tasko-modal-card" onClick={(event) => event.stopPropagation()}>
-            <div className="tasko-modal-head">
-              <div>
-                <p>Pricing Details</p>
-                <h3>{detailsItem.subCategoryName}</h3>
-              </div>
-              <button type="button" className="tasko-secondary-button" onClick={() => setDetailsItem(null)}>
-                Close
-              </button>
-            </div>
-            <div className="tasko-modal-body">
-              <p>
-                <strong>Category:</strong> {detailsItem.categoryName}
-              </p>
-              <p>
-                <strong>Price:</strong> {detailsItem.priceSummary}
-              </p>
-              <p>
-                <strong>Pricing Model:</strong> {String(detailsItem.pricingType || "fixed").replace(/_/g, " ")}
-              </p>
-              <p>
-                <strong>Notes:</strong> {detailsItem.pricingNotes || "No extra pricing note."}
-              </p>
-            </div>
-            <div className="tasko-card-actions">
-              <button type="button" className="tasko-secondary-button" onClick={() => setDetailsItem(null)}>
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  navigate(
-                    `/booking?categoryId=${encodeURIComponent(detailsItem.categoryId)}&category=${encodeURIComponent(detailsItem.categoryName)}&subcategoryId=${encodeURIComponent(detailsItem.subcategoryId || "")}&subcategory=${encodeURIComponent(detailsItem.subCategoryName)}`
-                  )
-                }
-              >
-                Book Now
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </UserPortalShell>
   );
 }

@@ -6,6 +6,7 @@ import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
 import { ensurePackagesBootstrapData, registerPackageRoutes } from "./packagesRoutes";
+import { ensureServicesBootstrapData, getServiceDetailById, registerServiceRoutes } from "./serviceRoutes";
 import { buildPriceSummary, normalizeServicePricing } from "./servicePricing";
 import { registerTaskoMartRoutes } from "./taskomartRoutes";
 import { getServiceCatalogEntry, registerWorkerHiringRoutes } from "./workerHiringRoutes";
@@ -1015,28 +1016,14 @@ registerWorkerHiringRoutes(app, {
   validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
 });
 
+registerServiceRoutes(app, {
+  validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
+});
+
 registerTaskoMartRoutes(app, {
   validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
 });
 registerPackageRoutes(app);
-
-app.get("/api/services", async (req: Request, res: Response) => {
-  const limit = readQueryLimit(req.query.limit, 20, 100);
-  const cacheKey = `services:limit:${limit}`;
-  const cachedServices = getDashboardReadCache<Array<Record<string, unknown>>>(cacheKey);
-  if (cachedServices) {
-    return res.json(cachedServices);
-  }
-
-  try {
-    const snapshot = await db.collection("services").limit(limit).get();
-    const services = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    setDashboardReadCache(cacheKey, services);
-    res.json(services);
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch services", error });
-  }
-});
 
 app.post("/api/users/register", async (req: Request, res: Response) => {
   try {
@@ -1355,8 +1342,65 @@ app.get("/api/admin/users", async (req: Request, res: Response) => {
 app.post("/api/bookings", async (req: Request, res: Response) => {
   try {
     const readText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+    const formatCurrency = (value: number) =>
+      new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        maximumFractionDigits: 0
+      }).format(value);
+    const readStringList = (value: unknown): string[] => {
+      if (Array.isArray(value)) {
+        return value
+          .map((entry) => readText(entry))
+          .filter(Boolean);
+      }
+      if (typeof value === "string" && value.trim()) {
+        return value
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      }
+      return [];
+    };
+    const readRecord = (value: unknown): Record<string, unknown> | null => {
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+      }
+      if (typeof value === "string" && value.trim()) {
+        try {
+          const parsed = JSON.parse(value);
+          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+            return parsed as Record<string, unknown>;
+          }
+        } catch (_error) {
+          return null;
+        }
+      }
+      return null;
+    };
+    const readRecordList = (value: unknown): Array<Record<string, unknown>> => {
+      if (Array.isArray(value)) {
+        return value.filter(
+          (entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null
+        );
+      }
+      if (typeof value === "string" && value.trim()) {
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) {
+            return parsed.filter(
+              (entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null
+            );
+          }
+        } catch (_error) {
+          return [];
+        }
+      }
+      return [];
+    };
 
     const userId = readText(req.body.userId);
+    const requestedServiceId = readText(req.body.serviceId);
     const requestedCategoryId =
       readText(req.body.categoryId) ||
       readText(req.body.serviceCategoryId) ||
@@ -1377,9 +1421,22 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     const recurringDays = serviceType === "package" ? readText(req.body.recurringDays) : "";
     const specialInstructions = readText(req.body.specialInstructions) || readText(req.body.notes);
     const directAddress = readText(req.body.address) || readText(req.body.serviceAddress);
+    const requestedPricingOptionId =
+      readText(req.body.pricingOptionId) ||
+      readText(readRecord(req.body.selectedPricingOption)?.id);
+    const requestedAddonIds = new Set<string>([
+      ...readStringList(req.body.addonIds),
+      ...readStringList(req.body.selectedAddonIds),
+      ...readRecordList(req.body.selectedAddons).map((entry) => readText(entry.id))
+    ]);
     let userName = readText(req.body.userName);
     let userEmail = readText(req.body.userEmail);
     let userPhone = readText(req.body.userPhone) || readText(req.body.mobile) || readText(req.body.number);
+    const serviceDetail = requestedServiceId ? await getServiceDetailById(requestedServiceId) : null;
+
+    if (requestedServiceId && !serviceDetail) {
+      return res.status(400).json({ message: "Selected service is invalid." });
+    }
 
     const catalogEntry = await getServiceCatalogEntry({
       categoryId: requestedCategoryId,
@@ -1388,11 +1445,14 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       subcategoryName: subCategory
     });
 
-    if (requestedSubcategoryId && !catalogEntry) {
+    if (requestedSubcategoryId && !catalogEntry && !serviceDetail) {
       return res.status(400).json({ message: "Selected subcategory is invalid." });
     }
 
-    if (catalogEntry) {
+    if (serviceDetail) {
+      serviceCategory = serviceDetail.service.category;
+      subCategory = serviceDetail.service.name;
+    } else if (catalogEntry) {
       serviceCategory = catalogEntry.category.name;
       subCategory = catalogEntry.subcategory.name;
     }
@@ -1453,8 +1513,45 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       },
       subCategory
     );
-    const pricing = catalogEntry
+    const servicePricingSelection = serviceDetail
       ? {
+          selectedPricingOption:
+            serviceDetail.pricingOptions.find((option) => option.id === requestedPricingOptionId) ||
+            serviceDetail.pricingOptions.sort((left, right) => left.order - right.order)[0] ||
+            null,
+          selectedAddons: serviceDetail.addons.filter((addon) => requestedAddonIds.has(addon.id))
+        }
+      : null;
+
+    if (serviceDetail && requestedPricingOptionId && !servicePricingSelection?.selectedPricingOption) {
+      return res.status(400).json({ message: "Selected pricing option is invalid." });
+    }
+
+    const serviceBasePrice = servicePricingSelection?.selectedPricingOption?.price ?? serviceDetail?.service.basePrice ?? 0;
+    const addonsPrice =
+      servicePricingSelection?.selectedAddons.reduce((sum, addon) => sum + addon.price, 0) || 0;
+    const totalPrice =
+      Number.isFinite(Number(req.body.totalPrice)) && Number(req.body.totalPrice) >= 0
+        ? Number(req.body.totalPrice)
+        : serviceBasePrice + addonsPrice;
+
+    const pricing = serviceDetail
+      ? {
+          pricingType: serviceDetail.service.pricingType || "tiered",
+          price: serviceBasePrice,
+          unitLabel: "",
+          pricingNotes:
+            servicePricingSelection?.selectedPricingOption?.description ||
+            serviceDetail.service.description ||
+            "",
+          priceSummary:
+            servicePricingSelection?.selectedPricingOption?.title
+              ? `${servicePricingSelection.selectedPricingOption.title} • ${formatCurrency(serviceBasePrice)}`
+              : formatCurrency(serviceBasePrice),
+          isVariablePrice: false
+        }
+      : catalogEntry
+        ? {
           pricingType: catalogEntry.subcategory.pricingType,
           price: catalogEntry.subcategory.price,
           unitLabel: catalogEntry.subcategory.unitLabel,
@@ -1462,16 +1559,23 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
           priceSummary: buildPriceSummary(catalogEntry.subcategory),
           isVariablePrice: catalogEntry.subcategory.pricingType !== "fixed"
         }
-      : pricingFromRequest;
-    const priceStatus =
-      pricing.price === null ? "pending" : pricing.isVariablePrice ? "estimated" : "fixed";
+        : pricingFromRequest;
+    const priceStatus = serviceDetail
+      ? "fixed"
+      : pricing.price === null
+        ? "pending"
+        : pricing.isVariablePrice
+          ? "estimated"
+          : "fixed";
 
     const bookingRef = db.collection("bookings").doc();
     await bookingRef.set({
       booking_id: bookingRef.id,
       user_id: userId,
-      service_category_id: catalogEntry?.category.id || requestedCategoryId || "",
-      sub_category_id: catalogEntry?.subcategory.id || requestedSubcategoryId || "",
+      service_category_id:
+        catalogEntry?.category.id || serviceDetail?.service.categorySlug || requestedCategoryId || "",
+      sub_category_id:
+        catalogEntry?.subcategory.id || serviceDetail?.service.id || requestedSubcategoryId || "",
       booking_date: serviceDate,
       time_slot: preferredTimeSlot,
       address,
@@ -1479,15 +1583,27 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       assigned_worker_id: "",
       created_at: timestamp(),
       userId,
-      serviceCategoryId: catalogEntry?.category.id || requestedCategoryId || "",
+      serviceId: serviceDetail?.service.id || "",
+      serviceSlug: serviceDetail?.service.slug || "",
+      serviceCategorySlug: serviceDetail?.service.categorySlug || "",
+      serviceName: serviceDetail?.service.name || "",
+      serviceImage: serviceDetail?.service.image || "",
+      selectedPricingOptionId: servicePricingSelection?.selectedPricingOption?.id || "",
+      selectedPricingOptionTitle: servicePricingSelection?.selectedPricingOption?.title || "",
+      selectedPricingOption: servicePricingSelection?.selectedPricingOption || null,
+      selectedAddonIds: servicePricingSelection?.selectedAddons.map((addon) => addon.id) || [],
+      selectedAddons: servicePricingSelection?.selectedAddons || [],
+      addonsPrice,
+      totalPrice,
+      serviceCategoryId: catalogEntry?.category.id || serviceDetail?.service.categorySlug || requestedCategoryId || "",
       serviceCategory,
-      subCategoryId: catalogEntry?.subcategory.id || requestedSubcategoryId || "",
+      subCategoryId: catalogEntry?.subcategory.id || serviceDetail?.service.id || requestedSubcategoryId || "",
       subCategory,
       serviceType,
       workDescription,
       serviceDate,
       preferredTimeSlot,
-      duration,
+      duration: duration || serviceDetail?.service.duration || "",
       recurringDays,
       specialInstructions,
       category: subCategory || serviceCategory,
@@ -1878,7 +1994,8 @@ async function runStartupTasks(): Promise<void> {
   const startupTasks: Array<{ label: string; run: () => Promise<void> }> = [
     { label: "load persisted admin sessions", run: loadPersistedAdminSessions },
     { label: "ensure admin account", run: ensureAdminAccount },
-    { label: "ensure package bootstrap data", run: ensurePackagesBootstrapData }
+    { label: "ensure package bootstrap data", run: ensurePackagesBootstrapData },
+    { label: "ensure service bootstrap data", run: ensureServicesBootstrapData }
   ];
 
   for (const task of startupTasks) {

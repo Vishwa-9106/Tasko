@@ -8,6 +8,7 @@ import AssignsPage from "./pages/Assigns";
 import PackagesPage from "./pages/Packages";
 import BookingPage from "./pages/Booking";
 import ProfilePage from "./pages/Profile";
+import ServiceDetailsPage from "./pages/ServiceDetails";
 import ServiceSubcategoriesPage from "./pages/ServiceSubcategories";
 import TaskoMartPage from "./pages/TaskoMart";
 import CartPage from "./pages/Cart";
@@ -61,6 +62,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <PackagesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/services/:category/:serviceSlug"
+        element={
+          <ProtectedRoute>
+            <ServiceDetailsPage />
           </ProtectedRoute>
         }
       />

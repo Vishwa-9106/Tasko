@@ -1156,6 +1156,273 @@
   color: #555;
 }
 
+.tasko-service-card {
+  min-height: 100%;
+}
+
+.tasko-service-card-copy,
+.tasko-service-card-meta {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.tasko-service-card-description,
+.tasko-service-body-copy {
+  color: #555;
+  line-height: 1.7;
+}
+
+.tasko-service-details-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.tasko-service-details-copy,
+.tasko-service-details-media {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.tasko-service-category-pill {
+  display: inline-flex;
+  width: fit-content;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(183, 151, 77, 0.36);
+  background: rgba(198, 167, 94, 0.14);
+  color: #6a5525;
+  padding: 0.35rem 0.7rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tasko-service-details-copy h2 {
+  margin: 0;
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+}
+
+.tasko-service-rating {
+  margin: 0;
+  color: #444;
+}
+
+.tasko-service-details-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.tasko-service-details-meta div,
+.tasko-booking-service-summary-total {
+  border: 1px solid rgba(183, 151, 77, 0.22);
+  background: rgba(198, 167, 94, 0.08);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+}
+
+.tasko-service-details-meta span,
+.tasko-booking-service-summary-total span,
+.tasko-service-summary-grid span {
+  display: block;
+  color: #6b7782;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-service-details-meta strong,
+.tasko-booking-service-summary-total strong,
+.tasko-service-summary-grid strong {
+  display: block;
+  margin-top: 0.35rem;
+  color: #1d1d1d;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+}
+
+.tasko-service-details-image,
+.tasko-service-image-fallback {
+  width: 100%;
+  min-height: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(58, 58, 58, 0.14);
+}
+
+.tasko-service-details-image {
+  object-fit: cover;
+  aspect-ratio: 4 / 3;
+}
+
+.tasko-service-image-fallback {
+  display: grid;
+  align-content: center;
+  gap: 0.55rem;
+  background: linear-gradient(135deg, rgba(198, 167, 94, 0.18), rgba(17, 17, 17, 0.04));
+  padding: 1.2rem;
+}
+
+.tasko-service-image-fallback span {
+  color: #6b7782;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.tasko-service-image-fallback strong {
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1.35rem;
+}
+
+.tasko-service-option-grid,
+.tasko-service-summary-grid,
+.tasko-service-details-grid,
+.tasko-booking-addon-grid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.tasko-service-option-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasko-service-option-card,
+.tasko-service-addon-item,
+.tasko-booking-addon-item {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border: 1px solid rgba(58, 58, 58, 0.14);
+  border-radius: 16px;
+  background: #fff;
+  padding: 0.95rem 1rem;
+}
+
+.tasko-service-option-card input,
+.tasko-service-addon-item input,
+.tasko-booking-addon-item input {
+  margin-top: 0.22rem;
+}
+
+.tasko-service-option-card.is-selected {
+  border-color: rgba(183, 151, 77, 0.65);
+  box-shadow: 0 0 0 2px rgba(198, 167, 94, 0.12);
+}
+
+.tasko-service-option-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.tasko-service-option-head strong,
+.tasko-service-option-head span {
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+}
+
+.tasko-service-addon-list,
+.tasko-service-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.tasko-service-list {
+  margin: 0;
+  padding-left: 1rem;
+  color: #555;
+}
+
+.tasko-service-details-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tasko-service-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasko-service-summary-grid p {
+  margin: 0;
+  border: 1px solid rgba(58, 58, 58, 0.12);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  background: #fff;
+}
+
+.tasko-service-summary-grid p.is-total {
+  border-color: rgba(183, 151, 77, 0.4);
+  background: rgba(198, 167, 94, 0.08);
+}
+
+.tasko-sticky-booking-bar {
+  position: sticky;
+  bottom: 0.8rem;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.8rem 0;
+  border: 1px solid rgba(58, 58, 58, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  padding: 0.85rem 1rem;
+}
+
+.tasko-sticky-booking-bar span {
+  display: block;
+  color: #6b7782;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.tasko-sticky-booking-bar strong {
+  color: #111;
+  font-family: "Montserrat", sans-serif;
+}
+
+.tasko-booking-service-summary {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 0.8rem;
+  border: 1px solid rgba(183, 151, 77, 0.22);
+  background: rgba(198, 167, 94, 0.08);
+  border-radius: 16px;
+  padding: 1rem;
+}
+
+.tasko-booking-service-summary h3 {
+  margin: 0.2rem 0 0;
+}
+
+.tasko-booking-service-summary p {
+  margin: 0.3rem 0 0;
+  color: #555;
+}
+
+.tasko-booking-addon-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tasko-booking-addon-item span {
+  color: #333;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
 .tasko-site-footer {
   margin-top: 1rem;
   border-top: 1px solid #151515;
@@ -1230,6 +1497,15 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .tasko-service-details-hero,
+  .tasko-service-details-grid,
+  .tasko-service-summary-grid,
+  .tasko-booking-service-summary,
+  .tasko-booking-addon-grid,
+  .tasko-service-option-grid {
+    grid-template-columns: 1fr;
+  }
+
   .tasko-cart-layout {
     grid-template-columns: 1fr;
   }
@@ -1290,8 +1566,13 @@
   .tasko-booking-stats,
   .tasko-booking-grid,
   .tasko-booking-form,
-  .tasko-booking-meta-grid {
+  .tasko-booking-meta-grid,
+  .tasko-service-details-meta {
     grid-template-columns: 1fr;
+  }
+
+  .tasko-sticky-booking-bar {
+    display: flex;
   }
 
   .tasko-cart-item {

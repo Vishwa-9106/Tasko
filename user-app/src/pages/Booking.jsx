@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import UserPortalShell from "../components/UserPortalShell";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import { buildPriceSummary, flattenServiceCatalog, normalizeServiceCatalog, normalizeText } from "../utils/serviceCatalog";
+import { calculateServiceTotal, formatServicePrice, normalizeServiceDetail } from "../utils/services";
 
 const tabs = [
   { id: "current", label: "Current" },
@@ -170,6 +171,17 @@ export default function BookingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [updatingBookingId, setUpdatingBookingId] = useState("");
+  const [selectedServiceDetail, setSelectedServiceDetail] = useState(null);
+  const [serviceDetailLoading, setServiceDetailLoading] = useState(false);
+  const [selectedServicePricingOptionId, setSelectedServicePricingOptionId] = useState(
+    searchParams.get("pricingOptionId") || ""
+  );
+  const [selectedServiceAddonIds, setSelectedServiceAddonIds] = useState(
+    (searchParams.get("addonIds") || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  );
 
   const [formData, setFormData] = useState({
     categoryId: searchParams.get("categoryId") || "",
@@ -211,6 +223,39 @@ export default function BookingPage() {
     });
   }, []);
 
+  useEffect(() => {
+    const serviceId = searchParams.get("serviceId");
+    if (!serviceId) {
+      setSelectedServiceDetail(null);
+      setServiceDetailLoading(false);
+      return;
+    }
+
+    const cacheKey = `service:booking:${serviceId}`;
+
+    const loadServiceDetail = async () => {
+      const cached = readSessionCache(cacheKey, 5 * 60 * 1000);
+      if (cached) {
+        const normalized = normalizeServiceDetail(cached);
+        setSelectedServiceDetail(normalized);
+        setServiceDetailLoading(false);
+        return;
+      }
+
+      const response = await api.get(`/api/services/id/${encodeURIComponent(serviceId)}`);
+      writeSessionCache(cacheKey, response.data);
+      setSelectedServiceDetail(normalizeServiceDetail(response.data));
+      setServiceDetailLoading(false);
+    };
+
+    setServiceDetailLoading(true);
+    loadServiceDetail()
+      .catch(() => {
+        setSelectedServiceDetail(null);
+      })
+      .finally(() => setServiceDetailLoading(false));
+  }, [searchParams]);
+
   const serviceCatalog = useMemo(() => flattenServiceCatalog(catalogCategories), [catalogCategories]);
 
   useEffect(() => {
@@ -230,6 +275,32 @@ export default function BookingPage() {
       subCategory: selection.subCategoryName
     }));
   }, [searchParams, serviceCatalog]);
+
+  useEffect(() => {
+    if (!selectedServiceDetail) {
+      return;
+    }
+
+    setSelectedServicePricingOptionId(
+      (current) => current || searchParams.get("pricingOptionId") || selectedServiceDetail.pricingOptions[0]?.id || ""
+    );
+    setSelectedServiceAddonIds((current) =>
+      current.length > 0
+        ? current
+        : (searchParams.get("addonIds") || "")
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+    );
+    setFormData((current) => ({
+      ...current,
+      categoryId: current.categoryId || selectedServiceDetail.categorySlug,
+      serviceCategory: selectedServiceDetail.category,
+      subCategoryId: selectedServiceDetail.id,
+      subCategory: selectedServiceDetail.name,
+      duration: current.duration || selectedServiceDetail.duration || ""
+    }));
+  }, [searchParams, selectedServiceDetail]);
 
   const loadBookings = useCallback(async () => {
     if (!user?.uid) {
@@ -304,6 +375,24 @@ export default function BookingPage() {
     [formData.categoryId, formData.serviceCategory, formData.subCategory, formData.subCategoryId, serviceCatalog]
   );
 
+  const selectedServicePricingOption = useMemo(
+    () =>
+      selectedServiceDetail?.pricingOptions.find((option) => option.id === selectedServicePricingOptionId) ||
+      selectedServiceDetail?.pricingOptions[0] ||
+      null,
+    [selectedServiceDetail, selectedServicePricingOptionId]
+  );
+
+  const selectedServiceAddons = useMemo(
+    () => (selectedServiceDetail?.addons || []).filter((addon) => selectedServiceAddonIds.includes(addon.id)),
+    [selectedServiceAddonIds, selectedServiceDetail]
+  );
+
+  const selectedServicePriceSummary = useMemo(
+    () => calculateServiceTotal(selectedServicePricingOption, selectedServiceAddons),
+    [selectedServiceAddons, selectedServicePricingOption]
+  );
+
   const packageOptions = useMemo(
     () =>
       packages.map((pkg) => ({
@@ -357,8 +446,30 @@ export default function BookingPage() {
     event.preventDefault();
     if (!user) return;
 
+    const isServiceFlow = Boolean(selectedServiceDetail);
+    const selectedPricingPayload = selectedServicePricingOption
+      ? {
+          id: selectedServicePricingOption.id,
+          title: selectedServicePricingOption.title,
+          description: selectedServicePricingOption.description,
+          price: selectedServicePricingOption.price,
+          order: selectedServicePricingOption.order
+        }
+      : null;
+    const selectedAddonsPayload = selectedServiceAddons.map((addon) => ({
+      id: addon.id,
+      title: addon.title,
+      description: addon.description,
+      price: addon.price
+    }));
+
     if (!formData.serviceCategory || !formData.subCategory || !formData.serviceDate || !formData.preferredTimeSlot) {
       setFormMessage("Please provide category, sub category, service date and preferred time slot.");
+      return;
+    }
+
+    if (isServiceFlow && !selectedPricingPayload) {
+      setFormMessage("Please choose a pricing option before booking.");
       return;
     }
 
@@ -380,28 +491,42 @@ export default function BookingPage() {
         userId: user.uid,
         userName: user.displayName || "",
         userEmail: user.email || "",
+        serviceId: selectedServiceDetail?.id || "",
+        serviceSlug: selectedServiceDetail?.slug || "",
+        serviceCategorySlug: selectedServiceDetail?.categorySlug || "",
         categoryId: selectedSubcategory?.categoryId || formData.categoryId,
-        serviceCategory: formData.serviceCategory,
-        subCategoryId: selectedSubcategory?.subcategoryId || formData.subCategoryId,
-        subCategory: formData.subCategory,
+        serviceCategory: selectedServiceDetail?.category || formData.serviceCategory,
+        subCategoryId: selectedServiceDetail?.id || selectedSubcategory?.subcategoryId || formData.subCategoryId,
+        subCategory: selectedServiceDetail?.name || formData.subCategory,
         serviceType: formData.serviceType,
         workDescription: formData.workDescription,
         serviceDate: formData.serviceDate,
         preferredTimeSlot: formData.preferredTimeSlot,
-        duration: formData.duration,
+        duration: formData.duration || selectedServiceDetail?.duration || "",
         recurringDays: formData.serviceType === "package" ? formData.recurringDays : "",
         specialInstructions: formData.specialInstructions,
-        category: formData.subCategory || formData.serviceCategory,
+        category: selectedServiceDetail?.name || formData.subCategory || formData.serviceCategory,
         date: formData.serviceDate,
         time: formData.preferredTimeSlot,
         notes: formData.specialInstructions,
         planType: formData.serviceType,
         packageId: formData.serviceType === "package" ? formData.packageId : "",
-        pricingType: selectedSubcategory?.pricingType || "fixed",
-        price: selectedSubcategory?.price,
-        unitLabel: selectedSubcategory?.unitLabel || "",
-        pricingNotes: selectedSubcategory?.pricingNotes || "",
-        priceSummary: selectedSubcategory?.priceSummary || buildPriceSummary(selectedSubcategory || {})
+        pricingOptionId: selectedPricingPayload?.id || "",
+        selectedPricingOption: selectedPricingPayload,
+        addonIds: selectedAddonsPayload.map((addon) => addon.id),
+        selectedAddons: selectedAddonsPayload,
+        totalPrice: isServiceFlow ? selectedServicePriceSummary.totalPrice : undefined,
+        pricingType: isServiceFlow ? selectedServiceDetail?.pricingType || "tiered" : selectedSubcategory?.pricingType || "fixed",
+        price: isServiceFlow ? selectedServicePricingOption?.price : selectedSubcategory?.price,
+        unitLabel: isServiceFlow ? "" : selectedSubcategory?.unitLabel || "",
+        pricingNotes:
+          isServiceFlow
+            ? selectedPricingPayload?.description || selectedServiceDetail?.description || ""
+            : selectedSubcategory?.pricingNotes || "",
+        priceSummary:
+          isServiceFlow
+            ? `${selectedPricingPayload?.title || "Selected tier"} • ${formatServicePrice(selectedServicePriceSummary.totalPrice)} total`
+            : selectedSubcategory?.priceSummary || buildPriceSummary(selectedSubcategory || {})
       });
 
       setFormData((current) => ({
@@ -487,11 +612,37 @@ export default function BookingPage() {
           <h2>New Booking</h2>
         </div>
 
+        {serviceDetailLoading ? <p className="tasko-empty-state">Loading selected service...</p> : null}
+
+        {selectedServiceDetail ? (
+          <div className="tasko-booking-service-summary">
+            <div>
+              <p className="tasko-pricing-summary-label">Selected Service</p>
+              <h3>{selectedServiceDetail.name}</h3>
+              <p>
+                {selectedServiceDetail.category} • {selectedServiceDetail.duration || "Flexible duration"}
+              </p>
+              <p>
+                {selectedServicePricingOption?.title || "Pricing option"} •{" "}
+                {formatServicePrice(selectedServicePriceSummary.basePrice)}
+              </p>
+              {selectedServiceAddons.length > 0 ? (
+                <p>Add-ons: {selectedServiceAddons.map((addon) => addon.title).join(", ")}</p>
+              ) : null}
+            </div>
+            <div className="tasko-booking-service-summary-total">
+              <span>Total</span>
+              <strong>{formatServicePrice(selectedServicePriceSummary.totalPrice)}</strong>
+            </div>
+          </div>
+        ) : null}
+
         <form className="tasko-booking-form" onSubmit={handleSubmit}>
           <label className="tasko-booking-field">
             <span>Service Category</span>
             <select
               value={formData.categoryId || formData.serviceCategory}
+              disabled={Boolean(selectedServiceDetail)}
               onChange={(event) =>
                 setFormData((current) => {
                   const nextCategory =
@@ -538,7 +689,7 @@ export default function BookingPage() {
                 })
               }
               required
-              disabled={!formData.categoryId && !formData.serviceCategory}
+              disabled={Boolean(selectedServiceDetail) || (!formData.categoryId && !formData.serviceCategory)}
             >
               <option value="">Select sub category</option>
               {subCategoryOptions.map((subCategory) => (
@@ -570,6 +721,23 @@ export default function BookingPage() {
               <option value="package">Package</option>
             </select>
           </label>
+
+          {selectedServiceDetail ? (
+            <label className="tasko-booking-field">
+              <span>Pricing Option</span>
+              <select
+                value={selectedServicePricingOption?.id || ""}
+                onChange={(event) => setSelectedServicePricingOptionId(event.target.value)}
+                required
+              >
+                {selectedServiceDetail.pricingOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.title} - {formatServicePrice(option.price)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
           {formData.serviceType === "package" ? (
             <label className="tasko-booking-field">
@@ -655,10 +823,45 @@ export default function BookingPage() {
             />
           </label>
 
+          {selectedServiceDetail?.addons?.length ? (
+            <div className="tasko-booking-field full">
+              <span>Optional Add-ons</span>
+              <div className="tasko-booking-addon-grid">
+                {selectedServiceDetail.addons.map((addon) => {
+                  const checked = selectedServiceAddonIds.includes(addon.id);
+                  return (
+                    <label key={addon.id} className="tasko-booking-addon-item">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setSelectedServiceAddonIds((current) =>
+                            checked ? current.filter((id) => id !== addon.id) : [...current, addon.id]
+                          )
+                        }
+                      />
+                      <span>
+                        {addon.title} (+{formatServicePrice(addon.price)})
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div className="tasko-pricing-summary">
             <p className="tasko-pricing-summary-label">Pricing Snapshot</p>
-            <h3>{selectedSubcategory?.priceSummary || "Select a sub category to view pricing."}</h3>
-            <p>{selectedSubcategory?.pricingNotes || "Price details from the catalog will appear here before confirmation."}</p>
+            <h3>
+              {selectedServiceDetail
+                ? `${formatServicePrice(selectedServicePriceSummary.totalPrice)} total`
+                : selectedSubcategory?.priceSummary || "Select a sub category to view pricing."}
+            </h3>
+            <p>
+              {selectedServiceDetail
+                ? `${selectedServicePricingOption?.title || "Selected tier"} with ${selectedServiceAddons.length} add-on(s).`
+                : selectedSubcategory?.pricingNotes || "Price details from the catalog will appear here before confirmation."}
+            </p>
           </div>
 
           <div className="tasko-booking-actions-row">
@@ -736,6 +939,15 @@ export default function BookingPage() {
                       <strong>Price:</strong> {booking.priceSummary || buildPriceSummary(booking)}
                     </p>
                     <p>
+                      <strong>Total Price:</strong>{" "}
+                      {Number.isFinite(Number(booking.totalPrice))
+                        ? formatServicePrice(Number(booking.totalPrice))
+                        : booking.priceSummary || buildPriceSummary(booking)}
+                    </p>
+                    <p>
+                      <strong>Pricing Option:</strong> {booking.selectedPricingOptionTitle || "-"}
+                    </p>
+                    <p>
                       <strong>Price Status:</strong> {toStatusLabel(booking.priceStatus || "pending")}
                     </p>
                     <p>
@@ -772,6 +984,16 @@ export default function BookingPage() {
                   <p className="tasko-booking-notes">
                     <strong>Pricing Notes:</strong> {booking.pricingNotes || "No extra pricing note."}
                   </p>
+
+                  {Array.isArray(booking.selectedAddons) && booking.selectedAddons.length > 0 ? (
+                    <p className="tasko-booking-notes">
+                      <strong>Add-ons:</strong>{" "}
+                      {booking.selectedAddons
+                        .map((addon) => addon?.title || addon?.name || "")
+                        .filter(Boolean)
+                        .join(", ")}
+                    </p>
+                  ) : null}
 
                   {canCancel ? (
                     <div className="tasko-booking-actions-row">
