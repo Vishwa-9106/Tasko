@@ -3,76 +3,80 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
-import { serviceCategories } from "./homeData";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import {
   buildServicePath,
-  formatServicePrice,
-  matchesServiceFilter,
-  normalizeServicesResponse
-} from "../utils/services";
-import { toCategoryKey } from "../utils/serviceCatalog";
+  flattenServiceCatalog,
+  normalizeServiceCatalog,
+  toCategoryKey
+} from "../utils/serviceCatalog";
+import { serviceCategories } from "./homeData";
 
 function guessIcon(categoryName) {
   const matched = serviceCategories.find((category) => toCategoryKey(category.name) === toCategoryKey(categoryName));
   return matched?.icon || "cleaning";
 }
 
+function pricingModelLabel(pricingModel) {
+  return String(pricingModel || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export default function ServiceSubcategoriesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [servicesPayload, setServicesPayload] = useState({ categories: [], services: [] });
+  const [catalogCategories, setCatalogCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const selectedCategory = searchParams.get("category") || "";
   const search = searchParams.get("search") || "";
 
   useEffect(() => {
-    const loadServices = async () => {
-      const cached = readSessionCache("services:list:v1", 5 * 60 * 1000);
+    const loadCatalog = async () => {
+      const cached = readSessionCache("service-catalog:v2", 5 * 60 * 1000);
       if (cached) {
-        setServicesPayload(normalizeServicesResponse(cached));
+        setCatalogCategories(normalizeServiceCatalog({ categories: cached }));
         setLoading(false);
         return;
       }
 
-      const response = await api.get("/api/services", {
-        params: { status: "active" }
-      });
-      writeSessionCache("services:list:v1", response.data);
-      setServicesPayload(normalizeServicesResponse(response.data));
+      const response = await api.get("/api/service-catalog");
+      const normalized = normalizeServiceCatalog(response.data);
+      writeSessionCache("service-catalog:v2", normalized);
+      setCatalogCategories(normalized);
       setLoading(false);
     };
 
-    loadServices()
+    loadCatalog()
       .catch(() => {
-        setServicesPayload({ categories: [], services: [] });
+        setCatalogCategories(normalizeServiceCatalog({}));
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const availableCategories = useMemo(() => {
-    if (servicesPayload.categories.length > 0) {
-      return servicesPayload.categories;
-    }
-
-    return Array.from(new Set(servicesPayload.services.map((service) => service.category))).sort((left, right) =>
-      left.localeCompare(right)
-    );
-  }, [servicesPayload]);
-
-  const services = useMemo(
-    () => servicesPayload.services.filter((service) => matchesServiceFilter(service, selectedCategory, search)),
-    [search, selectedCategory, servicesPayload]
+  const availableCategories = useMemo(
+    () => catalogCategories.map((category) => category.name).filter(Boolean),
+    [catalogCategories]
   );
 
-  const pageTitle = selectedCategory ? `${selectedCategory} Services` : "Service Discovery";
+  const services = useMemo(() => {
+    const normalizedSearch = toCategoryKey(search);
+    return flattenServiceCatalog(catalogCategories).filter((service) => {
+      const matchesCategory =
+        !selectedCategory || toCategoryKey(service.categoryName) === toCategoryKey(selectedCategory);
+      const matchesSearch =
+        !normalizedSearch ||
+        toCategoryKey(`${service.subCategoryName} ${service.categoryName} ${service.description}`).includes(normalizedSearch);
+      return matchesCategory && matchesSearch;
+    });
+  }, [catalogCategories, search, selectedCategory]);
 
   return (
     <UserPortalShell activeNav="home">
       <section className="tasko-page-header">
         <p>Service Discovery</p>
-        <h1>{pageTitle}</h1>
-        <p>Explore full service details, compare pricing tiers, add-ons, and continue to booking.</p>
+        <h1>{selectedCategory ? `${selectedCategory} Services` : "Flexible Service Booking"}</h1>
+        <p>Explore service-specific pricing models, choose how you want the service delivered, and continue to booking.</p>
       </section>
 
       <section className="tasko-content-panel">
@@ -87,7 +91,11 @@ export default function ServiceSubcategoriesPage() {
                   className={`tasko-chip ${isActive ? "is-active" : ""}`}
                   onClick={() => {
                     const next = new URLSearchParams(searchParams);
-                    next.set("category", categoryName);
+                    if (isActive) {
+                      next.delete("category");
+                    } else {
+                      next.set("category", categoryName);
+                    }
                     setSearchParams(next);
                   }}
                 >
@@ -97,12 +105,7 @@ export default function ServiceSubcategoriesPage() {
             })}
           </div>
 
-          <form
-            className="tasko-inline-search"
-            onSubmit={(event) => {
-              event.preventDefault();
-            }}
-          >
+          <form className="tasko-inline-search" onSubmit={(event) => event.preventDefault()}>
             <label htmlFor="service-search" className="sr-only">
               Search services
             </label>
@@ -113,9 +116,8 @@ export default function ServiceSubcategoriesPage() {
               value={search}
               onChange={(event) => {
                 const next = new URLSearchParams(searchParams);
-                const nextValue = event.target.value;
-                if (nextValue.trim()) {
-                  next.set("search", nextValue);
+                if (event.target.value.trim()) {
+                  next.set("search", event.target.value);
                 } else {
                   next.delete("search");
                 }
@@ -133,21 +135,22 @@ export default function ServiceSubcategoriesPage() {
         ) : (
           <div className="tasko-subcategory-grid">
             {services.map((service) => (
-              <article key={service.id || `${service.categorySlug}-${service.slug}`} className="tasko-card tasko-service-card">
+              <article key={service.subcategoryId} className="tasko-card tasko-service-card tasko-service-card-flexible">
                 <span className="tasko-card-icon">
-                  <CategoryIcon name={guessIcon(service.category)} className="tasko-line-icon" />
+                  <CategoryIcon name={guessIcon(service.categoryName)} className="tasko-line-icon" />
                 </span>
                 <div className="tasko-service-card-copy">
-                  <h3>{service.name}</h3>
-                  <p>{service.category}</p>
+                  <div className="tasko-service-card-badges">
+                    <span className="tasko-service-model-chip">{pricingModelLabel(service.pricingModel)}</span>
+                    <span className={`tasko-service-model-chip is-${service.paymentFlow}`}>{service.paymentFlow}</span>
+                  </div>
+                  <h3>{service.subCategoryName}</h3>
+                  <p>{service.categoryName}</p>
                   <p className="tasko-service-card-description">{service.description}</p>
                 </div>
                 <div className="tasko-service-card-meta">
-                  <p className="tasko-service-price">Starting {formatServicePrice(service.startingPrice || service.basePrice)}</p>
-                  <p>{service.duration || "Flexible duration"}</p>
-                  <p>
-                    ⭐ {service.rating.toFixed(1)} ({service.reviewCount} reviews)
-                  </p>
+                  <p className="tasko-service-price">{service.startingPriceLabel}</p>
+                  <p>Bookable with live order summary</p>
                 </div>
                 <div className="tasko-card-actions">
                   <button type="button" onClick={() => navigate(buildServicePath(service))}>

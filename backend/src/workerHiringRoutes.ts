@@ -6,13 +6,14 @@ import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { db, timestamp } from "./firebaseAdmin";
 import {
-  PricingType,
-  ServicePricing,
-  buildPriceSummary,
-  isVariablePricing,
-  normalizeServicePricing,
-  validateServicePricingPayload
-} from "./servicePricing";
+  PricingConfiguration,
+  PricingModel,
+  calculateStartingPrice,
+  getSuggestedPricingDefinition,
+  normalizePricingConfiguration,
+  normalizePricingModel,
+  validatePricingModelPayload
+} from "./pricingModels";
 import {
   isWorkerApplicationStatusNotifiable,
   sendEmail,
@@ -67,7 +68,9 @@ type SubcategoryRecord = {
   name: string;
   createdAt: string;
   updatedAt: string;
-} & Pick<ServicePricing, "pricingType" | "price" | "unitLabel" | "pricingNotes">;
+  pricingModel: PricingModel;
+  pricingConfig: PricingConfiguration;
+};
 
 type ServiceCatalogEntry = {
   category: CategoryRecord;
@@ -851,15 +854,26 @@ function normalizeCategoryRecord(categoryId: string, data: Record<string, unknow
 
 function normalizeSubcategoryRecord(subcategoryId: string, data: Record<string, unknown>): SubcategoryRecord {
   const now = new Date().toISOString();
-  const pricing = normalizeServicePricing(data, readTrimmedString(data.name));
+  const categoryId = readTrimmedString(data.categoryId) || readTrimmedString(data.category_id);
+  const name = normalizeCategoryName(data.name);
+  const categoryName =
+    readTrimmedString(data.categoryName) ||
+    readTrimmedString(data.category_name) ||
+    inMemoryCategories.get(categoryId)?.name ||
+    "";
+  const suggested = getSuggestedPricingDefinition(categoryName, name);
+  const pricingModel =
+    normalizePricingModel(data.pricingModel) ||
+    normalizePricingModel(data.pricing_model) ||
+    suggested.pricingModel;
+  const pricingConfig = normalizePricingConfiguration(data, pricingModel, name, categoryName);
+
   return {
     id: subcategoryId,
-    categoryId: readTrimmedString(data.categoryId) || readTrimmedString(data.category_id),
-    name: normalizeCategoryName(data.name),
-    pricingType: pricing.pricingType,
-    price: pricing.price,
-    unitLabel: pricing.unitLabel,
-    pricingNotes: pricing.pricingNotes,
+    categoryId,
+    name,
+    pricingModel,
+    pricingConfig,
     createdAt:
       readTrimmedString(data.createdAt) || readTrimmedString(data.created_at) || now,
     updatedAt:
@@ -878,18 +892,15 @@ function toCategoryResponse(category: CategoryRecord, subcategoryCount: number):
 }
 
 function toSubcategoryResponse(subcategory: SubcategoryRecord): Record<string, unknown> {
-  const priceSummary = buildPriceSummary(subcategory);
   return {
     id: subcategory.id,
     categoryId: subcategory.categoryId,
     category_id: subcategory.categoryId,
     name: subcategory.name,
-    pricingType: subcategory.pricingType,
-    price: subcategory.price,
-    unitLabel: subcategory.unitLabel,
-    pricingNotes: subcategory.pricingNotes,
-    priceSummary,
-    isVariablePrice: isVariablePricing(subcategory.pricingType),
+    pricingModel: subcategory.pricingModel,
+    pricingConfig: subcategory.pricingConfig,
+    startingPrice: calculateStartingPrice(subcategory.pricingModel, subcategory.pricingConfig),
+    paymentFlow: subcategory.pricingModel === "inspection" ? "postpaid" : "prepaid",
     createdAt: subcategory.createdAt,
     updatedAt: subcategory.updatedAt
   };
@@ -1025,16 +1036,14 @@ async function ensureDefaultSubcategoriesForCategories(categories: CategoryRecor
         return;
       }
       existingNames.add(normalizedName.toLowerCase());
-      const pricing = normalizeServicePricing({ name: normalizedName }, normalizedName);
+      const pricing = getSuggestedPricingDefinition(category.name, normalizedName);
       const baseId = `sub-${category.id}-${toSlug(normalizedName)}`;
       recordsToSeed.push({
         id: baseId,
         categoryId: category.id,
         name: normalizedName,
-        pricingType: pricing.pricingType,
-        price: pricing.price,
-        unitLabel: pricing.unitLabel,
-        pricingNotes: pricing.pricingNotes,
+        pricingModel: pricing.pricingModel,
+        pricingConfig: pricing.pricingConfig,
         createdAt: now,
         updatedAt: now
       });
@@ -1045,17 +1054,18 @@ async function ensureDefaultSubcategoriesForCategories(categories: CategoryRecor
     return;
   }
 
+  const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
+
   try {
     await Promise.all(
       recordsToSeed.map((record) =>
         db.collection("subcategories").doc(record.id).set(
           {
             categoryId: record.categoryId,
+            categoryName: categoryNameById.get(record.categoryId) || "",
             name: record.name,
-            pricingType: record.pricingType,
-            price: record.price,
-            unitLabel: record.unitLabel,
-            pricingNotes: record.pricingNotes,
+            pricingModel: record.pricingModel,
+            pricingConfig: record.pricingConfig,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt
           },
@@ -1323,8 +1333,12 @@ async function createSubcategory(
     return { subcategory: null, created: false };
   }
 
-  const { pricing, error } = validateServicePricingPayload(payload);
-  if (!pricing) {
+  const { pricingModel, pricingConfig, error } = validatePricingModelPayload(
+    payload,
+    category.name,
+    normalizedName
+  );
+  if (!pricingModel || !pricingConfig) {
     throw new Error(error || "Pricing details are required.");
   }
 
@@ -1334,10 +1348,8 @@ async function createSubcategory(
     id: subcategoryId,
     categoryId,
     name: normalizedName,
-    pricingType: pricing.pricingType,
-    price: pricing.price,
-    unitLabel: pricing.unitLabel,
-    pricingNotes: pricing.pricingNotes,
+    pricingModel,
+    pricingConfig,
     createdAt: now,
     updatedAt: now
   };
@@ -1346,11 +1358,10 @@ async function createSubcategory(
     await db.collection("subcategories").doc(subcategoryId).set(
       {
         categoryId: subcategory.categoryId,
+        categoryName: category.name,
         name: subcategory.name,
-        pricingType: subcategory.pricingType,
-        price: subcategory.price,
-        unitLabel: subcategory.unitLabel,
-        pricingNotes: subcategory.pricingNotes,
+        pricingModel: subcategory.pricingModel,
+        pricingConfig: subcategory.pricingConfig,
         createdAt: subcategory.createdAt,
         updatedAt: subcategory.updatedAt
       },
@@ -1391,18 +1402,25 @@ async function updateSubcategory(
     return { subcategory: null, updated: false };
   }
 
-  const { pricing, error } = validateServicePricingPayload(payload);
-  if (!pricing) {
+  const category = await getCategoryById(categoryId);
+  if (!category) {
+    return { subcategory: null, updated: false };
+  }
+
+  const { pricingModel, pricingConfig, error } = validatePricingModelPayload(
+    payload,
+    category.name,
+    normalizedName
+  );
+  if (!pricingModel || !pricingConfig) {
     throw new Error(error || "Pricing details are required.");
   }
 
   const next: SubcategoryRecord = {
     ...current,
     name: normalizedName,
-    pricingType: pricing.pricingType,
-    price: pricing.price,
-    unitLabel: pricing.unitLabel,
-    pricingNotes: pricing.pricingNotes,
+    pricingModel,
+    pricingConfig,
     updatedAt: new Date().toISOString()
   };
 
@@ -1410,10 +1428,9 @@ async function updateSubcategory(
     await db.collection("subcategories").doc(subcategoryId).set(
       {
         name: next.name,
-        pricingType: next.pricingType,
-        price: next.price,
-        unitLabel: next.unitLabel,
-        pricingNotes: next.pricingNotes,
+        categoryName: category.name,
+        pricingModel: next.pricingModel,
+        pricingConfig: next.pricingConfig,
         updatedAt: next.updatedAt
       },
       { merge: true }

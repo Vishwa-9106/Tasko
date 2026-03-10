@@ -2,82 +2,120 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
+import OrderSummaryPanel from "../components/pricing/OrderSummaryPanel";
+import PricingConfigurator from "../components/pricing/PricingConfigurator";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import {
-  calculateServiceTotal,
-  formatServicePrice,
-  normalizeServiceDetail
-} from "../utils/services";
+  flattenServiceCatalog,
+  normalizeServiceCatalog
+} from "../utils/serviceCatalog";
+import {
+  buildStartingPriceLabel,
+  calculatePricingSelection,
+  createInitialSelection,
+  formatRupee,
+  normalizeText
+} from "../utils/pricingModels";
+
+function findService(catalog, categorySlug, serviceSlug) {
+  const services = flattenServiceCatalog(catalog);
+  return (
+    services.find((entry) => {
+      const matchesCategory =
+        normalizeText(entry.categorySlug) === normalizeText(categorySlug) ||
+        normalizeText(entry.categoryId) === normalizeText(categorySlug) ||
+        normalizeText(entry.categoryName) === normalizeText(categorySlug);
+      const matchesService =
+        normalizeText(entry.serviceSlug) === normalizeText(serviceSlug) ||
+        normalizeText(entry.subcategoryId) === normalizeText(serviceSlug) ||
+        normalizeText(entry.subCategoryName) === normalizeText(serviceSlug);
+      return matchesCategory && matchesService;
+    }) || null
+  );
+}
 
 export default function ServiceDetailsPage() {
   const navigate = useNavigate();
   const params = useParams();
   const categorySlug = String(params.category || "").trim();
   const serviceSlug = String(params.serviceSlug || "").trim();
-  const [service, setService] = useState(null);
+  const [catalogCategories, setCatalogCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPricingOptionId, setSelectedPricingOptionId] = useState("");
-  const [selectedAddonIds, setSelectedAddonIds] = useState([]);
+  const [selection, setSelection] = useState({
+    selectedPackage: "",
+    selectedUnits: 1,
+    selectedHours: 2,
+    selectedShift: "",
+    selectedMeal: "",
+    selectedAddons: []
+  });
 
   useEffect(() => {
-    const cacheKey = `service:detail:${categorySlug}:${serviceSlug}`;
-
-    const loadService = async () => {
-      const cached = readSessionCache(cacheKey, 5 * 60 * 1000);
+    const loadCatalog = async () => {
+      const cached = readSessionCache("service-catalog:v2", 5 * 60 * 1000);
       if (cached) {
-        const normalized = normalizeServiceDetail(cached);
-        setService(normalized);
+        setCatalogCategories(normalizeServiceCatalog({ categories: cached }));
         setLoading(false);
         return;
       }
 
-      const response = await api.get(`/api/services/${encodeURIComponent(categorySlug)}/${encodeURIComponent(serviceSlug)}`);
-      writeSessionCache(cacheKey, response.data);
-      setService(normalizeServiceDetail(response.data));
+      const response = await api.get("/api/service-catalog");
+      const normalized = normalizeServiceCatalog(response.data);
+      writeSessionCache("service-catalog:v2", normalized);
+      setCatalogCategories(normalized);
       setLoading(false);
     };
 
-    loadService()
+    loadCatalog()
       .catch(() => {
-        setService(null);
+        setCatalogCategories(normalizeServiceCatalog({}));
       })
       .finally(() => setLoading(false));
-  }, [categorySlug, serviceSlug]);
+  }, []);
+
+  const service = useMemo(
+    () => findService(catalogCategories, categorySlug, serviceSlug),
+    [catalogCategories, categorySlug, serviceSlug]
+  );
 
   useEffect(() => {
-    if (!service) return;
-    setSelectedPricingOptionId((current) => current || service.pricingOptions[0]?.id || "");
-    setSelectedAddonIds([]);
+    if (!service) {
+      return;
+    }
+    setSelection(createInitialSelection(service.pricingModel, service.pricingConfig));
   }, [service]);
 
-  const selectedPricingOption = useMemo(
-    () => service?.pricingOptions.find((option) => option.id === selectedPricingOptionId) || service?.pricingOptions[0] || null,
-    [selectedPricingOptionId, service]
-  );
-
-  const selectedAddons = useMemo(
-    () => (service?.addons || []).filter((addon) => selectedAddonIds.includes(addon.id)),
-    [selectedAddonIds, service]
-  );
-
-  const priceSummary = useMemo(
-    () => calculateServiceTotal(selectedPricingOption, selectedAddons),
-    [selectedAddons, selectedPricingOption]
+  const calculation = useMemo(
+    () =>
+      service
+        ? calculatePricingSelection(service.pricingModel, service.pricingConfig, selection)
+        : {
+            selectedPackage: null,
+            selectedUnits: null,
+            selectedHours: null,
+            selectedShift: null,
+            selectedMeal: null,
+            selectedAddons: [],
+            basePrice: 0,
+            addonsPrice: 0,
+            visitCharge: null,
+            finalPrice: 0
+          },
+    [selection, service]
   );
 
   const handleBookNow = () => {
-    if (!service || !selectedPricingOption) return;
+    if (!service) return;
 
     const next = new URLSearchParams();
-    next.set("serviceId", service.id);
-    next.set("categorySlug", service.categorySlug);
-    next.set("serviceSlug", service.slug);
-    next.set("pricingOptionId", selectedPricingOption.id);
-    if (selectedAddonIds.length > 0) {
-      next.set("addonIds", selectedAddonIds.join(","));
-    }
-    next.set("totalPrice", String(priceSummary.totalPrice));
-
+    next.set("categoryId", service.categoryId);
+    next.set("subcategoryId", service.subcategoryId);
+    if (selection.selectedPackage) next.set("selectedPackageId", selection.selectedPackage);
+    if (selection.selectedUnits) next.set("selectedUnits", String(selection.selectedUnits));
+    if (selection.selectedHours) next.set("selectedHours", String(selection.selectedHours));
+    if (selection.selectedShift) next.set("selectedShiftId", selection.selectedShift);
+    if (selection.selectedMeal) next.set("selectedMealId", selection.selectedMeal);
+    if (selection.selectedAddons.length > 0) next.set("selectedAddonIds", selection.selectedAddons.join(","));
     navigate(`/booking?${next.toString()}`);
   };
 
@@ -85,8 +123,8 @@ export default function ServiceDetailsPage() {
     <UserPortalShell activeNav="home">
       <section className="tasko-page-header">
         <p>Service Details</p>
-        <h1>{loading ? "Loading service..." : service?.name || "Service details unavailable"}</h1>
-        <p>Review service scope, choose a pricing option, add extras, and continue to booking.</p>
+        <h1>{loading ? "Loading service..." : service?.subCategoryName || "Service details unavailable"}</h1>
+        <p>Choose the pricing model that fits the job, review the live order summary, and continue to booking.</p>
       </section>
 
       {loading ? (
@@ -101,21 +139,20 @@ export default function ServiceDetailsPage() {
         <>
           <section className="tasko-content-panel tasko-service-details-hero">
             <div className="tasko-service-details-copy">
-              <p className="tasko-service-category-pill">{service.category}</p>
-              <h2>{service.name}</h2>
-              <p className="tasko-service-rating">
-                ⭐ {service.rating.toFixed(1)} ({service.reviewCount} reviews)
-              </p>
+              <p className="tasko-service-category-pill">{service.categoryName}</p>
+              <h2>{service.subCategoryName}</h2>
+              <p className="tasko-service-rating">4.8 Tasko rating</p>
               <div className="tasko-service-details-meta">
                 <div>
                   <span>Starting price</span>
-                  <strong>{formatServicePrice(service.pricingOptions[0]?.price || service.basePrice)}</strong>
+                  <strong>{buildStartingPriceLabel(service.pricingModel, service.pricingConfig)}</strong>
                 </div>
                 <div>
-                  <span>Duration</span>
-                  <strong>{service.duration || "Flexible"}</strong>
+                  <span>Payment flow</span>
+                  <strong>{service.paymentFlow === "postpaid" ? "Inspection first" : "Pay during booking"}</strong>
                 </div>
               </div>
+              <p className="tasko-service-body-copy">{service.description}</p>
               <div className="tasko-card-actions">
                 <button type="button" onClick={handleBookNow}>
                   Book Now
@@ -126,146 +163,40 @@ export default function ServiceDetailsPage() {
               </div>
             </div>
 
-            <div className="tasko-service-details-media">
-              {service.image ? (
-                <img src={service.image} alt={service.name} className="tasko-service-details-image" />
-              ) : (
-                <div className="tasko-service-image-fallback">
-                  <span>{service.category}</span>
-                  <strong>{service.name}</strong>
-                </div>
-              )}
+            <div className="tasko-service-details-media tasko-service-highlight-card">
+              <p>Pricing Model</p>
+              <h3>{String(service.pricingModel).replace(/_/g, " ")}</h3>
+              <p>{service.paymentFlow === "postpaid" ? "Inspection and approval workflow" : "Instant price calculation"}</p>
             </div>
           </section>
 
-          <section className="tasko-content-panel">
-            <div className="tasko-section-head">
-              <p>Description</p>
-              <h2>About this service</h2>
+          <section className="tasko-service-pricing-layout">
+            <div className="tasko-service-pricing-main">
+              <PricingConfigurator
+                pricingModel={service.pricingModel}
+                pricingConfig={service.pricingConfig}
+                selection={selection}
+                onSelectionChange={(patch) => setSelection((current) => ({ ...current, ...patch }))}
+              />
             </div>
-            <p className="tasko-service-body-copy">{service.description}</p>
-          </section>
 
-          <section className="tasko-content-panel">
-            <div className="tasko-section-head">
-              <p>Pricing</p>
-              <h2>Choose a pricing option</h2>
-            </div>
-            <div className="tasko-service-option-grid">
-              {service.pricingOptions.map((option) => {
-                const isSelected = option.id === selectedPricingOption?.id;
-                return (
-                  <label key={option.id} className={`tasko-service-option-card ${isSelected ? "is-selected" : ""}`}>
-                    <input
-                      type="radio"
-                      name="pricingOption"
-                      value={option.id}
-                      checked={isSelected}
-                      onChange={() => setSelectedPricingOptionId(option.id)}
-                    />
-                    <div>
-                      <div className="tasko-service-option-head">
-                        <strong>{option.title}</strong>
-                        <span>{formatServicePrice(option.price)}</span>
-                      </div>
-                      <p>{option.description || "Standard scope for this tier."}</p>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="tasko-content-panel">
-            <div className="tasko-section-head">
-              <p>Add-ons</p>
-              <h2>Optional extras</h2>
-            </div>
-            {service.addons.length === 0 ? (
-              <p className="tasko-empty-state">No add-ons available for this service.</p>
-            ) : (
-              <div className="tasko-service-addon-list">
-                {service.addons.map((addon) => {
-                  const checked = selectedAddonIds.includes(addon.id);
-                  return (
-                    <label key={addon.id} className="tasko-service-addon-item">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setSelectedAddonIds((current) =>
-                            checked ? current.filter((id) => id !== addon.id) : [...current, addon.id]
-                          )
-                        }
-                      />
-                      <div>
-                        <div className="tasko-service-option-head">
-                          <strong>{addon.title}</strong>
-                          <span>+{formatServicePrice(addon.price)}</span>
-                        </div>
-                        <p>{addon.description || "Optional add-on for extra convenience."}</p>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          <section className="tasko-service-details-grid">
-            <section className="tasko-content-panel">
-              <div className="tasko-section-head">
-                <p>Included</p>
-                <h2>What&apos;s included</h2>
-              </div>
-              <ul className="tasko-service-list">
-                {service.includedServices.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="tasko-content-panel">
-              <div className="tasko-section-head">
-                <p>Not Included</p>
-                <h2>What&apos;s not included</h2>
-              </div>
-              <ul className="tasko-service-list">
-                {service.notIncludedServices.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </section>
-          </section>
-
-          <section className="tasko-content-panel tasko-service-summary-panel">
-            <div className="tasko-section-head">
-              <p>Price Summary</p>
-              <h2>Booking summary</h2>
-            </div>
-            <div className="tasko-service-summary-grid">
-              <p>
-                <span>Selected service price</span>
-                <strong>{formatServicePrice(priceSummary.basePrice)}</strong>
-              </p>
-              <p>
-                <span>Add-ons price</span>
-                <strong>{formatServicePrice(priceSummary.addonsPrice)}</strong>
-              </p>
-              <p className="is-total">
-                <span>Total price</span>
-                <strong>{formatServicePrice(priceSummary.totalPrice)}</strong>
-              </p>
-            </div>
+            <OrderSummaryPanel
+              serviceName={service.subCategoryName}
+              pricingModel={service.pricingModel}
+              pricingConfig={service.pricingConfig}
+              calculation={calculation}
+              actionLabel={service.pricingModel === "inspection" ? "Book Inspection" : "Continue to Booking"}
+              onAction={handleBookNow}
+            />
           </section>
 
           <div className="tasko-sticky-booking-bar">
             <div>
               <span>Total</span>
-              <strong>{formatServicePrice(priceSummary.totalPrice)}</strong>
+              <strong>{formatRupee(calculation.finalPrice || 0)}</strong>
             </div>
             <button type="button" onClick={handleBookNow}>
-              Book Now
+              {service.pricingModel === "inspection" ? "Book Inspection" : "Book Now"}
             </button>
           </div>
         </>

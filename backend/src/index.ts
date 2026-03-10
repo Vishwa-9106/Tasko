@@ -6,8 +6,8 @@ import { Query } from "firebase-admin/firestore";
 import path from "path";
 import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
 import { ensurePackagesBootstrapData, registerPackageRoutes } from "./packagesRoutes";
-import { ensureServicesBootstrapData, getServiceDetailById, registerServiceRoutes } from "./serviceRoutes";
-import { buildPriceSummary, normalizeServicePricing } from "./servicePricing";
+import { ensureServicesBootstrapData, registerServiceRoutes } from "./serviceRoutes";
+import { calculateBookingSelection } from "./pricingModels";
 import { registerTaskoMartRoutes } from "./taskomartRoutes";
 import { getServiceCatalogEntry, registerWorkerHiringRoutes } from "./workerHiringRoutes";
 
@@ -1343,12 +1343,16 @@ app.get("/api/admin/users", async (req: Request, res: Response) => {
 app.post("/api/bookings", async (req: Request, res: Response) => {
   try {
     const readText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
-    const formatCurrency = (value: number) =>
-      new Intl.NumberFormat("en-IN", {
-        style: "currency",
-        currency: "INR",
-        maximumFractionDigits: 0
-      }).format(value);
+    const readNumber = (value: unknown): number | null => {
+      if (typeof value === "number") {
+        return Number.isFinite(value) ? value : null;
+      }
+      if (typeof value === "string" && value.trim()) {
+        const parsed = Number(value.trim());
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
     const readStringList = (value: unknown): string[] => {
       if (Array.isArray(value)) {
         return value
@@ -1422,22 +1426,20 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     const recurringDays = serviceType === "package" ? readText(req.body.recurringDays) : "";
     const specialInstructions = readText(req.body.specialInstructions) || readText(req.body.notes);
     const directAddress = readText(req.body.address) || readText(req.body.serviceAddress);
-    const requestedPricingOptionId =
-      readText(req.body.pricingOptionId) ||
-      readText(readRecord(req.body.selectedPricingOption)?.id);
-    const requestedAddonIds = new Set<string>([
-      ...readStringList(req.body.addonIds),
-      ...readStringList(req.body.selectedAddonIds),
-      ...readRecordList(req.body.selectedAddons).map((entry) => readText(entry.id))
-    ]);
+    const selectedPackageRecord = readRecord(req.body.selectedPackage);
+    const selectedShiftRecord = readRecord(req.body.selectedShift);
+    const selectedMealRecord = readRecord(req.body.selectedMeal);
+    const selectedAddonKeys = Array.from(
+      new Set<string>([
+        ...readStringList(req.body.selectedAddonIds),
+        ...readStringList(req.body.selectedAddons),
+        ...readRecordList(req.body.selectedAddons).map((entry) => readText(entry.id) || readText(entry.name)),
+        ...readRecordList(req.body.addons).map((entry) => readText(entry.id) || readText(entry.name))
+      ].filter(Boolean))
+    );
     let userName = readText(req.body.userName);
     let userEmail = readText(req.body.userEmail);
     let userPhone = readText(req.body.userPhone) || readText(req.body.mobile) || readText(req.body.number);
-    const serviceDetail = requestedServiceId ? await getServiceDetailById(requestedServiceId) : null;
-
-    if (requestedServiceId && !serviceDetail) {
-      return res.status(400).json({ message: "Selected service is invalid." });
-    }
 
     const catalogEntry = await getServiceCatalogEntry({
       categoryId: requestedCategoryId,
@@ -1446,17 +1448,12 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       subcategoryName: subCategory
     });
 
-    if (requestedSubcategoryId && !catalogEntry && !serviceDetail) {
+    if (!catalogEntry) {
       return res.status(400).json({ message: "Selected subcategory is invalid." });
     }
 
-    if (serviceDetail) {
-      serviceCategory = serviceDetail.service.category;
-      subCategory = serviceDetail.service.name;
-    } else if (catalogEntry) {
-      serviceCategory = catalogEntry.category.name;
-      subCategory = catalogEntry.subcategory.name;
-    }
+    serviceCategory = catalogEntry.category.name;
+    subCategory = catalogEntry.subcategory.name;
 
     if (!userId || !serviceCategory || !subCategory || !serviceDate || !preferredTimeSlot) {
       return res
@@ -1505,37 +1502,37 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       }
     }
 
-    const pricingFromRequest = normalizeServicePricing(
-      {
-        pricingType: req.body.pricingType,
-        price: req.body.price ?? req.body.quotedPrice,
-        unitLabel: req.body.unitLabel,
-        pricingNotes: req.body.pricingNotes
-      },
-      subCategory
+    const pricingSelection = {
+      selectedPackage:
+        readText(req.body.selectedPackageId) ||
+        readText(req.body.selectedPackage) ||
+        readText(selectedPackageRecord?.id) ||
+        readText(selectedPackageRecord?.name),
+      selectedUnits: readNumber(req.body.selectedUnits) ?? undefined,
+      selectedHours: readNumber(req.body.selectedHours) ?? undefined,
+      selectedShift:
+        readText(req.body.selectedShiftId) ||
+        readText(req.body.selectedShift) ||
+        readText(selectedShiftRecord?.id) ||
+        readText(selectedShiftRecord?.name),
+      selectedMeal:
+        readText(req.body.selectedMealId) ||
+        readText(req.body.selectedMeal) ||
+        readText(selectedMealRecord?.id) ||
+        readText(selectedMealRecord?.name),
+      selectedAddons: selectedAddonKeys
+    };
+    const calculatedPricing = calculateBookingSelection(
+      catalogEntry.subcategory.pricingModel,
+      catalogEntry.subcategory.pricingConfig,
+      pricingSelection
     );
-    const servicePricingSelection = serviceDetail
-      ? {
-          selectedPricingOption:
-            serviceDetail.pricingOptions.find((option) => option.id === requestedPricingOptionId) ||
-            serviceDetail.pricingOptions.sort((left, right) => left.order - right.order)[0] ||
-            null,
-          selectedAddons: serviceDetail.addons.filter((addon) => requestedAddonIds.has(addon.id))
-        }
-      : null;
 
-    if (serviceDetail && requestedPricingOptionId && !servicePricingSelection?.selectedPricingOption) {
-      return res.status(400).json({ message: "Selected pricing option is invalid." });
-    }
+    const addonsPrice = calculatedPricing.selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
 
-    const serviceBasePrice = servicePricingSelection?.selectedPricingOption?.price ?? serviceDetail?.service.basePrice ?? 0;
-    const addonsPrice =
-      servicePricingSelection?.selectedAddons.reduce((sum, addon) => sum + addon.price, 0) || 0;
-    const totalPrice =
-      Number.isFinite(Number(req.body.totalPrice)) && Number(req.body.totalPrice) >= 0
-        ? Number(req.body.totalPrice)
-        : serviceBasePrice + addonsPrice;
+    const paymentFlow = catalogEntry.subcategory.pricingModel === "inspection" ? "postpaid" : "prepaid";
 
+    /*
     const pricing = serviceDetail
       ? {
           pricingType: serviceDetail.service.pricingType || "tiered",
@@ -1569,14 +1566,13 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
           ? "estimated"
           : "fixed";
 
+    */
     const bookingRef = db.collection("bookings").doc();
     await bookingRef.set({
       booking_id: bookingRef.id,
       user_id: userId,
-      service_category_id:
-        catalogEntry?.category.id || serviceDetail?.service.categorySlug || requestedCategoryId || "",
-      sub_category_id:
-        catalogEntry?.subcategory.id || serviceDetail?.service.id || requestedSubcategoryId || "",
+      service_category_id: catalogEntry.category.id || requestedCategoryId || "",
+      sub_category_id: catalogEntry.subcategory.id || requestedSubcategoryId || "",
       booking_date: serviceDate,
       time_slot: preferredTimeSlot,
       address,
@@ -1584,27 +1580,20 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       assigned_worker_id: "",
       created_at: timestamp(),
       userId,
-      serviceId: serviceDetail?.service.id || "",
-      serviceSlug: serviceDetail?.service.slug || "",
-      serviceCategorySlug: serviceDetail?.service.categorySlug || "",
-      serviceName: serviceDetail?.service.name || "",
-      serviceImage: serviceDetail?.service.image || "",
-      selectedPricingOptionId: servicePricingSelection?.selectedPricingOption?.id || "",
-      selectedPricingOptionTitle: servicePricingSelection?.selectedPricingOption?.title || "",
-      selectedPricingOption: servicePricingSelection?.selectedPricingOption || null,
-      selectedAddonIds: servicePricingSelection?.selectedAddons.map((addon) => addon.id) || [],
-      selectedAddons: servicePricingSelection?.selectedAddons || [],
+      serviceId: requestedServiceId || catalogEntry.subcategory.id,
+      selectedAddonIds: calculatedPricing.selectedAddons.map((addon) => addon.id),
+      selectedAddons: calculatedPricing.selectedAddons,
       addonsPrice,
-      totalPrice,
-      serviceCategoryId: catalogEntry?.category.id || serviceDetail?.service.categorySlug || requestedCategoryId || "",
+      totalPrice: calculatedPricing.finalPrice,
+      serviceCategoryId: catalogEntry.category.id || requestedCategoryId || "",
       serviceCategory,
-      subCategoryId: catalogEntry?.subcategory.id || serviceDetail?.service.id || requestedSubcategoryId || "",
+      subCategoryId: catalogEntry.subcategory.id || requestedSubcategoryId || "",
       subCategory,
       serviceType,
       workDescription,
       serviceDate,
       preferredTimeSlot,
-      duration: duration || serviceDetail?.service.duration || "",
+      duration,
       recurringDays,
       specialInstructions,
       category: subCategory || serviceCategory,
@@ -1628,13 +1617,24 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       user_email: userEmail,
       userPhone,
       user_phone: userPhone,
-      pricingType: pricing.pricingType,
-      price: pricing.price,
-      unitLabel: pricing.unitLabel,
-      pricingNotes: pricing.pricingNotes,
-      priceSummary: pricing.priceSummary,
-      priceStatus,
-      isVariablePrice: pricing.isVariablePrice,
+      pricingModel: calculatedPricing.pricingModel,
+      pricingConfig: catalogEntry.subcategory.pricingConfig,
+      paymentFlow,
+      selectedPackage: calculatedPricing.selectedPackage,
+      selectedPackageId: calculatedPricing.selectedPackage?.id || "",
+      selectedUnits: calculatedPricing.selectedUnits,
+      selectedHours: calculatedPricing.selectedHours,
+      selectedShift: calculatedPricing.selectedShift,
+      selectedShiftId: calculatedPricing.selectedShift?.id || "",
+      selectedMeal: calculatedPricing.selectedMeal,
+      selectedMealId: calculatedPricing.selectedMeal?.id || "",
+      visitCharge: calculatedPricing.visitCharge,
+      finalPrice: calculatedPricing.finalPrice,
+      paymentStatus: calculatedPricing.paymentStatus,
+      approvalStatus: calculatedPricing.approvalStatus,
+      workerEstimate: calculatedPricing.workerEstimate,
+      userApproval: calculatedPricing.userApproval,
+      adminFlag: calculatedPricing.adminFlag,
       status: "pending",
       createdAt: timestamp()
     });

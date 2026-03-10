@@ -3,9 +3,20 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import UserPortalShell from "../components/UserPortalShell";
+import OrderSummaryPanel from "../components/pricing/OrderSummaryPanel";
+import PricingConfigurator from "../components/pricing/PricingConfigurator";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
-import { buildPriceSummary, flattenServiceCatalog, normalizeServiceCatalog, normalizeText } from "../utils/serviceCatalog";
-import { calculateServiceTotal, formatServicePrice, normalizeServiceDetail } from "../utils/services";
+import {
+  flattenServiceCatalog,
+  normalizeServiceCatalog,
+  normalizeText
+} from "../utils/serviceCatalog";
+import {
+  buildSelectionSummary,
+  calculatePricingSelection,
+  createInitialSelection,
+  formatRupee
+} from "../utils/pricingModels";
 
 const tabs = [
   { id: "current", label: "Current" },
@@ -19,102 +30,18 @@ function formatTodayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function findCatalogItem(catalog, options = {}) {
-  const categoryId = String(options.categoryId || "").trim();
-  const subcategoryId = String(options.subcategoryId || "").trim();
-  const categoryName = String(options.categoryName || "").trim();
-  const subcategoryName = String(options.subcategoryName || "").trim();
-
-  return (
-    catalog.find((item) => {
-      if (subcategoryId && item.subcategoryId === subcategoryId) {
-        return true;
-      }
-      if (
-        subcategoryName &&
-        normalizeText(item.subCategoryName) === normalizeText(subcategoryName) &&
-        (!categoryId || item.categoryId === categoryId) &&
-        (!categoryName || normalizeText(item.categoryName) === normalizeText(categoryName))
-      ) {
-        return true;
-      }
-      return false;
-    }) || null
-  );
-}
-
-function findCatalogItemForService(catalog, serviceDetail) {
-  if (!serviceDetail) {
-    return null;
-  }
-
-  const serviceId = String(serviceDetail.id || "").trim();
-  const serviceName = normalizeText(serviceDetail.name);
-  const categoryName = normalizeText(serviceDetail.category);
-  const categorySlug = normalizeText(serviceDetail.categorySlug);
-
-  return (
-    catalog.find((item) => {
-      const matchesCategory =
-        (categoryName && normalizeText(item.categoryName) === categoryName) ||
-        (categorySlug && normalizeText(item.categoryId) === categorySlug);
-      const matchesSubcategory =
-        (serviceId && item.subcategoryId === serviceId) ||
-        (serviceName && normalizeText(item.subCategoryName) === serviceName);
-
-      return matchesCategory && matchesSubcategory;
-    }) ||
-    catalog.find(
-      (item) =>
-        (serviceId && item.subcategoryId === serviceId) ||
-        (serviceName && normalizeText(item.subCategoryName) === serviceName)
-    ) ||
-    null
-  );
-}
-
 function toStatusLabel(status) {
   const normalized = String(status || "pending")
     .replace(/[_-]+/g, " ")
     .trim()
     .toLowerCase();
-
   if (!normalized) return "Pending";
-
-  return normalized
-    .split(" ")
-    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
-    .join(" ");
-}
-
-function toDateValue(value) {
-  if (!value) return null;
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-
-  if (typeof value === "string" || typeof value === "number") {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-
-  if (typeof value === "object") {
-    const seconds = Number(value._seconds ?? value.seconds);
-    const nanoseconds = Number(value._nanoseconds ?? value.nanoseconds ?? 0);
-
-    if (Number.isFinite(seconds)) {
-      return new Date(seconds * 1000 + Math.floor(nanoseconds / 1000000));
-    }
-  }
-
-  return null;
+  return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function parseBookingSlot(booking) {
   const rawDate = String(booking?.serviceDate || booking?.date || "").trim();
   const rawTime = String(booking?.preferredTimeSlot || booking?.time || "").trim();
-
   if (!rawDate) return null;
 
   const combined = rawTime ? `${rawDate}T${rawTime}` : rawDate;
@@ -127,15 +54,9 @@ function parseBookingSlot(booking) {
 
 function getBookingBucket(booking) {
   const status = String(booking?.status || "").toLowerCase();
-  if (oldStatuses.has(status)) {
-    return "old";
-  }
-
+  if (oldStatuses.has(status)) return "old";
   const slot = parseBookingSlot(booking);
-  if (slot && slot.getTime() > Date.now()) {
-    return "upcoming";
-  }
-
+  if (slot && slot.getTime() > Date.now()) return "upcoming";
   return "current";
 }
 
@@ -148,45 +69,25 @@ function formatSlotDate(booking) {
 function formatSlotTime(booking) {
   const rawTime = String(booking?.preferredTimeSlot || booking?.time || "").trim();
   if (!rawTime) return "-";
-
   const parsed = new Date(`1970-01-01T${rawTime}`);
   if (Number.isNaN(parsed.getTime())) return rawTime;
-
   return new Intl.DateTimeFormat("en-IN", { timeStyle: "short" }).format(parsed);
 }
 
-function formatDateTime(value) {
-  const parsed = toDateValue(value);
-  if (!parsed) return "-";
-  return new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(parsed);
-}
-
-function bookingSortTime(booking) {
-  return (
-    parseBookingSlot(booking)?.getTime() ||
-    toDateValue(booking?.updatedAt)?.getTime() ||
-    toDateValue(booking?.createdAt)?.getTime() ||
-    0
-  );
-}
-
-function readBookingString(booking, keys, fallback = "") {
-  for (const key of keys) {
-    const value = booking?.[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-  return fallback;
-}
-
-function resolveWorkerInfo(booking) {
-  const name = readBookingString(booking, ["assignedWorkerName", "assigned_worker_name"], "Not assigned");
-  const phone = readBookingString(booking, ["assignedWorkerPhone", "assigned_worker_phone"], "-");
-  return { name, phone };
+function buildSelectionFromQuery(searchParams, pricingModel, pricingConfig) {
+  const defaults = createInitialSelection(pricingModel, pricingConfig);
+  return {
+    ...defaults,
+    selectedPackage: searchParams.get("selectedPackageId") || defaults.selectedPackage,
+    selectedUnits: Number(searchParams.get("selectedUnits") || defaults.selectedUnits || 1),
+    selectedHours: Number(searchParams.get("selectedHours") || defaults.selectedHours || 2),
+    selectedShift: searchParams.get("selectedShiftId") || defaults.selectedShift,
+    selectedMeal: searchParams.get("selectedMealId") || defaults.selectedMeal,
+    selectedAddons: (searchParams.get("selectedAddonIds") || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  };
 }
 
 export default function BookingPage() {
@@ -194,145 +95,87 @@ export default function BookingPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [catalogCategories, setCatalogCategories] = useState([]);
-  const [packages, setPackages] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("current");
+  const [submitting, setSubmitting] = useState(false);
+  const [updatingBookingId, setUpdatingBookingId] = useState("");
   const [formMessage, setFormMessage] = useState("");
   const [bookingsMessage, setBookingsMessage] = useState("");
   const [bookingSuccessModal, setBookingSuccessModal] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [bookingsLoading, setBookingsLoading] = useState(false);
-  const [updatingBookingId, setUpdatingBookingId] = useState("");
-  const [selectedServiceDetail, setSelectedServiceDetail] = useState(null);
-  const [serviceDetailLoading, setServiceDetailLoading] = useState(false);
-  const [selectedServicePricingOptionId, setSelectedServicePricingOptionId] = useState(
-    searchParams.get("pricingOptionId") || ""
-  );
-  const [selectedServiceAddonIds, setSelectedServiceAddonIds] = useState(
-    (searchParams.get("addonIds") || "")
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-  );
-
+  const [selection, setSelection] = useState({
+    selectedPackage: "",
+    selectedUnits: 1,
+    selectedHours: 2,
+    selectedShift: "",
+    selectedMeal: "",
+    selectedAddons: []
+  });
   const [formData, setFormData] = useState({
     categoryId: searchParams.get("categoryId") || "",
-    serviceCategory: "",
-    subCategoryId: searchParams.get("subcategoryId") || "",
-    subCategory: searchParams.get("subcategory") || searchParams.get("category") || "",
-    serviceType: "one-time",
-    packageId: "",
-    workDescription: "",
+    subcategoryId: searchParams.get("subcategoryId") || "",
     serviceDate: "",
     preferredTimeSlot: "",
-    duration: "",
-    recurringDays: "",
+    workDescription: "",
     specialInstructions: ""
   });
 
   useEffect(() => {
-    const loadCatalogs = async () => {
-      const cachedCatalog = readSessionCache("service-catalog:v1", 5 * 60 * 1000);
-      const cachedPackages = readSessionCache("packages:list", 5 * 60 * 1000);
-      if (Array.isArray(cachedCatalog) && Array.isArray(cachedPackages)) {
-        setCatalogCategories(cachedCatalog);
-        setPackages(cachedPackages);
+    const loadCatalog = async () => {
+      const cached = readSessionCache("service-catalog:v2", 5 * 60 * 1000);
+      if (cached) {
+        setCatalogCategories(normalizeServiceCatalog({ categories: cached }));
         return;
       }
 
-      const [catalogRes, packagesRes] = await Promise.all([api.get("/api/service-catalog"), api.get("/api/packages")]);
-      const nextCatalog = normalizeServiceCatalog(catalogRes.data);
-      const nextPackages = Array.isArray(packagesRes.data) ? packagesRes.data : [];
-      setCatalogCategories(nextCatalog);
-      setPackages(nextPackages);
-      writeSessionCache("service-catalog:v1", nextCatalog);
-      writeSessionCache("packages:list", nextPackages);
+      const response = await api.get("/api/service-catalog");
+      const normalized = normalizeServiceCatalog(response.data);
+      writeSessionCache("service-catalog:v2", normalized);
+      setCatalogCategories(normalized);
     };
 
-    loadCatalogs().catch(() => {
+    loadCatalog().catch(() => {
       setCatalogCategories(normalizeServiceCatalog({}));
-      setPackages([]);
     });
   }, []);
 
-  useEffect(() => {
-    const serviceId = searchParams.get("serviceId");
-    if (!serviceId) {
-      setSelectedServiceDetail(null);
-      setServiceDetailLoading(false);
-      return;
-    }
-
-    const cacheKey = `service:booking:${serviceId}`;
-
-    const loadServiceDetail = async () => {
-      const cached = readSessionCache(cacheKey, 5 * 60 * 1000);
-      if (cached) {
-        const normalized = normalizeServiceDetail(cached);
-        setSelectedServiceDetail(normalized);
-        setServiceDetailLoading(false);
-        return;
-      }
-
-      const response = await api.get(`/api/services/id/${encodeURIComponent(serviceId)}`);
-      writeSessionCache(cacheKey, response.data);
-      setSelectedServiceDetail(normalizeServiceDetail(response.data));
-      setServiceDetailLoading(false);
-    };
-
-    setServiceDetailLoading(true);
-    loadServiceDetail()
-      .catch(() => {
-        setSelectedServiceDetail(null);
-      })
-      .finally(() => setServiceDetailLoading(false));
-  }, [searchParams]);
-
   const serviceCatalog = useMemo(() => flattenServiceCatalog(catalogCategories), [catalogCategories]);
 
-  useEffect(() => {
-    const selection = findCatalogItem(serviceCatalog, {
-      categoryId: searchParams.get("categoryId"),
-      subcategoryId: searchParams.get("subcategoryId"),
-      categoryName: searchParams.get("category"),
-      subcategoryName: searchParams.get("subcategory") || searchParams.get("category")
-    });
-    if (!selection) return;
-
-    setFormData((current) => ({
-      ...current,
-      categoryId: selection.categoryId,
-      serviceCategory: selection.categoryName,
-      subCategoryId: selection.subcategoryId,
-      subCategory: selection.subCategoryName
-    }));
-  }, [searchParams, serviceCatalog]);
+  const selectedService = useMemo(
+    () =>
+      serviceCatalog.find(
+        (entry) =>
+          entry.subcategoryId === formData.subcategoryId ||
+          (!formData.subcategoryId && normalizeText(entry.subCategoryName) === normalizeText(searchParams.get("subcategoryId")))
+      ) || null,
+    [formData.subcategoryId, searchParams, serviceCatalog]
+  );
 
   useEffect(() => {
-    if (!selectedServiceDetail) {
+    if (!selectedService) {
       return;
     }
+    setSelection(buildSelectionFromQuery(searchParams, selectedService.pricingModel, selectedService.pricingConfig));
+  }, [searchParams, selectedService]);
 
-    setSelectedServicePricingOptionId(
-      (current) => current || searchParams.get("pricingOptionId") || selectedServiceDetail.pricingOptions[0]?.id || ""
-    );
-    setSelectedServiceAddonIds((current) =>
-      current.length > 0
-        ? current
-        : (searchParams.get("addonIds") || "")
-            .split(",")
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-    );
-    setFormData((current) => ({
-      ...current,
-      categoryId: current.categoryId,
-      serviceCategory: selectedServiceDetail.category,
-      subCategoryId: current.subCategoryId || selectedServiceDetail.id,
-      subCategory: selectedServiceDetail.name,
-      duration: current.duration || selectedServiceDetail.duration || ""
-    }));
-  }, [searchParams, selectedServiceDetail]);
+  const calculation = useMemo(
+    () =>
+      selectedService
+        ? calculatePricingSelection(selectedService.pricingModel, selectedService.pricingConfig, selection)
+        : {
+            selectedPackage: null,
+            selectedUnits: null,
+            selectedHours: null,
+            selectedShift: null,
+            selectedMeal: null,
+            selectedAddons: [],
+            basePrice: 0,
+            addonsPrice: 0,
+            visitCharge: null,
+            finalPrice: 0
+          },
+    [selectedService, selection]
+  );
 
   const loadBookings = useCallback(async () => {
     if (!user?.uid) {
@@ -341,20 +184,17 @@ export default function BookingPage() {
     }
 
     const cacheKey = `bookings:user:${user.uid}`;
-    const cachedBookings = readSessionCache(cacheKey, 30 * 1000);
-    if (Array.isArray(cachedBookings)) {
-      setBookings(cachedBookings);
+    const cached = readSessionCache(cacheKey, 30 * 1000);
+    if (Array.isArray(cached)) {
+      setBookings(cached);
       setBookingsLoading(false);
       return;
     }
 
     setBookingsLoading(true);
     setBookingsMessage("");
-
     try {
-      const response = await api.get("/api/bookings", {
-        params: { userId: user.uid, limit: 20 }
-      });
+      const response = await api.get("/api/bookings", { params: { userId: user.uid, limit: 20 } });
       const nextBookings = Array.isArray(response.data) ? response.data : [];
       setBookings(nextBookings);
       writeSessionCache(cacheKey, nextBookings);
@@ -374,145 +214,25 @@ export default function BookingPage() {
     });
   }, [loadBookings]);
 
-  const categoryOptions = useMemo(() => {
-    const seen = new Set();
-    return serviceCatalog.filter((item) => {
-      const key = `${item.categoryId}||${item.categoryName}`;
-      if (!item.categoryName || seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-  }, [serviceCatalog]);
-
-  const selectedServiceCatalogItem = useMemo(
-    () => findCatalogItemForService(serviceCatalog, selectedServiceDetail),
-    [selectedServiceDetail, serviceCatalog]
-  );
-
-  useEffect(() => {
-    if (!selectedServiceDetail) {
-      return;
-    }
-
-    setFormData((current) => ({
-      ...current,
-      categoryId: selectedServiceCatalogItem?.categoryId || current.categoryId || "",
-      serviceCategory: selectedServiceCatalogItem?.categoryName || selectedServiceDetail.category,
-      subCategoryId: selectedServiceCatalogItem?.subcategoryId || current.subCategoryId || selectedServiceDetail.id,
-      subCategory: selectedServiceCatalogItem?.subCategoryName || selectedServiceDetail.name
-    }));
-  }, [selectedServiceCatalogItem, selectedServiceDetail]);
-
-  const resolvedCategoryOptions = useMemo(() => {
-    const selectedValue = String(formData.categoryId || formData.serviceCategory).trim();
-    if (!selectedValue) {
-      return categoryOptions;
-    }
-
-    const alreadyPresent = categoryOptions.some(
-      (item) => item.categoryId === selectedValue || item.categoryName === selectedValue
-    );
-    if (alreadyPresent) {
-      return categoryOptions;
-    }
-
-    return [
-      {
-        categoryId: formData.categoryId,
-        categoryName: formData.serviceCategory || selectedServiceDetail?.category || selectedValue
-      },
-      ...categoryOptions
-    ];
-  }, [categoryOptions, formData.categoryId, formData.serviceCategory, selectedServiceDetail]);
-
-  const subCategoryOptions = useMemo(() => {
-    if (!formData.categoryId && !formData.serviceCategory) return [];
-
-    return serviceCatalog.filter(
-      (item) =>
-        (formData.categoryId && item.categoryId === formData.categoryId) ||
-        (!formData.categoryId && normalizeText(item.categoryName) === normalizeText(formData.serviceCategory))
-    );
-  }, [formData.categoryId, formData.serviceCategory, serviceCatalog]);
-
-  const resolvedSubCategoryOptions = useMemo(() => {
-    const selectedValue = String(formData.subCategoryId || formData.subCategory).trim();
-    if (!selectedValue) {
-      return subCategoryOptions;
-    }
-
-    const alreadyPresent = subCategoryOptions.some(
-      (item) => item.subcategoryId === selectedValue || item.subCategoryName === selectedValue
-    );
-    if (alreadyPresent) {
-      return subCategoryOptions;
-    }
-
-    return [
-      {
-        categoryId: formData.categoryId,
-        subcategoryId: formData.subCategoryId,
-        subCategoryName: formData.subCategory || selectedServiceDetail?.name || selectedValue
-      },
-      ...subCategoryOptions
-    ];
-  }, [formData.categoryId, formData.subCategory, formData.subCategoryId, selectedServiceDetail, subCategoryOptions]);
-
-  const selectedSubcategory = useMemo(
+  const categoryOptions = useMemo(
     () =>
-      findCatalogItem(serviceCatalog, {
-        categoryId: formData.categoryId,
-        subcategoryId: formData.subCategoryId,
-        categoryName: formData.serviceCategory,
-        subcategoryName: formData.subCategory
-      }),
-    [formData.categoryId, formData.serviceCategory, formData.subCategory, formData.subCategoryId, serviceCatalog]
-  );
-
-  const selectedServicePricingOption = useMemo(
-    () =>
-      selectedServiceDetail?.pricingOptions.find((option) => option.id === selectedServicePricingOptionId) ||
-      selectedServiceDetail?.pricingOptions[0] ||
-      null,
-    [selectedServiceDetail, selectedServicePricingOptionId]
-  );
-
-  const selectedServiceAddons = useMemo(
-    () => (selectedServiceDetail?.addons || []).filter((addon) => selectedServiceAddonIds.includes(addon.id)),
-    [selectedServiceAddonIds, selectedServiceDetail]
-  );
-
-  const selectedServicePriceSummary = useMemo(
-    () => calculateServiceTotal(selectedServicePricingOption, selectedServiceAddons),
-    [selectedServiceAddons, selectedServicePricingOption]
-  );
-
-  const packageOptions = useMemo(
-    () =>
-      packages.map((pkg) => ({
-        value: String(pkg.package_id || pkg.id || pkg.name || ""),
-        label: pkg.package_name || pkg.name || pkg.serviceType || "Package Plan"
+      catalogCategories.map((category) => ({
+        value: category.id,
+        label: category.name
       })),
-    [packages]
+    [catalogCategories]
   );
 
-  const packageLabelMap = useMemo(
-    () =>
-      packageOptions.reduce((acc, item) => {
-        acc[item.value] = item.label;
-        return acc;
-      }, {}),
-    [packageOptions]
+  const subCategoryOptions = useMemo(
+    () => serviceCatalog.filter((entry) => entry.categoryId === formData.categoryId),
+    [formData.categoryId, serviceCatalog]
   );
 
   const bookingCounts = useMemo(
     () =>
       bookings.reduce(
         (acc, booking) => {
-          const bucket = getBookingBucket(booking);
-          acc[bucket] += 1;
+          acc[getBookingBucket(booking)] += 1;
           return acc;
         },
         { current: 0, upcoming: 0, old: 0 }
@@ -522,60 +242,19 @@ export default function BookingPage() {
 
   const visibleBookings = useMemo(() => {
     const filtered = bookings.filter((booking) => getBookingBucket(booking) === activeTab);
-    const sorted = [...filtered];
-
-    sorted.sort((left, right) => {
-      const leftTime = bookingSortTime(left);
-      const rightTime = bookingSortTime(right);
-
-      if (activeTab === "upcoming") {
-        return leftTime - rightTime;
-      }
-
-      return rightTime - leftTime;
+    return [...filtered].sort((left, right) => {
+      const leftTime = parseBookingSlot(left)?.getTime() || 0;
+      const rightTime = parseBookingSlot(right)?.getTime() || 0;
+      return activeTab === "upcoming" ? leftTime - rightTime : rightTime - leftTime;
     });
-
-    return sorted;
   }, [activeTab, bookings]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!user) return;
+    if (!user || !selectedService) return;
 
-    const isServiceFlow = Boolean(selectedServiceDetail);
-    const selectedPricingPayload = selectedServicePricingOption
-      ? {
-          id: selectedServicePricingOption.id,
-          title: selectedServicePricingOption.title,
-          description: selectedServicePricingOption.description,
-          price: selectedServicePricingOption.price,
-          order: selectedServicePricingOption.order
-        }
-      : null;
-    const selectedAddonsPayload = selectedServiceAddons.map((addon) => ({
-      id: addon.id,
-      title: addon.title,
-      description: addon.description,
-      price: addon.price
-    }));
-
-    if (!formData.serviceCategory || !formData.subCategory || !formData.serviceDate || !formData.preferredTimeSlot) {
-      setFormMessage("Please provide category, sub category, service date and preferred time slot.");
-      return;
-    }
-
-    if (isServiceFlow && !selectedPricingPayload) {
-      setFormMessage("Please choose a pricing option before booking.");
-      return;
-    }
-
-    if (formData.serviceType === "package" && !formData.packageId) {
-      setFormMessage("Please choose a package plan before submitting.");
-      return;
-    }
-
-    if (formData.serviceType === "package" && !formData.recurringDays.trim()) {
-      setFormMessage("Please enter recurring days for package bookings.");
+    if (!formData.serviceDate || !formData.preferredTimeSlot) {
+      setFormMessage("Please choose a service date and time slot.");
       return;
     }
 
@@ -587,60 +266,34 @@ export default function BookingPage() {
         userId: user.uid,
         userName: user.displayName || "",
         userEmail: user.email || "",
-        serviceId: selectedServiceDetail?.id || "",
-        serviceSlug: selectedServiceDetail?.slug || "",
-        serviceCategorySlug: selectedServiceDetail?.categorySlug || "",
-        categoryId: selectedSubcategory?.categoryId || formData.categoryId,
-        serviceCategory: selectedServiceDetail?.category || formData.serviceCategory,
-        subCategoryId: selectedServiceDetail?.id || selectedSubcategory?.subcategoryId || formData.subCategoryId,
-        subCategory: selectedServiceDetail?.name || formData.subCategory,
-        serviceType: formData.serviceType,
-        workDescription: formData.workDescription,
+        categoryId: selectedService.categoryId,
+        subCategoryId: selectedService.subcategoryId,
+        serviceCategory: selectedService.categoryName,
+        subCategory: selectedService.subCategoryName,
         serviceDate: formData.serviceDate,
         preferredTimeSlot: formData.preferredTimeSlot,
-        duration: formData.duration || selectedServiceDetail?.duration || "",
-        recurringDays: formData.serviceType === "package" ? formData.recurringDays : "",
+        workDescription: formData.workDescription,
         specialInstructions: formData.specialInstructions,
-        category: selectedServiceDetail?.name || formData.subCategory || formData.serviceCategory,
-        date: formData.serviceDate,
-        time: formData.preferredTimeSlot,
-        notes: formData.specialInstructions,
-        planType: formData.serviceType,
-        packageId: formData.serviceType === "package" ? formData.packageId : "",
-        pricingOptionId: selectedPricingPayload?.id || "",
-        selectedPricingOption: selectedPricingPayload,
-        addonIds: selectedAddonsPayload.map((addon) => addon.id),
-        selectedAddons: selectedAddonsPayload,
-        totalPrice: isServiceFlow ? selectedServicePriceSummary.totalPrice : undefined,
-        pricingType: isServiceFlow ? selectedServiceDetail?.pricingType || "tiered" : selectedSubcategory?.pricingType || "fixed",
-        price: isServiceFlow ? selectedServicePricingOption?.price : selectedSubcategory?.price,
-        unitLabel: isServiceFlow ? "" : selectedSubcategory?.unitLabel || "",
-        pricingNotes:
-          isServiceFlow
-            ? selectedPricingPayload?.description || selectedServiceDetail?.description || ""
-            : selectedSubcategory?.pricingNotes || "",
-        priceSummary:
-          isServiceFlow
-            ? `${selectedPricingPayload?.title || "Selected tier"} • ${formatServicePrice(selectedServicePriceSummary.totalPrice)} total`
-            : selectedSubcategory?.priceSummary || buildPriceSummary(selectedSubcategory || {})
+        pricingModel: selectedService.pricingModel,
+        selectedPackageId: selection.selectedPackage,
+        selectedUnits: selection.selectedUnits,
+        selectedHours: selection.selectedHours,
+        selectedShiftId: selection.selectedShift,
+        selectedMealId: selection.selectedMeal,
+        selectedAddonIds: selection.selectedAddons
       });
-
-      setFormData((current) => ({
-        ...current,
-        serviceType: "one-time",
-        packageId: "",
-        workDescription: "",
-        serviceDate: "",
-        preferredTimeSlot: "",
-        duration: "",
-        recurringDays: "",
-        specialInstructions: ""
-      }));
 
       setBookingSuccessModal({
         title: "Booking Confirmed",
-        message: "Your booking was submitted successfully and saved to the database."
+        message: "Your booking was created with the new pricing flow."
       });
+      setFormData((current) => ({
+        ...current,
+        serviceDate: "",
+        preferredTimeSlot: "",
+        workDescription: "",
+        specialInstructions: ""
+      }));
       await loadBookings();
       setActiveTab("upcoming");
     } catch (error) {
@@ -651,29 +304,12 @@ export default function BookingPage() {
   };
 
   const cancelBooking = async (bookingId) => {
-    setBookingsMessage("");
     setUpdatingBookingId(bookingId);
-
     try {
       await api.patch(`/api/bookings/${bookingId}/status`, { status: "cancelled" });
-      setBookings((current) => {
-        const next = current.map((booking) =>
-          booking.id === bookingId
-            ? {
-                ...booking,
-                status: "cancelled",
-                updatedAt: new Date().toISOString()
-              }
-            : booking
-        );
-        if (user?.uid) {
-          writeSessionCache(`bookings:user:${user.uid}`, next);
-        }
-        return next;
-      });
-      setBookingsMessage("Booking cancelled successfully.");
-    } catch (error) {
-      setBookingsMessage(error?.response?.data?.message || "Unable to cancel this booking right now.");
+      await loadBookings();
+    } catch (_error) {
+      setBookingsMessage("Unable to cancel this booking right now.");
     } finally {
       setUpdatingBookingId("");
     }
@@ -683,121 +319,46 @@ export default function BookingPage() {
     <UserPortalShell activeNav="bookings">
       <section className="tasko-page-header">
         <p>Booking Workspace</p>
-        <h1>Book and Manage Services</h1>
-        <p>Create new bookings and track current, upcoming, and old bookings with full details.</p>
+        <h1>Flexible Booking</h1>
+        <p>Choose a service, configure its pricing model, and track every booking from one place.</p>
       </section>
 
-      <section className="tasko-booking-stats">
-        <article className="tasko-card tasko-booking-stat-card">
-          <h3>Current</h3>
-          <p className="tasko-booking-stat-value">{bookingCounts.current}</p>
-          <p>Active or today&apos;s bookings.</p>
-        </article>
-        <article className="tasko-card tasko-booking-stat-card">
-          <h3>Upcoming</h3>
-          <p className="tasko-booking-stat-value">{bookingCounts.upcoming}</p>
-          <p>Future scheduled bookings.</p>
-        </article>
-        <article className="tasko-card tasko-booking-stat-card">
-          <h3>Old</h3>
-          <p className="tasko-booking-stat-value">{bookingCounts.old}</p>
-          <p>Completed or cancelled bookings.</p>
-        </article>
-      </section>
+      {bookingSuccessModal ? (
+        <section className="tasko-content-panel">
+          <div className="tasko-success-inline-card">
+            <h3>{bookingSuccessModal.title}</h3>
+            <p>{bookingSuccessModal.message}</p>
+            <button type="button" onClick={() => setBookingSuccessModal(null)}>
+              Continue
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="tasko-content-panel">
-        {bookingSuccessModal ? (
-          <div className="tasko-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tasko-booking-success-title">
-            <div className="tasko-modal-card tasko-success-modal-card">
-              <div className="tasko-modal-head">
-                <div>
-                  <p>Booking Status</p>
-                  <h3 id="tasko-booking-success-title">{bookingSuccessModal.title}</h3>
-                </div>
-              </div>
-              <div className="tasko-modal-body">
-                <p>{bookingSuccessModal.message}</p>
-                <p>Your booking is now in Tasko and you can review it from the upcoming bookings section.</p>
-              </div>
-              <div className="tasko-modal-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab("upcoming");
-                    setBookingSuccessModal(null);
-                  }}
-                >
-                  View Upcoming Bookings
-                </button>
-                <button type="button" className="tasko-secondary-button" onClick={() => setBookingSuccessModal(null)}>
-                  Book Another
-                </button>
-                <button type="button" className="tasko-secondary-button" onClick={() => navigate("/home")}>
-                  Go Home
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         <div className="tasko-section-head">
           <p>Create</p>
           <h2>New Booking</h2>
         </div>
 
-        {serviceDetailLoading ? <p className="tasko-empty-state">Loading selected service...</p> : null}
-
-        {selectedServiceDetail ? (
-          <div className="tasko-booking-service-summary">
-            <div>
-              <p className="tasko-pricing-summary-label">Selected Service</p>
-              <h3>{selectedServiceDetail.name}</h3>
-              <p>
-                {selectedServiceDetail.category} • {selectedServiceDetail.duration || "Flexible duration"}
-              </p>
-              <p>
-                {selectedServicePricingOption?.title || "Pricing option"} •{" "}
-                {formatServicePrice(selectedServicePriceSummary.basePrice)}
-              </p>
-              {selectedServiceAddons.length > 0 ? (
-                <p>Add-ons: {selectedServiceAddons.map((addon) => addon.title).join(", ")}</p>
-              ) : null}
-            </div>
-            <div className="tasko-booking-service-summary-total">
-              <span>Total</span>
-              <strong>{formatServicePrice(selectedServicePriceSummary.totalPrice)}</strong>
-            </div>
-          </div>
-        ) : null}
-
         <form className="tasko-booking-form" onSubmit={handleSubmit}>
           <label className="tasko-booking-field">
             <span>Service Category</span>
             <select
-              value={formData.categoryId || formData.serviceCategory}
-              disabled={Boolean(selectedServiceDetail)}
+              value={formData.categoryId}
               onChange={(event) =>
-                setFormData((current) => {
-                  const nextCategory =
-                    categoryOptions.find(
-                      (item) =>
-                        item.categoryId === event.target.value || item.categoryName === event.target.value
-                    ) || null;
-                  return {
-                    ...current,
-                    categoryId: nextCategory?.categoryId || "",
-                    serviceCategory: nextCategory?.categoryName || event.target.value,
-                    subCategoryId: "",
-                    subCategory: ""
-                  };
-                })
+                setFormData((current) => ({
+                  ...current,
+                  categoryId: event.target.value,
+                  subcategoryId: ""
+                }))
               }
               required
             >
               <option value="">Select service category</option>
-              {resolvedCategoryOptions.map((category) => (
-                <option key={`${category.categoryId}-${category.categoryName}`} value={category.categoryId || category.categoryName}>
-                  {category.categoryName}
+              {categoryOptions.map((category) => (
+                <option key={category.value} value={category.value}>
+                  {category.label}
                 </option>
               ))}
             </select>
@@ -806,99 +367,18 @@ export default function BookingPage() {
           <label className="tasko-booking-field">
             <span>Sub Category</span>
             <select
-              value={formData.subCategoryId || formData.subCategory}
-              onChange={(event) =>
-                setFormData((current) => {
-                  const nextSubcategory =
-                    subCategoryOptions.find(
-                      (item) =>
-                        item.subcategoryId === event.target.value || item.subCategoryName === event.target.value
-                    ) || null;
-                  return {
-                    ...current,
-                    subCategoryId: nextSubcategory?.subcategoryId || "",
-                    subCategory: nextSubcategory?.subCategoryName || event.target.value
-                  };
-                })
-              }
+              value={formData.subcategoryId}
+              onChange={(event) => setFormData((current) => ({ ...current, subcategoryId: event.target.value }))}
               required
-              disabled={Boolean(selectedServiceDetail) || (!formData.categoryId && !formData.serviceCategory)}
+              disabled={!formData.categoryId}
             >
               <option value="">Select sub category</option>
-              {resolvedSubCategoryOptions.map((subCategory) => (
-                <option
-                  key={`${subCategory.categoryId}-${subCategory.subcategoryId || subCategory.subCategoryName}`}
-                  value={subCategory.subcategoryId || subCategory.subCategoryName}
-                >
-                  {subCategory.subCategoryName}
+              {subCategoryOptions.map((service) => (
+                <option key={service.subcategoryId} value={service.subcategoryId}>
+                  {service.subCategoryName}
                 </option>
               ))}
             </select>
-          </label>
-
-          <label className="tasko-booking-field">
-            <span>Service Type</span>
-            <select
-              value={formData.serviceType}
-              onChange={(event) =>
-                setFormData((current) => ({
-                  ...current,
-                  serviceType: event.target.value,
-                  packageId: "",
-                  recurringDays: ""
-                }))
-              }
-              required
-            >
-              <option value="one-time">One-time</option>
-              <option value="package">Package</option>
-            </select>
-          </label>
-
-          {selectedServiceDetail ? (
-            <label className="tasko-booking-field">
-              <span>Pricing Option</span>
-              <select
-                value={selectedServicePricingOption?.id || ""}
-                onChange={(event) => setSelectedServicePricingOptionId(event.target.value)}
-                required
-              >
-                {selectedServiceDetail.pricingOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.title} - {formatServicePrice(option.price)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
-          {formData.serviceType === "package" ? (
-            <label className="tasko-booking-field">
-              <span>Package</span>
-              <select
-                value={formData.packageId}
-                onChange={(event) => setFormData((current) => ({ ...current, packageId: event.target.value }))}
-                required
-              >
-                <option value="">Select package</option>
-                {packageOptions.map((pkg) => (
-                  <option key={pkg.value} value={pkg.value}>
-                    {pkg.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <div className="tasko-booking-field tasko-booking-field-spacer" aria-hidden="true" />
-          )}
-
-          <label className="tasko-booking-field full">
-            <span>Work Description</span>
-            <textarea
-              placeholder="Add optional notes about the work"
-              value={formData.workDescription}
-              onChange={(event) => setFormData((current) => ({ ...current, workDescription: event.target.value }))}
-            />
           </label>
 
           <label className="tasko-booking-field">
@@ -922,87 +402,70 @@ export default function BookingPage() {
             />
           </label>
 
-          <label className="tasko-booking-field">
-            <span>Duration</span>
-            <input
-              type="text"
-              placeholder="e.g. 2 hours"
-              value={formData.duration}
-              onChange={(event) => setFormData((current) => ({ ...current, duration: event.target.value }))}
+          <label className="tasko-booking-field full">
+            <span>Work Description</span>
+            <textarea
+              placeholder="Tell Tasko what needs to be done"
+              value={formData.workDescription}
+              onChange={(event) => setFormData((current) => ({ ...current, workDescription: event.target.value }))}
             />
           </label>
-
-          {formData.serviceType === "package" ? (
-            <label className="tasko-booking-field">
-              <span>Recurring Days</span>
-              <input
-                type="text"
-                placeholder="e.g. Mon, Wed, Fri"
-                value={formData.recurringDays}
-                onChange={(event) => setFormData((current) => ({ ...current, recurringDays: event.target.value }))}
-                required
-              />
-            </label>
-          ) : (
-            <div className="tasko-booking-field tasko-booking-field-spacer" aria-hidden="true" />
-          )}
 
           <label className="tasko-booking-field full">
             <span>Special Instructions</span>
             <textarea
-              placeholder="Add any special instructions"
+              placeholder="Any access notes, preferred approach, or special instructions"
               value={formData.specialInstructions}
               onChange={(event) => setFormData((current) => ({ ...current, specialInstructions: event.target.value }))}
             />
           </label>
+        </form>
 
-          {selectedServiceDetail?.addons?.length ? (
-            <div className="tasko-booking-field full">
-              <span>Optional Add-ons</span>
-              <div className="tasko-booking-addon-grid">
-                {selectedServiceDetail.addons.map((addon) => {
-                  const checked = selectedServiceAddonIds.includes(addon.id);
-                  return (
-                    <label key={addon.id} className="tasko-booking-addon-item">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setSelectedServiceAddonIds((current) =>
-                            checked ? current.filter((id) => id !== addon.id) : [...current, addon.id]
-                          )
-                        }
-                      />
-                      <span>
-                        {addon.title} (+{formatServicePrice(addon.price)})
-                      </span>
-                    </label>
-                  );
-                })}
+        {selectedService ? (
+          <section className="tasko-service-pricing-layout">
+            <div className="tasko-service-pricing-main">
+              <div className="tasko-booking-service-summary">
+                <div>
+                  <p className="tasko-pricing-summary-label">Selected Service</p>
+                  <h3>{selectedService.subCategoryName}</h3>
+                  <p>{selectedService.categoryName}</p>
+                  <p>{selectedService.paymentFlow === "postpaid" ? "Inspection and estimate approval" : "Prepaid booking"}</p>
+                </div>
+                <button type="button" className="tasko-secondary-button" onClick={() => navigate(`/services/${selectedService.categorySlug}/${selectedService.serviceSlug}`)}>
+                  Open Detail Page
+                </button>
               </div>
+
+              <PricingConfigurator
+                pricingModel={selectedService.pricingModel}
+                pricingConfig={selectedService.pricingConfig}
+                selection={selection}
+                onSelectionChange={(patch) => setSelection((current) => ({ ...current, ...patch }))}
+              />
             </div>
-          ) : null}
 
-          <div className="tasko-pricing-summary">
-            <p className="tasko-pricing-summary-label">Pricing Snapshot</p>
-            <h3>
-              {selectedServiceDetail
-                ? `${formatServicePrice(selectedServicePriceSummary.totalPrice)} total`
-                : selectedSubcategory?.priceSummary || "Select a sub category to view pricing."}
-            </h3>
-            <p>
-              {selectedServiceDetail
-                ? `${selectedServicePricingOption?.title || "Selected tier"} with ${selectedServiceAddons.length} add-on(s).`
-                : selectedSubcategory?.pricingNotes || "Price details from the catalog will appear here before confirmation."}
-            </p>
-          </div>
+            <OrderSummaryPanel
+              serviceName={selectedService.subCategoryName}
+              pricingModel={selectedService.pricingModel}
+              pricingConfig={selectedService.pricingConfig}
+              calculation={calculation}
+            />
+          </section>
+        ) : (
+          <p className="tasko-empty-state">Select a category and sub category to configure pricing.</p>
+        )}
 
+        {selectedService ? (
           <div className="tasko-booking-actions-row">
-            <button type="submit" className="tasko-booking-submit" disabled={submitting}>
-              {submitting ? "Submitting..." : "Confirm Booking"}
+            <button type="submit" className="tasko-booking-submit" onClick={handleSubmit} disabled={submitting}>
+              {submitting
+                ? "Submitting..."
+                : selectedService.pricingModel === "inspection"
+                  ? "Book Inspection"
+                  : "Confirm Booking"}
             </button>
           </div>
-        </form>
+        ) : null}
 
         {formMessage ? <p className="tasko-empty-state">{formMessage}</p> : null}
       </section>
@@ -1033,100 +496,59 @@ export default function BookingPage() {
         ) : (
           <div className="tasko-booking-grid">
             {visibleBookings.map((booking) => {
-              const bucket = getBookingBucket(booking);
-              const status = String(booking.status || "pending").toLowerCase();
-              const canCancel = !oldStatuses.has(status);
-              const workerInfo = resolveWorkerInfo(booking);
-
+              const canCancel = !oldStatuses.has(String(booking.status || "").toLowerCase());
+              const selectedPackageName = booking?.selectedPackage?.name || booking?.selectedPackageId || "-";
+              const selectedMealName = booking?.selectedMeal?.name || booking?.selectedMealId || "-";
+              const selectedShiftName = booking?.selectedShift?.name || booking?.selectedShiftId || "-";
+              const pricingModel = String(booking.pricingModel || "").trim();
               return (
                 <article key={booking.id} className="tasko-card tasko-booking-card">
                   <div className="tasko-booking-card-head">
-                    <h3>{booking.subCategory || booking.category || booking.serviceCategory || "Service Booking"}</h3>
-                    <span className={`tasko-booking-status is-${bucket}`}>{toStatusLabel(status)}</span>
+                    <h3>{booking.subCategory || booking.category || "Service Booking"}</h3>
+                    <span className={`tasko-booking-status is-${getBookingBucket(booking)}`}>
+                      {toStatusLabel(booking.status)}
+                    </span>
                   </div>
 
                   <div className="tasko-booking-meta-grid">
-                    <p>
-                      <strong>Booking ID:</strong> {booking.id || "-"}
-                    </p>
-                    <p>
-                      <strong>Service Category:</strong> {booking.serviceCategory || booking.category || "-"}
-                    </p>
-                    <p>
-                      <strong>Sub Category:</strong> {booking.subCategory || booking.category || "-"}
-                    </p>
-                    <p>
-                      <strong>Service Date:</strong> {formatSlotDate(booking)}
-                    </p>
-                    <p>
-                      <strong>Preferred Time Slot:</strong> {formatSlotTime(booking)}
-                    </p>
-                    <p>
-                      <strong>Service Type:</strong> {toStatusLabel(booking.serviceType || booking.planType || "one-time")}
-                    </p>
-                    <p>
-                      <strong>Package:</strong>{" "}
-                      {booking.packageId ? packageLabelMap[booking.packageId] || booking.packageId : "-"}
-                    </p>
-                    <p>
-                      <strong>Price:</strong> {booking.priceSummary || buildPriceSummary(booking)}
-                    </p>
-                    <p>
-                      <strong>Total Price:</strong>{" "}
-                      {Number.isFinite(Number(booking.totalPrice))
-                        ? formatServicePrice(Number(booking.totalPrice))
-                        : booking.priceSummary || buildPriceSummary(booking)}
-                    </p>
-                    <p>
-                      <strong>Pricing Option:</strong> {booking.selectedPricingOptionTitle || "-"}
-                    </p>
-                    <p>
-                      <strong>Price Status:</strong> {toStatusLabel(booking.priceStatus || "pending")}
-                    </p>
-                    <p>
-                      <strong>Duration:</strong> {booking.duration || "-"}
-                    </p>
-                    <p>
-                      <strong>Recurring Days:</strong> {booking.recurringDays || "-"}
-                    </p>
-                    <p>
-                      <strong>Status:</strong> {toStatusLabel(status)}
-                    </p>
-                    <p>
-                      <strong>Worker:</strong> {workerInfo?.name || "Not assigned"}
-                    </p>
-                    <p>
-                      <strong>Worker Contact:</strong> {workerInfo?.phone || "-"}
-                    </p>
-                    <p>
-                      <strong>Created:</strong> {formatDateTime(booking.createdAt)}
-                    </p>
-                    <p>
-                      <strong>Updated:</strong> {formatDateTime(booking.updatedAt)}
-                    </p>
+                    <p><strong>Category:</strong> {booking.serviceCategory || "-"}</p>
+                    <p><strong>Date:</strong> {formatSlotDate(booking)}</p>
+                    <p><strong>Time:</strong> {formatSlotTime(booking)}</p>
+                    <p><strong>Pricing Model:</strong> {toStatusLabel(pricingModel)}</p>
+                    <p><strong>Payment Status:</strong> {toStatusLabel(booking.paymentStatus || "pending")}</p>
+                    <p><strong>Approval Status:</strong> {toStatusLabel(booking.approvalStatus || "not_required")}</p>
+                    <p><strong>Total:</strong> {formatRupee(booking.finalPrice || booking.totalPrice || 0)}</p>
+                    {pricingModel === "package" ? <p><strong>Package:</strong> {selectedPackageName}</p> : null}
+                    {pricingModel === "per_unit" ? <p><strong>Units:</strong> {booking.selectedUnits || "-"}</p> : null}
+                    {pricingModel === "time_based" ? <p><strong>Shift:</strong> {selectedShiftName}</p> : null}
+                    {pricingModel === "time_based" ? <p><strong>Hours:</strong> {booking.selectedHours || "-"}</p> : null}
+                    {pricingModel === "meal_based" ? <p><strong>Meal:</strong> {selectedMealName}</p> : null}
+                    {pricingModel === "inspection" ? <p><strong>Visit Charge:</strong> {formatRupee(booking.visitCharge || 0)}</p> : null}
+                    {pricingModel === "inspection" ? <p><strong>Worker Estimate:</strong> {booking.workerEstimate ? formatRupee(booking.workerEstimate) : "-"}</p> : null}
                   </div>
 
                   <p className="tasko-booking-notes">
-                    <strong>Work Description:</strong> {booking.workDescription || "No work description."}
+                    <strong>Selection:</strong> {buildSelectionSummary(
+                      pricingModel,
+                      {
+                        selectedPackage: booking.selectedPackage || null,
+                        selectedUnits: booking.selectedUnits || null,
+                        selectedHours: booking.selectedHours || null,
+                        selectedShift: booking.selectedShift || null,
+                        selectedMeal: booking.selectedMeal || null,
+                        selectedAddons: Array.isArray(booking.selectedAddons) ? booking.selectedAddons : [],
+                        basePrice: booking.finalPrice || booking.totalPrice || 0,
+                        addonsPrice: booking.addonsPrice || 0,
+                        visitCharge: booking.visitCharge || null,
+                        finalPrice: booking.finalPrice || booking.totalPrice || 0
+                      },
+                      booking.pricingConfig || {}
+                    )}
                   </p>
 
                   <p className="tasko-booking-notes">
-                    <strong>Special Instructions:</strong> {booking.specialInstructions || booking.notes || "No special instructions."}
+                    <strong>Instructions:</strong> {booking.specialInstructions || booking.notes || "No special instructions."}
                   </p>
-
-                  <p className="tasko-booking-notes">
-                    <strong>Pricing Notes:</strong> {booking.pricingNotes || "No extra pricing note."}
-                  </p>
-
-                  {Array.isArray(booking.selectedAddons) && booking.selectedAddons.length > 0 ? (
-                    <p className="tasko-booking-notes">
-                      <strong>Add-ons:</strong>{" "}
-                      {booking.selectedAddons
-                        .map((addon) => addon?.title || addon?.name || "")
-                        .filter(Boolean)
-                        .join(", ")}
-                    </p>
-                  ) : null}
 
                   {canCancel ? (
                     <div className="tasko-booking-actions-row">

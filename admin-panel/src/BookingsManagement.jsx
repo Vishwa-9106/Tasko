@@ -614,6 +614,15 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
                 <p className="mt-1">Category: {selectedBooking.serviceCategory}</p>
                 <p>Sub Category: {selectedBooking.subCategory}</p>
                 <p>Booking Type: {selectedBooking.bookingType}</p>
+                <p>Pricing Model: {toStatusLabel(selectedBooking.raw?.pricingModel || "-")}</p>
+                <p>Payment Status: {toStatusLabel(selectedBooking.raw?.paymentStatus || "pending")}</p>
+                <p>Approval Status: {toStatusLabel(selectedBooking.raw?.approvalStatus || "not_required")}</p>
+                <p>Final Price: {Number.isFinite(Number(selectedBooking.raw?.finalPrice)) ? `₹${Number(selectedBooking.raw.finalPrice)}` : "-"}</p>
+                {selectedBooking.raw?.selectedPackage?.name ? <p>Package: {selectedBooking.raw.selectedPackage.name}</p> : null}
+                {selectedBooking.raw?.selectedUnits ? <p>Units: {selectedBooking.raw.selectedUnits}</p> : null}
+                {selectedBooking.raw?.selectedHours ? <p>Hours: {selectedBooking.raw.selectedHours}</p> : null}
+                {selectedBooking.raw?.selectedMeal?.name ? <p>Meal: {selectedBooking.raw.selectedMeal.name}</p> : null}
+                {selectedBooking.raw?.visitCharge ? <p>Visit Charge: ₹{Number(selectedBooking.raw.visitCharge)}</p> : null}
                 <p>
                   Status:{" "}
                   <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${statusClassName(selectedBooking.status)}`}>
