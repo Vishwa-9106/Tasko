@@ -177,14 +177,14 @@ export default function BookingPage() {
     [selectedService, selection]
   );
 
-  const loadBookings = useCallback(async () => {
+  const loadBookings = useCallback(async ({ forceRefresh = false } = {}) => {
     if (!user?.uid) {
       setBookings([]);
       return;
     }
 
     const cacheKey = `bookings:user:${user.uid}`;
-    const cached = readSessionCache(cacheKey, 30 * 1000);
+    const cached = forceRefresh ? null : readSessionCache(cacheKey, 30 * 1000);
     if (Array.isArray(cached)) {
       setBookings(cached);
       setBookingsLoading(false);
@@ -285,7 +285,7 @@ export default function BookingPage() {
 
       setBookingSuccessModal({
         title: "Booking Confirmed",
-        message: "Your booking was created with the new pricing flow."
+        message: `${selectedService.subCategoryName} booking was created successfully.`
       });
       setFormData((current) => ({
         ...current,
@@ -294,7 +294,7 @@ export default function BookingPage() {
         workDescription: "",
         specialInstructions: ""
       }));
-      await loadBookings();
+      await loadBookings({ forceRefresh: true });
       setActiveTab("upcoming");
     } catch (error) {
       setFormMessage(error?.response?.data?.message || "Booking failed. Please try again.");
@@ -307,7 +307,7 @@ export default function BookingPage() {
     setUpdatingBookingId(bookingId);
     try {
       await api.patch(`/api/bookings/${bookingId}/status`, { status: "cancelled" });
-      await loadBookings();
+      await loadBookings({ forceRefresh: true });
     } catch (_error) {
       setBookingsMessage("Unable to cancel this booking right now.");
     } finally {
@@ -324,15 +324,44 @@ export default function BookingPage() {
       </section>
 
       {bookingSuccessModal ? (
-        <section className="tasko-content-panel">
-          <div className="tasko-success-inline-card">
-            <h3>{bookingSuccessModal.title}</h3>
-            <p>{bookingSuccessModal.message}</p>
-            <button type="button" onClick={() => setBookingSuccessModal(null)}>
-              Continue
-            </button>
+        <div
+          className="tasko-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tasko-booking-success-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setBookingSuccessModal(null);
+            }
+          }}
+        >
+          <div className="tasko-modal-card tasko-success-modal-card">
+            <div className="tasko-modal-head">
+              <div>
+                <p>Booking</p>
+                <h3 id="tasko-booking-success-title">{bookingSuccessModal.title}</h3>
+              </div>
+            </div>
+            <div className="tasko-modal-body">
+              <p>{bookingSuccessModal.message}</p>
+              <p>Your booking is now listed in the upcoming section.</p>
+            </div>
+            <div className="tasko-modal-actions">
+              <button type="button" className="tasko-secondary-button" onClick={() => setBookingSuccessModal(null)}>
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBookingSuccessModal(null);
+                  setActiveTab("upcoming");
+                }}
+              >
+                View Upcoming
+              </button>
+            </div>
           </div>
-        </section>
+        </div>
       ) : null}
 
       <section className="tasko-content-panel">
