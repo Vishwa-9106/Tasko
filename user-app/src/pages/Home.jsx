@@ -3,8 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
 import { CategoryIcon, SearchIcon } from "../components/PortalIcons";
-import { groceryCategories, howTaskoWorks, packageFallbacks, serviceCategories } from "./homeData";
+import { groceryCategories, howTaskoWorks, packageFallbacks } from "./homeData";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
+import { guessServiceCategoryIcon, normalizeServiceCatalog } from "../utils/serviceCatalog";
 
 function normalizeText(value) {
   return String(value || "")
@@ -52,6 +53,7 @@ export default function HomePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
+  const [catalogCategories, setCatalogCategories] = useState(() => normalizeServiceCatalog({}));
   const [packages, setPackages] = useState(packageFallbacks);
 
   useEffect(() => {
@@ -61,6 +63,25 @@ export default function HomePage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [location.hash]);
+
+  useEffect(() => {
+    const loadCatalog = async () => {
+      const cachedCatalog = readSessionCache("service-catalog:v2", 5 * 60 * 1000);
+      if (cachedCatalog) {
+        setCatalogCategories(normalizeServiceCatalog({ categories: cachedCatalog }));
+        return;
+      }
+
+      const response = await api.get("/api/service-catalog");
+      const normalized = normalizeServiceCatalog(response.data);
+      writeSessionCache("service-catalog:v2", normalized);
+      setCatalogCategories(normalized);
+    };
+
+    loadCatalog().catch(() => {
+      setCatalogCategories(normalizeServiceCatalog({}));
+    });
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -135,10 +156,10 @@ export default function HomePage() {
           <h2>Service Categories</h2>
         </div>
         <div className="tasko-category-grid">
-          {serviceCategories.map((category) => (
+          {catalogCategories.map((category) => (
             <article key={category.id} className="tasko-card">
               <span className="tasko-card-icon">
-                <CategoryIcon name={category.icon} className="tasko-line-icon" />
+                <CategoryIcon name={guessServiceCategoryIcon(category.name)} className="tasko-line-icon" />
               </span>
               <h3>{category.name}</h3>
               <button type="button" onClick={() => navigate(`/services?category=${encodeURIComponent(category.name)}`)}>

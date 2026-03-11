@@ -17,6 +17,102 @@ export function toCategoryKey(value) {
   return normalizeText(value);
 }
 
+export function guessServiceCategoryIcon(categoryName) {
+  const normalized = toCategoryKey(categoryName);
+  const matched = serviceCategories.find((category) => toCategoryKey(category.name) === normalized);
+  if (matched?.icon) {
+    return matched.icon;
+  }
+
+  if (
+    normalized.includes("clean") ||
+    normalized.includes("sanit") ||
+    normalized.includes("maid") ||
+    normalized.includes("housekeep")
+  ) {
+    return "cleaning";
+  }
+
+  if (
+    normalized.includes("wash") ||
+    normalized.includes("laundry") ||
+    normalized.includes("sofa") ||
+    normalized.includes("carpet")
+  ) {
+    return "washing";
+  }
+
+  if (
+    normalized.includes("repair") ||
+    normalized.includes("electric") ||
+    normalized.includes("ac") ||
+    normalized.includes("cctv") ||
+    normalized.includes("install")
+  ) {
+    return "technical";
+  }
+
+  if (
+    normalized.includes("maint") ||
+    normalized.includes("paint") ||
+    normalized.includes("carpent") ||
+    normalized.includes("handyman")
+  ) {
+    return "maintenance";
+  }
+
+  if (
+    normalized.includes("mechanic") ||
+    normalized.includes("bike") ||
+    normalized.includes("car ") ||
+    normalized.endsWith(" car") ||
+    normalized.includes("battery") ||
+    normalized.includes("vehicle")
+  ) {
+    return "mechanic";
+  }
+
+  if (
+    normalized.includes("plumb") ||
+    normalized.includes("pipe") ||
+    normalized.includes("tap") ||
+    normalized.includes("drain")
+  ) {
+    return "plumbing";
+  }
+
+  if (
+    normalized.includes("care") ||
+    normalized.includes("nurs") ||
+    normalized.includes("baby") ||
+    normalized.includes("elder") ||
+    normalized.includes("patient")
+  ) {
+    return "caring";
+  }
+
+  if (
+    normalized.includes("beauty") ||
+    normalized.includes("salon") ||
+    normalized.includes("makeup") ||
+    normalized.includes("barber") ||
+    normalized.includes("groom")
+  ) {
+    return "beauty";
+  }
+
+  if (
+    normalized.includes("cook") ||
+    normalized.includes("chef") ||
+    normalized.includes("meal") ||
+    normalized.includes("kitchen")
+  ) {
+    return "cooking";
+  }
+
+  return "cleaning";
+}
+
 export function buildServicePath(entry) {
   const categorySlug = String(entry?.categorySlug || entry?.categoryId || entry?.categoryName || "").trim();
   const serviceSlug = String(entry?.serviceSlug || entry?.subcategoryId || entry?.subCategoryName || "").trim();

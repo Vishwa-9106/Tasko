@@ -114,6 +114,13 @@ function normalizeCategory(record) {
   };
 }
 
+function createCategoryCreationDraft() {
+  return {
+    name: "",
+    subcategories: [createEmptySubcategoryDraft()]
+  };
+}
+
 
 function parseSubcategoryRoute(pathname) {
   const match = String(pathname || "").match(/^\/category\/([^/]+)\/subcategories\/?$/i);
@@ -201,7 +208,7 @@ export default function AdminApp() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [subcategories, setSubcategories] = useState([]);
   const [loadedSubcategoryCategoryId, setLoadedSubcategoryCategoryId] = useState("");
-  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryCreateModal, setCategoryCreateModal] = useState(null);
   const [newSubcategoryDraft, setNewSubcategoryDraft] = useState(createEmptySubcategoryDraft);
   const [addingCategory, setAddingCategory] = useState(false);
   const [addingSubcategory, setAddingSubcategory] = useState(false);
@@ -528,7 +535,8 @@ export default function AdminApp() {
 
   const addCategory = async (event) => {
     event.preventDefault();
-    const normalizedCategory = newCategoryName.trim().replace(/\s+/g, " ");
+    if (!categoryCreateModal) return;
+    const normalizedCategory = categoryCreateModal.name.trim().replace(/\s+/g, " ");
     if (!normalizedCategory) {
       setError("Category name is required.");
       return;
@@ -539,16 +547,81 @@ export default function AdminApp() {
       return;
     }
 
+    const draftedSubcategories = Array.isArray(categoryCreateModal.subcategories) ? categoryCreateModal.subcategories : [];
+    if (draftedSubcategories.length === 0) {
+      setError("Add at least one sub category.");
+      return;
+    }
+
+    const seenSubcategoryNames = new Set();
+    const subcategoryPayloads = [];
+    for (let index = 0; index < draftedSubcategories.length; index += 1) {
+      const validation = validateSubcategoryDraft(draftedSubcategories[index]);
+      if (!validation.payload) {
+        setError(`Sub category ${index + 1}: ${validation.error}`);
+        return;
+      }
+      const duplicateKey = validation.payload.name.toLowerCase();
+      if (seenSubcategoryNames.has(duplicateKey)) {
+        setError(`Sub category "${validation.payload.name}" is duplicated in this form.`);
+        return;
+      }
+      seenSubcategoryNames.add(duplicateKey);
+      subcategoryPayloads.push(validation.payload);
+    }
+
     setAddingCategory(true);
     setError("");
     try {
-      await api.post("/api/admin/categories", {
+      const response = await api.post("/api/admin/categories", {
         name: normalizedCategory,
         sessionToken
       });
+      const createdCategory = normalizeCategory(response.data?.category);
+      if (!createdCategory.id) {
+        throw new Error("Category created, but the response did not include the category id.");
+      }
+
+      const failedSubcategories = [];
+      for (const payload of subcategoryPayloads) {
+        try {
+          await api.post(`/api/admin/categories/${createdCategory.id}/subcategories`, {
+            ...payload,
+            sessionToken
+          });
+        } catch (subcategoryError) {
+          if (subcategoryError?.response?.status === 401) {
+            throw subcategoryError;
+          }
+          const message =
+            subcategoryError?.response?.data?.message ||
+            subcategoryError?.response?.data?.error ||
+            subcategoryError?.message ||
+            `Failed to add sub category "${payload.name}".`;
+          failedSubcategories.push({ name: payload.name, message });
+        }
+      }
+
       await loadData();
-      setNewCategoryName("");
-      pushToast("success", `Category "${normalizedCategory}" added.`);
+      setCategoryCreateModal(null);
+
+      if (failedSubcategories.length > 0) {
+        const warningMessage =
+          failedSubcategories.length === 1
+            ? `Category "${normalizedCategory}" was added, but sub category "${failedSubcategories[0].name}" could not be saved.`
+            : `Category "${normalizedCategory}" was added, but ${failedSubcategories.length} sub categories could not be saved.`;
+        setError(warningMessage);
+        pushToast("warning", warningMessage);
+        openManageSubcategories(createdCategory);
+        return;
+      }
+
+      pushToast(
+        "success",
+        `Category "${normalizedCategory}" added with ${subcategoryPayloads.length} sub categor${
+          subcategoryPayloads.length === 1 ? "y" : "ies"
+        }.`
+      );
     } catch (addCategoryError) {
       if (addCategoryError?.response?.status === 401) {
         setError("Admin session expired. Please login again.");
@@ -565,6 +638,49 @@ export default function AdminApp() {
     } finally {
       setAddingCategory(false);
     }
+  };
+
+  const openCategoryCreateModal = () => {
+    setError("");
+    setCategoryCreateModal(createCategoryCreationDraft());
+  };
+
+  const closeCategoryCreateModal = () => {
+    if (addingCategory) return;
+    setCategoryCreateModal(null);
+  };
+
+  const addCategoryDraftSubcategory = () => {
+    setCategoryCreateModal((current) =>
+      current
+        ? {
+            ...current,
+            subcategories: [...current.subcategories, createEmptySubcategoryDraft()]
+          }
+        : current
+    );
+  };
+
+  const updateCategoryDraftSubcategory = (index, nextDraft) => {
+    setCategoryCreateModal((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        subcategories: current.subcategories.map((draft, draftIndex) => (draftIndex === index ? nextDraft : draft))
+      };
+    });
+  };
+
+  const removeCategoryDraftSubcategory = (index) => {
+    setCategoryCreateModal((current) => {
+      if (!current || current.subcategories.length <= 1) {
+        return current;
+      }
+      return {
+        ...current,
+        subcategories: current.subcategories.filter((_, draftIndex) => draftIndex !== index)
+      };
+    });
   };
 
   const handleNavClick = (item) => {
@@ -1105,22 +1221,17 @@ export default function AdminApp() {
 
                 {!subcategoryRouteCategoryId ? (
                   <>
-                    <form className="mb-5 flex flex-wrap items-end gap-2" onSubmit={addCategory}>
-                      <label className="block flex-1 min-w-[220px]">
+                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                      <div>
                         <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Add Category</span>
-                        <input
-                          type="text"
-                          className="erp-input"
-                          value={newCategoryName}
-                          onChange={(event) => setNewCategoryName(event.target.value)}
-                          placeholder="Enter category name"
-                          maxLength={80}
-                        />
-                      </label>
-                      <button type="submit" className="erp-btn erp-btn-primary" disabled={addingCategory}>
-                        {addingCategory ? "Adding..." : "Add Category"}
+                        <p className="text-sm text-slate-500">
+                          Create the main category and define its sub category pricing details in one popup.
+                        </p>
+                      </div>
+                      <button type="button" className="erp-btn erp-btn-primary" onClick={openCategoryCreateModal}>
+                        Add Category
                       </button>
-                    </form>
+                    </div>
 
                     <div className="overflow-x-auto">
                       <table className="erp-table">
@@ -1353,6 +1464,109 @@ export default function AdminApp() {
               </div>
             </div>
           </aside>
+        </div>
+      ) : null}
+
+      {categoryCreateModal ? (
+        <div className="erp-drawer-overlay items-center justify-center" onClick={closeCategoryCreateModal}>
+          <div
+            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Add Category</h3>
+                <p className="text-sm text-slate-500">Create a category and add all sub category details in one step.</p>
+              </div>
+              <button type="button" className="erp-icon-btn" onClick={closeCategoryCreateModal} disabled={addingCategory}>
+                X
+              </button>
+            </div>
+
+            <form className="space-y-4" onSubmit={addCategory}>
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Category Name</span>
+                <input
+                  type="text"
+                  className="erp-input"
+                  value={categoryCreateModal.name}
+                  onChange={(event) =>
+                    setCategoryCreateModal((current) => (current ? { ...current, name: event.target.value } : current))
+                  }
+                  placeholder="Enter category name"
+                  maxLength={80}
+                  required
+                />
+              </label>
+
+              <div className="rounded-2xl border border-slate-200 p-4">
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">Sub Categories</h4>
+                    <p className="text-sm text-slate-500">Add booking and pricing setup for every sub category in this category.</p>
+                  </div>
+                  <button type="button" className="erp-btn erp-btn-soft" onClick={addCategoryDraftSubcategory} disabled={addingCategory}>
+                    Add Sub Category
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {categoryCreateModal.subcategories.map((draft, index) => (
+                    <div key={`category-create-subcategory-${index}`} className="rounded-2xl border border-slate-200 p-4">
+                      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h5 className="text-sm font-semibold text-slate-900">Sub Category {index + 1}</h5>
+                          <p className="text-xs text-slate-500">Name, pricing model, and booking options.</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="erp-btn erp-btn-danger"
+                          onClick={() => removeCategoryDraftSubcategory(index)}
+                          disabled={addingCategory || categoryCreateModal.subcategories.length <= 1}
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <label className="block">
+                          <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Sub Category Name</span>
+                          <input
+                            type="text"
+                            className="erp-input"
+                            value={draft.name}
+                            onChange={(event) =>
+                              updateCategoryDraftSubcategory(index, {
+                                ...draft,
+                                name: event.target.value
+                              })
+                            }
+                            placeholder="Enter sub category name"
+                            maxLength={80}
+                            required
+                          />
+                        </label>
+
+                        <PricingModelEditor
+                          draft={draft}
+                          onChange={(nextDraft) => updateCategoryDraftSubcategory(index, nextDraft)}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button type="button" className="erp-btn erp-btn-soft" onClick={closeCategoryCreateModal} disabled={addingCategory}>
+                  Cancel
+                </button>
+                <button type="submit" className="erp-btn erp-btn-primary" disabled={addingCategory}>
+                  {addingCategory ? "Saving..." : "Save Category"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       ) : null}
 

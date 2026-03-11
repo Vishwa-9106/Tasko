@@ -7,15 +7,10 @@ import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import {
   buildServicePath,
   flattenServiceCatalog,
+  guessServiceCategoryIcon,
   normalizeServiceCatalog,
   toCategoryKey
 } from "../utils/serviceCatalog";
-import { serviceCategories } from "./homeData";
-
-function guessIcon(categoryName) {
-  const matched = serviceCategories.find((category) => toCategoryKey(category.name) === toCategoryKey(categoryName));
-  return matched?.icon || "cleaning";
-}
 
 function pricingModelLabel(pricingModel) {
   return String(pricingModel || "")
@@ -137,7 +132,7 @@ export default function ServiceSubcategoriesPage() {
             {services.map((service) => (
               <article key={service.subcategoryId} className="tasko-card tasko-service-card tasko-service-card-flexible">
                 <span className="tasko-card-icon">
-                  <CategoryIcon name={guessIcon(service.categoryName)} className="tasko-line-icon" />
+                  <CategoryIcon name={guessServiceCategoryIcon(service.categoryName)} className="tasko-line-icon" />
                 </span>
                 <div className="tasko-service-card-copy">
                   <div className="tasko-service-card-badges">
