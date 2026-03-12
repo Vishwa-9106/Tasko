@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api";
 import UserPortalShell from "../components/UserPortalShell";
+import { useAuth } from "../context/AuthContext";
 import { readSessionCache, writeSessionCache } from "../utils/sessionCache";
 import "./Packages.css";
 
@@ -81,7 +83,9 @@ function normalizePackage(packageInput, index) {
   const servicesFromDetails = details
     .map((detail) => String(detail?.sub_category_name || "").trim())
     .filter(Boolean);
-  const services = normalizeServices(packageInput?.services);
+  const services = normalizeServices(
+    packageInput?.servicesIncluded || packageInput?.services_included || packageInput?.services
+  );
   const normalizedServices = services.length > 0 ? services : servicesFromDetails;
 
   return {
@@ -92,24 +96,53 @@ function normalizePackage(packageInput, index) {
     ).trim(),
     price: Number.isFinite(Number(packageInput?.price)) ? Number(packageInput.price) : 0,
     duration_days: toDurationDays(packageInput?.duration_days ?? packageInput?.duration),
-    visit_frequency: String(packageInput?.visit_frequency || packageInput?.frequency || "weekly").trim(),
+    visit_frequency: String(packageInput?.visit_frequency || packageInput?.visitFrequency || packageInput?.frequency || "weekly").trim(),
     services: normalizedServices
   };
 }
 
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path d="M4.5 10.2L8.3 14L15.5 6.8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+function normalizeSubscription(record, index) {
+  return {
+    id: String(record?.id || record?.user_package_id || index + 1),
+    packageName: String(record?.packageName || record?.package_name || `Package ${index + 1}`).trim(),
+    packagePrice: Number(record?.packagePrice ?? record?.package_price ?? 0) || 0,
+    startDate: String(record?.startDate || record?.start_date || "").trim(),
+    timeSlot: String(record?.timeSlot || record?.time_slot || "").trim(),
+    status: String(record?.status || "active").trim(),
+    paymentStatus: String(record?.paymentStatus || record?.payment_status || "paid").trim(),
+    fullAddress: String(record?.fullAddress || "").trim(),
+    addressTitle: String(record?.addressTitle || record?.address_title || "").trim()
+  };
+}
+
+function formatDate(value) {
+  const parsed = new Date(value || "");
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
 }
 
 export default function PackagesPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
   const [packages, setPackages] = useState(fallbackPackages);
+  const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectedPackageId, setSelectedPackageId] = useState(0);
+  const [subscriptionsError, setSubscriptionsError] = useState("");
+
+  useEffect(() => {
+    if (location.hash !== "#my-packages") return;
+    const timer = window.setTimeout(() => {
+      document.getElementById("my-packages")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [location.hash]);
 
   useEffect(() => {
     const loadPackages = async () => {
@@ -121,8 +154,6 @@ export default function PackagesPage() {
         if (Array.isArray(cachedPackages) && cachedPackages.length > 0) {
           const normalizedCached = cachedPackages.map((item, index) => normalizePackage(item, index)).filter((item) => item.package_name);
           setPackages(normalizedCached.length > 0 ? normalizedCached : fallbackPackages);
-          setLoading(false);
-          return;
         }
 
         const response = await api.get("/api/packages");
@@ -146,18 +177,102 @@ export default function PackagesPage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setSubscriptions([]);
+      return;
+    }
+
+    const loadSubscriptions = async () => {
+      setSubscriptionsLoading(true);
+      setSubscriptionsError("");
+      try {
+        const cacheKey = `package-subscriptions:${user.uid}`;
+        const cached = readSessionCache(cacheKey, 30 * 1000);
+        if (Array.isArray(cached)) {
+          setSubscriptions(cached.map((item, index) => normalizeSubscription(item, index)));
+        }
+
+        const response = await api.get("/api/package-subscriptions", {
+          params: { userId: user.uid }
+        });
+        const normalized = Array.isArray(response.data)
+          ? response.data.map((item, index) => normalizeSubscription(item, index))
+          : [];
+        writeSessionCache(cacheKey, Array.isArray(response.data) ? response.data : []);
+        setSubscriptions(normalized);
+      } catch (_error) {
+        setSubscriptionsError("Unable to load your active package subscriptions right now.");
+      } finally {
+        setSubscriptionsLoading(false);
+      }
+    };
+
+    loadSubscriptions().catch(() => {
+      setSubscriptions([]);
+      setSubscriptionsLoading(false);
+      setSubscriptionsError("Unable to load your active package subscriptions right now.");
+    });
+  }, [user?.uid]);
+
+  const activeSubscriptions = useMemo(
+    () => subscriptions.filter((item) => String(item.status || "").toLowerCase() === "active"),
+    [subscriptions]
+  );
+
   return (
     <UserPortalShell activeNav="packages">
       <section className="tasko-page-header">
         <p>Packages</p>
-        <h1>Choose Your Service Package</h1>
-        <p>Select a recurring plan and subscribe to regular services at fixed pricing.</p>
+        <h1>Manage Packages & Subscriptions</h1>
+        <p>Review your active package subscriptions or start a new recurring service plan.</p>
+      </section>
+
+      <section className="tasko-content-panel" id="my-packages">
+        <div className="tasko-section-head">
+          <p>Active</p>
+          <h2>My Packages</h2>
+        </div>
+
+        {subscriptionsLoading ? <p className="tasko-empty-state">Loading your package subscriptions...</p> : null}
+        {!subscriptionsLoading && subscriptionsError ? <p className="tasko-empty-state">{subscriptionsError}</p> : null}
+        {!subscriptionsLoading && !subscriptionsError && activeSubscriptions.length === 0 ? (
+          <p className="tasko-empty-state">No active package subscriptions yet. Subscribe to a package below.</p>
+        ) : null}
+
+        {activeSubscriptions.length > 0 ? (
+          <div className="tasko-my-packages-grid">
+            {activeSubscriptions.map((subscription) => (
+              <article key={subscription.id} className="tasko-card tasko-my-package-card">
+                <div className="tasko-my-package-head">
+                  <div>
+                    <p className="tasko-package-frequency">{subscription.status}</p>
+                    <h3>{subscription.packageName}</h3>
+                  </div>
+                  <span className="tasko-package-duration-badge">{subscription.paymentStatus}</span>
+                </div>
+                <p className="tasko-package-price">{toPrice(subscription.packagePrice)}</p>
+                <div className="tasko-my-package-meta">
+                  <p><strong>Start Date:</strong> {formatDate(subscription.startDate)}</p>
+                  <p><strong>Time Slot:</strong> {subscription.timeSlot || "-"}</p>
+                  <p><strong>Address:</strong> {subscription.addressTitle || "Saved Address"}</p>
+                </div>
+                <p className="tasko-package-description">{subscription.fullAddress || "Address not available."}</p>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       {error ? <p className="tasko-empty-state">{error}</p> : null}
       {loading ? <p className="tasko-empty-state">Loading packages...</p> : null}
 
       <section className="tasko-packages-grid-wrap">
+        <div className="tasko-section-head">
+          <p>Explore</p>
+          <h2>Available Packages</h2>
+        </div>
+
         <div className="tasko-packages-grid">
           {packages.map((pkg) => (
             <article key={pkg.package_id} className="tasko-package-card-v2">
@@ -174,7 +289,9 @@ export default function PackagesPage() {
                 {(pkg.services.length > 0 ? pkg.services : ["Customizable service list"]).map((service) => (
                   <li key={`${pkg.package_id}-${service}`}>
                     <span className="tasko-package-check-icon">
-                      <CheckIcon />
+                      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                        <path d="M4.5 10.2L8.3 14L15.5 6.8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </span>
                     <span>{service}</span>
                   </li>
@@ -184,9 +301,9 @@ export default function PackagesPage() {
               <button
                 type="button"
                 className="tasko-package-subscribe-btn"
-                onClick={() => setSelectedPackageId(pkg.package_id)}
+                onClick={() => navigate(`/subscribe/${pkg.package_id}`)}
               >
-                {selectedPackageId === pkg.package_id ? "Selected Package" : "Subscribe Package"}
+                Subscribe Package
               </button>
             </article>
           ))}

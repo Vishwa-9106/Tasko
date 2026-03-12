@@ -37,6 +37,8 @@ pnpm-debug.log*
 *.tsbuildinfo
 tmp/
 temp/
+playwright-report/
+test-results/
 
 # IDE / OS files
 .DS_Store

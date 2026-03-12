@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "./api";
 
 const BOOKING_STATUSES = ["pending", "assigned", "in_progress", "completed", "cancelled"];
+const PACKAGE_BOOKING_STATUSES = ["pending", "active", "completed", "cancelled"];
 
 function normalizeText(value) {
   return String(value || "")
@@ -129,6 +130,21 @@ function statusClassName(status) {
   return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
+function normalizePackageBookingStatus(value) {
+  const normalized = normalizeText(value).replace(/\s+/g, "_");
+  if (PACKAGE_BOOKING_STATUSES.includes(normalized)) return normalized;
+  return "pending";
+}
+
+function packageStatusClassName(status) {
+  const normalized = normalizePackageBookingStatus(status);
+  if (normalized === "pending") return "border-amber-200 bg-amber-100 text-amber-700";
+  if (normalized === "active") return "border-blue-200 bg-blue-100 text-blue-700";
+  if (normalized === "completed") return "border-emerald-200 bg-emerald-100 text-emerald-700";
+  if (normalized === "cancelled") return "border-rose-200 bg-rose-100 text-rose-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
 function normalizeBookingRecord(record, userLookup, workerLookup) {
   const bookingId = getBookingId(record);
   const userId = String(record?.user_id || record?.userId || "").trim();
@@ -196,6 +212,43 @@ function normalizeBookingRecord(record, userLookup, workerLookup) {
   };
 }
 
+function getPackageBookingId(record) {
+  return String(record?.user_package_id || record?.bookingId || record?.id || "").trim();
+}
+
+function normalizePackageBookingRecord(record, userLookup, workerLookup) {
+  const bookingId = getPackageBookingId(record);
+  const userId = String(record?.user_id || record?.userId || "").trim();
+  const user = userLookup.get(userId);
+  const assignedWorkerId = String(record?.assigned_worker_id || record?.assignedWorkerId || "").trim();
+  const assignedWorker = workerLookup.get(assignedWorkerId);
+  const street = String(record?.street || "").trim();
+  const city = String(record?.city || "").trim();
+  const pincode = String(record?.pincode || "").trim();
+
+  return {
+    bookingId,
+    userId,
+    userName:
+      String(record?.user_name || record?.userName || user?.name || user?.full_name || user?.mail || "-").trim() || "-",
+    packageName: String(record?.package_name || record?.packageName || "-").trim() || "-",
+    address:
+      String(record?.fullAddress || [street, city, pincode].filter(Boolean).join(", ") || user?.address || "-").trim() || "-",
+    addressTitle: String(record?.address_title || record?.addressTitle || "").trim(),
+    startDate: String(record?.start_date || record?.startDate || "").trim(),
+    endDate: String(record?.end_date || record?.endDate || "").trim(),
+    status: normalizePackageBookingStatus(record?.status),
+    assignedWorkerId,
+    assignedWorkerName:
+      String(record?.assigned_worker_name || record?.assignedWorkerName || assignedWorker?.name || "-").trim() || "-",
+    timeSlot: String(record?.time_slot || record?.timeSlot || "").trim(),
+    paymentStatus: String(record?.payment_status || record?.paymentStatus || "").trim() || "-",
+    createdAt: record?.created_at || record?.createdAt || "",
+    updatedAt: record?.updated_at || record?.updatedAt || "",
+    raw: record
+  };
+}
+
 export default function BookingsManagement({ bookings, workers, users, setBookings, pushToast }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -206,6 +259,15 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [cancellingBookingId, setCancellingBookingId] = useState("");
+  const [packageBookings, setPackageBookings] = useState([]);
+  const [packageBookingsLoading, setPackageBookingsLoading] = useState(false);
+  const [selectedPackageBookingId, setSelectedPackageBookingId] = useState("");
+  const [packageAssignModal, setPackageAssignModal] = useState(null);
+  const [selectedPackageWorkerId, setSelectedPackageWorkerId] = useState("");
+  const [assigningPackageWorker, setAssigningPackageWorker] = useState(false);
+  const [packageStatusModal, setPackageStatusModal] = useState(null);
+  const [packageStatusDraft, setPackageStatusDraft] = useState("pending");
+  const [updatingPackageStatus, setUpdatingPackageStatus] = useState(false);
 
   const userLookup = useMemo(() => {
     const map = new Map();
@@ -251,6 +313,34 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
     [bookings, userLookup, workerLookup]
   );
 
+  const normalizedPackageBookings = useMemo(
+    () =>
+      (Array.isArray(packageBookings) ? packageBookings : [])
+        .map((record) => normalizePackageBookingRecord(record, userLookup, workerLookup))
+        .filter((booking) => booking.bookingId),
+    [packageBookings, userLookup, workerLookup]
+  );
+
+  useEffect(() => {
+    const loadPackageBookings = async () => {
+      setPackageBookingsLoading(true);
+      try {
+        const response = await api.get("/api/package-subscriptions");
+        setPackageBookings(Array.isArray(response.data) ? response.data : []);
+      } catch (error) {
+        pushToast?.("error", error?.response?.data?.message || "Failed to load package bookings.");
+        setPackageBookings([]);
+      } finally {
+        setPackageBookingsLoading(false);
+      }
+    };
+
+    loadPackageBookings().catch(() => {
+      setPackageBookingsLoading(false);
+      setPackageBookings([]);
+    });
+  }, [pushToast]);
+
   const categoryOptions = useMemo(
     () =>
       Array.from(new Set(normalizedBookings.map((booking) => booking.serviceCategory).filter((value) => value && value !== "-"))).sort(
@@ -284,6 +374,16 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
     [normalizedBookings, assignModal]
   );
 
+  const selectedPackageBooking = useMemo(
+    () => normalizedPackageBookings.find((booking) => booking.bookingId === selectedPackageBookingId) || null,
+    [normalizedPackageBookings, selectedPackageBookingId]
+  );
+
+  const packageBookingForAssignment = useMemo(
+    () => normalizedPackageBookings.find((booking) => booking.bookingId === packageAssignModal?.bookingId) || null,
+    [normalizedPackageBookings, packageAssignModal]
+  );
+
   const availableWorkers = useMemo(() => {
     const category = normalizeText(bookingForAssignment?.serviceCategory);
     return normalizedWorkers
@@ -294,6 +394,17 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
         return right.rating - left.rating;
       });
   }, [bookingForAssignment?.serviceCategory, normalizedWorkers]);
+
+  const availablePackageWorkers = useMemo(
+    () =>
+      normalizedWorkers
+        .filter((worker) => worker.status === "active")
+        .sort((left, right) => {
+          if (left.online !== right.online) return left.online ? -1 : 1;
+          return right.rating - left.rating;
+        }),
+    [normalizedWorkers]
+  );
 
   const updateBookingInState = (bookingId, updater) => {
     setBookings((current) =>
@@ -372,6 +483,97 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
     }
   };
 
+  const openPackageAssignModal = (booking) => {
+    setPackageAssignModal({ bookingId: booking.bookingId });
+    setSelectedPackageWorkerId(booking.assignedWorkerId || "");
+  };
+
+  const closePackageAssignModal = () => {
+    if (assigningPackageWorker) return;
+    setPackageAssignModal(null);
+    setSelectedPackageWorkerId("");
+  };
+
+  const assignPackageWorker = async () => {
+    if (!packageBookingForAssignment?.bookingId || !selectedPackageWorkerId) {
+      pushToast?.("error", "Please select a worker before assigning.");
+      return;
+    }
+
+    const selectedWorker = workerLookup.get(selectedPackageWorkerId);
+    setAssigningPackageWorker(true);
+    try {
+      await api.patch(`/api/package-subscriptions/${packageBookingForAssignment.bookingId}/assign-worker`, {
+        workerId: selectedPackageWorkerId,
+        workerName: selectedWorker?.name || ""
+      });
+
+      setPackageBookings((current) =>
+        (Array.isArray(current) ? current : []).map((record) =>
+          getPackageBookingId(record) === packageBookingForAssignment.bookingId
+            ? {
+                ...record,
+                assigned_worker_id: selectedPackageWorkerId,
+                assignedWorkerId: selectedPackageWorkerId,
+                assigned_worker_name: selectedWorker?.name || "",
+                assignedWorkerName: selectedWorker?.name || "",
+                updatedAt: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }
+            : record
+        )
+      );
+
+      pushToast?.("success", "Worker assigned to package booking successfully.");
+      closePackageAssignModal();
+    } catch (error) {
+      pushToast?.("error", error?.response?.data?.message || "Failed to assign worker to package booking.");
+    } finally {
+      setAssigningPackageWorker(false);
+    }
+  };
+
+  const openPackageStatusModal = (booking) => {
+    setPackageStatusModal({ bookingId: booking.bookingId });
+    setPackageStatusDraft(booking.status || "pending");
+  };
+
+  const closePackageStatusModal = () => {
+    if (updatingPackageStatus) return;
+    setPackageStatusModal(null);
+  };
+
+  const updatePackageBookingStatus = async () => {
+    if (!packageStatusModal?.bookingId) return;
+
+    setUpdatingPackageStatus(true);
+    try {
+      await api.patch(`/api/package-subscriptions/${packageStatusModal.bookingId}/status`, {
+        status: packageStatusDraft
+      });
+
+      setPackageBookings((current) =>
+        (Array.isArray(current) ? current : []).map((record) =>
+          getPackageBookingId(record) === packageStatusModal.bookingId
+            ? {
+                ...record,
+                status: packageStatusDraft,
+                updatedAt: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }
+            : record
+        )
+      );
+
+      pushToast?.("success", "Package booking status updated successfully.");
+      closePackageStatusModal();
+    } catch (error) {
+      pushToast?.("error", error?.response?.data?.message || "Failed to update package booking status.");
+    } finally {
+      setUpdatingPackageStatus(false);
+    }
+  };
+
   return (
     <section className="space-y-4">
       <div className="erp-card p-5">
@@ -428,6 +630,13 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
       </div>
 
       <div className="erp-card overflow-x-auto p-5">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">Service Bookings</h3>
+          <p className="text-sm text-slate-500">
+            Manage one-time and service bookings, worker assignment, and booking lifecycle.
+          </p>
+        </div>
+
         <table className="erp-table">
           <thead>
             <tr>
@@ -491,6 +700,84 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
                         disabled={cancellingBookingId === booking.bookingId || booking.status === "cancelled"}
                       >
                         {cancellingBookingId === booking.bookingId ? "Cancelling..." : "Cancel Booking"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="erp-card overflow-x-auto p-5">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">Package Bookings</h3>
+          <p className="text-sm text-slate-500">
+            Review active package subscriptions, assign workers, and manage subscription status.
+          </p>
+        </div>
+
+        <table className="erp-table">
+          <thead>
+            <tr>
+              <th>Booking ID</th>
+              <th>User Name</th>
+              <th>Package Name</th>
+              <th>Address</th>
+              <th>Subscription Start Date</th>
+              <th>Subscription End Date</th>
+              <th>Status</th>
+              <th>Assigned Worker</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {packageBookingsLoading ? (
+              <tr>
+                <td colSpan={9} className="text-center text-slate-500">
+                  Loading package bookings...
+                </td>
+              </tr>
+            ) : normalizedPackageBookings.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="text-center text-slate-500">
+                  No Package Bookings Available
+                </td>
+              </tr>
+            ) : (
+              normalizedPackageBookings.map((booking) => (
+                <tr key={booking.bookingId}>
+                  <td>
+                    <button
+                      type="button"
+                      className="text-left font-semibold text-slate-900 underline decoration-dotted underline-offset-4"
+                      onClick={() => setSelectedPackageBookingId(booking.bookingId)}
+                    >
+                      {booking.bookingId}
+                    </button>
+                  </td>
+                  <td>{booking.userName}</td>
+                  <td>{booking.packageName}</td>
+                  <td className="max-w-[220px] whitespace-normal">{booking.address}</td>
+                  <td>{formatDate(booking.startDate)}</td>
+                  <td>{formatDate(booking.endDate)}</td>
+                  <td>
+                    <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${packageStatusClassName(booking.status)}`}>
+                      {toStatusLabel(booking.status)}
+                    </span>
+                  </td>
+                  <td>{booking.assignedWorkerName}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className="erp-btn erp-btn-soft" onClick={() => setSelectedPackageBookingId(booking.bookingId)}>
+                        View Details
+                      </button>
+                      <button type="button" className="erp-btn erp-btn-primary" onClick={() => openPackageAssignModal(booking)}>
+                        {booking.assignedWorkerId ? "Assign Worker" : "Assign Worker"}
+                      </button>
+                      <button type="button" className="erp-btn erp-btn-soft" onClick={() => openPackageStatusModal(booking)}>
+                        Update Status
                       </button>
                     </div>
                   </td>
@@ -587,6 +874,133 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
         </div>
       ) : null}
 
+      {packageAssignModal ? (
+        <div className="erp-drawer-overlay items-center justify-center" onClick={closePackageAssignModal}>
+          <div
+            className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Assign Worker</h3>
+                <p className="text-sm text-slate-500">
+                  Package Booking {packageBookingForAssignment?.bookingId || "-"} | {packageBookingForAssignment?.packageName || "-"}
+                </p>
+              </div>
+              <button type="button" className="erp-icon-btn" onClick={closePackageAssignModal} disabled={assigningPackageWorker}>
+                X
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="erp-table">
+                <thead>
+                  <tr>
+                    <th>Select</th>
+                    <th>Worker Name</th>
+                    <th>Category</th>
+                    <th>Rating</th>
+                    <th>Experience</th>
+                    <th>Online Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {availablePackageWorkers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center text-slate-500">
+                        No active workers found.
+                      </td>
+                    </tr>
+                  ) : (
+                    availablePackageWorkers.map((worker) => (
+                      <tr key={worker.workerId}>
+                        <td>
+                          <input
+                            type="radio"
+                            name="assignedPackageWorker"
+                            value={worker.workerId}
+                            checked={selectedPackageWorkerId === worker.workerId}
+                            onChange={(event) => setSelectedPackageWorkerId(event.target.value)}
+                          />
+                        </td>
+                        <td>{worker.name}</td>
+                        <td>{worker.category || "-"}</td>
+                        <td>{worker.rating.toFixed(1)}</td>
+                        <td>{worker.experience}</td>
+                        <td>
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${
+                              worker.online
+                                ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+                                : "border-slate-200 bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {worker.online ? "Online" : "Offline"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button type="button" className="erp-btn erp-btn-soft" onClick={closePackageAssignModal} disabled={assigningPackageWorker}>
+                Close
+              </button>
+              <button
+                type="button"
+                className="erp-btn erp-btn-primary"
+                onClick={assignPackageWorker}
+                disabled={assigningPackageWorker || !selectedPackageWorkerId}
+              >
+                {assigningPackageWorker ? "Assigning..." : "Assign Worker"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {packageStatusModal ? (
+        <div className="erp-drawer-overlay items-center justify-center" onClick={closePackageStatusModal}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Update Package Status</h3>
+                <p className="text-sm text-slate-500">Booking ID: {packageStatusModal.bookingId}</p>
+              </div>
+              <button type="button" className="erp-icon-btn" onClick={closePackageStatusModal} disabled={updatingPackageStatus}>
+                X
+              </button>
+            </div>
+
+            <label className="block">
+              <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Status</span>
+              <select className="erp-select" value={packageStatusDraft} onChange={(event) => setPackageStatusDraft(event.target.value)}>
+                {PACKAGE_BOOKING_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {toStatusLabel(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button type="button" className="erp-btn erp-btn-soft" onClick={closePackageStatusModal} disabled={updatingPackageStatus}>
+                Cancel
+              </button>
+              <button type="button" className="erp-btn erp-btn-primary" onClick={updatePackageBookingStatus} disabled={updatingPackageStatus}>
+                {updatingPackageStatus ? "Saving..." : "Update Status"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {selectedBooking ? (
         <div className="erp-drawer-overlay" onClick={() => setSelectedBookingId("")}>
           <aside className="erp-drawer" onClick={(event) => event.stopPropagation()}>
@@ -665,6 +1079,71 @@ export default function BookingsManagement({ bookings, workers, users, setBookin
                   disabled={cancellingBookingId === selectedBooking.bookingId || selectedBooking.status === "cancelled"}
                 >
                   {cancellingBookingId === selectedBooking.bookingId ? "Cancelling..." : "Cancel Booking"}
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {selectedPackageBooking ? (
+        <div className="erp-drawer-overlay" onClick={() => setSelectedPackageBookingId("")}>
+          <aside className="erp-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Package Booking Details</h3>
+                <p className="text-sm text-slate-500">Booking ID: {selectedPackageBooking.bookingId}</p>
+              </div>
+              <button type="button" className="erp-icon-btn" onClick={() => setSelectedPackageBookingId("")}>
+                X
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm text-slate-700">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">User Details</p>
+                <p className="mt-1 font-medium text-slate-900">{selectedPackageBooking.userName}</p>
+                <p>User ID: {selectedPackageBooking.userId || "-"}</p>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Package</p>
+                <p className="mt-1 text-slate-900">{selectedPackageBooking.packageName}</p>
+                <p>Time Slot: {selectedPackageBooking.timeSlot || "-"}</p>
+                <p>Payment Status: {toStatusLabel(selectedPackageBooking.paymentStatus)}</p>
+                <p>
+                  Status:{" "}
+                  <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${packageStatusClassName(selectedPackageBooking.status)}`}>
+                    {toStatusLabel(selectedPackageBooking.status)}
+                  </span>
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Address</p>
+                <p className="mt-1 text-slate-900">{selectedPackageBooking.addressTitle || "Saved Address"}</p>
+                <p>{selectedPackageBooking.address}</p>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Subscription Period</p>
+                <p className="mt-1 text-slate-900">
+                  {formatDate(selectedPackageBooking.startDate)} to {formatDate(selectedPackageBooking.endDate)}
+                </p>
+                <p className="text-xs text-slate-500">Created: {formatDateTime(selectedPackageBooking.createdAt)}</p>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Assigned Worker</p>
+                <p className="mt-1 text-slate-900">{selectedPackageBooking.assignedWorkerName}</p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="erp-btn erp-btn-primary" onClick={() => openPackageAssignModal(selectedPackageBooking)}>
+                  Assign Worker
+                </button>
+                <button type="button" className="erp-btn erp-btn-soft" onClick={() => openPackageStatusModal(selectedPackageBooking)}>
+                  Update Status
                 </button>
               </div>
             </div>

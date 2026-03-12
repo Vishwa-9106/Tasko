@@ -1,0 +1,226 @@
+.tasko-subscribe-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.tasko-subscribe-main {
+  display: grid;
+  gap: 1rem;
+}
+
+.tasko-subscribe-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.tasko-subscribe-step {
+  border: 1px solid rgba(28, 28, 28, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.35rem;
+  color: #6b7280;
+}
+
+.tasko-subscribe-step span {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(28, 28, 28, 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.8rem;
+}
+
+.tasko-subscribe-step strong {
+  font-size: 0.92rem;
+}
+
+.tasko-subscribe-step.is-active,
+.tasko-subscribe-step.is-complete {
+  border-color: rgba(198, 167, 94, 0.7);
+  background: linear-gradient(160deg, rgba(255, 248, 232, 0.95) 0%, rgba(247, 242, 230, 0.92) 100%);
+  color: #1f2937;
+}
+
+.tasko-subscribe-step.is-complete span,
+.tasko-subscribe-step.is-active span {
+  background: #c6a75e;
+  border-color: #c6a75e;
+  color: #fff;
+}
+
+.tasko-subscribe-package-card,
+.tasko-subscribe-form-card {
+  border: 1px solid rgba(28, 28, 28, 0.08);
+  border-radius: 22px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 247, 247, 0.94) 100%);
+  padding: 1.2rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.tasko-subscribe-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.tasko-subscribe-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(28, 28, 28, 0.14);
+  background: rgba(198, 167, 94, 0.14);
+  padding: 0.45rem 0.8rem;
+  font-size: 0.85rem;
+  color: #1f2937;
+}
+
+.tasko-subscribe-address-grid,
+.tasko-subscribe-payment-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.tasko-subscribe-address-card,
+.tasko-subscribe-payment-card {
+  border: 1px solid rgba(28, 28, 28, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 1rem;
+  text-align: left;
+  display: grid;
+  gap: 0.3rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tasko-subscribe-address-card:hover,
+.tasko-subscribe-payment-card:hover,
+.tasko-subscribe-address-card.is-selected,
+.tasko-subscribe-payment-card.is-selected {
+  border-color: rgba(198, 167, 94, 0.8);
+  box-shadow: 0 16px 30px -24px rgba(17, 17, 17, 0.5);
+  transform: translateY(-2px);
+}
+
+.tasko-subscribe-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.tasko-subscribe-form-grid label,
+.tasko-subscribe-form-grid input,
+.tasko-subscribe-form-grid select {
+  width: 100%;
+}
+
+.tasko-subscribe-form-grid input,
+.tasko-subscribe-form-grid select {
+  border: 1px solid rgba(28, 28, 28, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  padding: 0.82rem 0.9rem;
+  font-size: 0.95rem;
+}
+
+.tasko-subscribe-form-grid label span {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.tasko-subscribe-inline-actions,
+.tasko-subscribe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.tasko-subscribe-inline-actions button,
+.tasko-subscribe-actions button {
+  min-height: 46px;
+  border-radius: 14px;
+  border: 1px solid #b7974d;
+  background: #c6a75e;
+  color: #fff;
+  padding: 0 1rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tasko-subscribe-inline-actions .tasko-secondary-button,
+.tasko-subscribe-actions .tasko-secondary-button {
+  border-color: rgba(28, 28, 28, 0.14);
+  background: rgba(255, 255, 255, 0.9);
+  color: #1f2937;
+}
+
+.tasko-subscribe-summary {
+  position: sticky;
+  top: 92px;
+}
+
+.tasko-subscribe-summary-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.tasko-subscribe-summary-list div {
+  border: 1px solid rgba(28, 28, 28, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.tasko-subscribe-summary-list span {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.tasko-subscribe-summary-list strong {
+  color: #111827;
+}
+
+.tasko-subscribe-success-card {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1080px) {
+  .tasko-subscribe-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-subscribe-summary {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .tasko-subscribe-steps,
+  .tasko-subscribe-address-grid,
+  .tasko-subscribe-payment-list,
+  .tasko-subscribe-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

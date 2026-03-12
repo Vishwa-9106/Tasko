@@ -32,7 +32,7 @@ function normalizePackageList(list) {
         Number.isFinite(durationDays) && durationDays > 0
           ? `${Math.trunc(durationDays)} days`
           : item?.duration || "Flexible";
-      const frequency = item?.visit_frequency || item?.frequency || "";
+      const frequency = item?.visit_frequency || item?.visitFrequency || item?.frequency || "";
       const normalizedFrequency = String(frequency || "")
         .replace(/_/g, " ")
         .trim();
@@ -88,7 +88,6 @@ export default function HomePage() {
       const cachedPackages = readSessionCache("packages:list", 5 * 60 * 1000);
       if (Array.isArray(cachedPackages) && cachedPackages.length > 0) {
         setPackages(normalizePackageList(cachedPackages));
-        return;
       }
 
       const packageResponse = await api.get("/api/packages");

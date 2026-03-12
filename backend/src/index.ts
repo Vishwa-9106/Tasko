@@ -393,6 +393,77 @@ function readQueryText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+type UserAddressRecord = {
+  id: string;
+  title: string;
+  street: string;
+  city: string;
+  pincode: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function createLegacyAddressRecord(address: string): UserAddressRecord | null {
+  const normalizedAddress = readQueryText(address);
+  if (!normalizedAddress) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: "addr-home",
+    title: "Home",
+    street: normalizedAddress,
+    city: "",
+    pincode: "",
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function normalizeUserAddress(value: unknown, fallbackIndex = 0): UserAddressRecord | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const street = readQueryText(value.street ?? value.addressLine ?? value.address ?? value.line1);
+  if (!street) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const id = readQueryText(value.id) || `addr-${Date.now()}-${fallbackIndex + 1}`;
+  const title = readQueryText(value.title ?? value.label) || `Address ${fallbackIndex + 1}`;
+  const city = readQueryText(value.city);
+  const pincode = readQueryText(value.pincode ?? value.postalCode ?? value.zipCode);
+  const createdAt = readQueryText(value.createdAt) || now;
+  const updatedAt = readQueryText(value.updatedAt) || now;
+
+  return {
+    id,
+    title,
+    street,
+    city,
+    pincode,
+    createdAt,
+    updatedAt
+  };
+}
+
+function readUserAddresses(addresses: unknown, legacyAddress = ""): UserAddressRecord[] {
+  if (Array.isArray(addresses)) {
+    const normalized = addresses
+      .map((entry, index) => normalizeUserAddress(entry, index))
+      .filter((entry): entry is UserAddressRecord => Boolean(entry));
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  const fallback = createLegacyAddressRecord(legacyAddress);
+  return fallback ? [fallback] : [];
+}
+
 function readQueryLimit(value: unknown, fallback: number, max = 100): number {
   const parsed = Number(readQueryText(value));
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -1024,7 +1095,9 @@ registerServiceRoutes(app, {
 registerTaskoMartRoutes(app, {
   validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
 });
-registerPackageRoutes(app);
+registerPackageRoutes(app, {
+  validateAdminSession: (sessionToken) => isValidAdminSession(sessionToken)
+});
 
 app.post("/api/users/register", async (req: Request, res: Response) => {
   try {
@@ -1039,6 +1112,12 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
           ? mobile.trim()
           : "";
     const normalizedAddress = typeof address === "string" ? address.trim() : "";
+    const existingSnapshot = await db.collection("users").doc(uid).get();
+    const existingData = existingSnapshot.exists ? ((existingSnapshot.data() as Record<string, unknown>) || {}) : {};
+    const normalizedAddresses = readUserAddresses(
+      isRecord(req.body) ? req.body.addresses : undefined,
+      normalizedAddress || readQueryText(existingData.address)
+    );
 
     await db.collection("users").doc(uid).set(
       {
@@ -1047,10 +1126,11 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         mail: email,
         number: normalizedNumber,
         mobile: normalizedNumber,
-        address: normalizedAddress,
+        address: normalizedAddress || readQueryText(existingData.address),
+        addresses: normalizedAddresses,
         email,
         role: "user",
-        createdAt: new Date().toISOString(),
+        createdAt: readQueryText(existingData.createdAt) || new Date().toISOString(),
         updatedAt: new Date().toISOString()
       },
       { merge: true }
@@ -1073,6 +1153,11 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         existingUser && Object.prototype.hasOwnProperty.call(existingUser, "createdAt")
           ? existingUser.createdAt
           : now;
+      const existingAddresses = existingUser ? readUserAddresses(existingUser.addresses, readQueryText(existingUser.address)) : [];
+      const nextAddresses = readUserAddresses(
+        isRecord(req.body) ? req.body.addresses : undefined,
+        typeof req.body.address === "string" ? req.body.address.trim() : readQueryText(existingUser?.address)
+      );
 
       inMemoryUsers.set(req.body.uid, {
         ...(existingUser || {}),
@@ -1081,7 +1166,11 @@ app.post("/api/users/register", async (req: Request, res: Response) => {
         mail: req.body.email,
         number: fallbackNumber,
         mobile: fallbackNumber,
-        address: typeof req.body.address === "string" ? req.body.address.trim() : "",
+        address:
+          typeof req.body.address === "string" && req.body.address.trim()
+            ? req.body.address.trim()
+            : readQueryText(existingUser?.address),
+        addresses: nextAddresses.length > 0 ? nextAddresses : existingAddresses,
         email: req.body.email,
         role: "user",
         createdAt: existingCreatedAt,
@@ -1114,12 +1203,27 @@ app.get("/api/users", async (req: Request, res: Response) => {
     try {
       const userDocument = await db.collection("users").doc(userId).get();
       if (userDocument.exists) {
-        const payload = [{ id: userDocument.id, ...userDocument.data() }];
+        const userData = (userDocument.data() as Record<string, unknown>) || {};
+        const payload = [
+          {
+            id: userDocument.id,
+            ...userData,
+            addresses: readUserAddresses(userData.addresses, readQueryText(userData.address))
+          }
+        ];
         setDashboardReadCache(singleUserCacheKey, payload);
         return res.json(payload);
       }
       const inMemoryUser = inMemoryUsers.get(userId);
-      const payload = inMemoryUser ? [{ id: userId, ...inMemoryUser }] : [];
+      const payload = inMemoryUser
+        ? [
+            {
+              id: userId,
+              ...inMemoryUser,
+              addresses: readUserAddresses(inMemoryUser.addresses, readQueryText(inMemoryUser.address))
+            }
+          ]
+        : [];
       setDashboardReadCache(singleUserCacheKey, payload);
       return res.json(payload);
     } catch (error) {
@@ -1137,11 +1241,111 @@ app.get("/api/users", async (req: Request, res: Response) => {
 
   try {
     const snapshot = await db.collection("users").limit(limit).get();
-    const users = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const users = snapshot.docs.map((doc) => {
+      const userData = (doc.data() as Record<string, unknown>) || {};
+      return {
+        id: doc.id,
+        ...userData,
+        addresses: readUserAddresses(userData.addresses, readQueryText(userData.address))
+      };
+    });
     setDashboardReadCache(allUsersCacheKey, users);
     return res.json(users);
   } catch (error) {
     return sendDashboardReadFallback(res, "/api/users", toInMemoryUserList(), error);
+  }
+});
+
+app.get("/api/users/:userId/addresses", async (req: Request, res: Response) => {
+  const userId = readRouteParam(req.params.userId);
+  if (!userId) {
+    return res.status(400).json({ message: "userId is required." });
+  }
+
+  try {
+    const userDocument = await db.collection("users").doc(userId).get();
+    const userData = userDocument.exists ? ((userDocument.data() as Record<string, unknown>) || {}) : inMemoryUsers.get(userId) || {};
+    return res.json({
+      addresses: readUserAddresses(userData.addresses, readQueryText(userData.address))
+    });
+  } catch (error) {
+    const inMemoryUser = inMemoryUsers.get(userId) || {};
+    return sendDashboardReadFallback(
+      res,
+      "/api/users/:userId/addresses",
+      { addresses: readUserAddresses(inMemoryUser.addresses, readQueryText(inMemoryUser.address)) },
+      error
+    );
+  }
+});
+
+app.post("/api/users/:userId/addresses", async (req: Request, res: Response) => {
+  const userId = readRouteParam(req.params.userId);
+  if (!userId) {
+    return res.status(400).json({ message: "userId is required." });
+  }
+
+  const payload = isRecord(req.body) ? req.body : {};
+  const nextAddress = normalizeUserAddress(payload, 0);
+  if (!nextAddress) {
+    return res.status(400).json({ message: "street is required for a saved address." });
+  }
+
+  try {
+    const userDocument = await db.collection("users").doc(userId).get();
+    const userData = userDocument.exists ? ((userDocument.data() as Record<string, unknown>) || {}) : {};
+    const existingAddresses = readUserAddresses(userData.addresses, readQueryText(userData.address));
+    const mergedAddresses = [...existingAddresses, nextAddress];
+
+    await db.collection("users").doc(userId).set(
+      {
+        addresses: mergedAddresses,
+        address: readQueryText(userData.address) || nextAddress.street,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+
+    const inMemoryUser = inMemoryUsers.get(userId) || {};
+    inMemoryUsers.set(userId, {
+      ...inMemoryUser,
+      uid: userId,
+      address: readQueryText(inMemoryUser.address) || nextAddress.street,
+      addresses: mergedAddresses,
+      updatedAt: new Date().toISOString()
+    });
+    clearDashboardReadCache("users:");
+
+    return res.status(201).json({
+      message: "Address saved successfully.",
+      address: nextAddress,
+      addresses: mergedAddresses
+    });
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      return res.status(500).json({
+        message: "Failed to save address",
+        error: getErrorMessage(error)
+      });
+    }
+
+    const inMemoryUser = inMemoryUsers.get(userId) || {};
+    const existingAddresses = readUserAddresses(inMemoryUser.addresses, readQueryText(inMemoryUser.address));
+    const mergedAddresses = [...existingAddresses, nextAddress];
+    inMemoryUsers.set(userId, {
+      ...inMemoryUser,
+      uid: userId,
+      address: readQueryText(inMemoryUser.address) || nextAddress.street,
+      addresses: mergedAddresses,
+      updatedAt: new Date().toISOString()
+    });
+    clearDashboardReadCache("users:");
+
+    return res.status(201).json({
+      message: "Address saved successfully.",
+      address: nextAddress,
+      addresses: mergedAddresses
+    });
   }
 });
 

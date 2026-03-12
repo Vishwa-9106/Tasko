@@ -109,6 +109,30 @@ cd d:\Tasko\worker-app; npm run dev
 cd d:\Tasko\admin-panel; npm run dev
 ```
 
+## Testing
+
+Run unit tests with Vitest from the project root:
+
+```powershell
+npm run test:unit
+```
+
+Run the browser smoke suite with Playwright:
+
+```powershell
+npm run test:e2e:install
+npm run test:e2e
+```
+
+Available test commands from the project root:
+
+- `npm run test`
+- `npm run test:unit`
+- `npm run test:unit:watch`
+- `npm run test:e2e`
+- `npm run test:e2e:headed`
+- `npm run test:all`
+
 ## Firestore Collections
 
 - `users`

@@ -3,6 +3,7 @@ import { GoogleAuthProvider, signInWithPopup, signOut as signOutOfFirebase } fro
 import api, { ADMIN_SESSION_TOKEN_KEY } from "./api";
 import { auth as firebaseAuth, initializeFirebaseClient } from "./firebase";
 import BookingsManagement from "./BookingsManagement";
+import PackageManagement from "./PackageManagement";
 import PricingModelEditor from "./PricingModelEditor";
 import TaskoMartManagement from "./TaskoMartManagement";
 import UserManagement from "./UserManagement";
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { label: "Worker Hiring Requests", path: "/worker-hiring-requests" },
   { label: "Worker Management", path: "/worker-management" },
   { label: "Bookings", path: "/bookings" },
+  { label: "Package Management", path: "/package-management" },
   { label: "Category", path: "/category" },
   { label: "TaskoMart Management", path: "/taskomart-management" }
 ];
@@ -1194,6 +1196,15 @@ export default function AdminApp() {
             {active === "TaskoMart Management" ? (
               <TaskoMartManagement
                 sessionToken={sessionToken}
+                pushToast={pushToast}
+                onSessionExpired={async () => {
+                  await logout();
+                }}
+              />
+            ) : null}
+
+            {active === "Package Management" ? (
+              <PackageManagement
                 pushToast={pushToast}
                 onSessionExpired={async () => {
                   await logout();

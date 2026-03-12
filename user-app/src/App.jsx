@@ -5,6 +5,8 @@ import LandingPage from "./pages/Landing";
 import AuthPage from "./pages/Auth";
 import HomePage from "./pages/Home";
 import PackagesPage from "./pages/Packages";
+import PackageSubscribePage from "./pages/PackageSubscribe";
+import PackageSubscribeSuccessPage from "./pages/PackageSubscribeSuccess";
 import BookingPage from "./pages/Booking";
 import ProfilePage from "./pages/Profile";
 import ServiceDetailsPage from "./pages/ServiceDetails";
@@ -53,6 +55,22 @@ export default function App() {
         element={
           <ProtectedRoute>
             <PackagesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/subscribe/:packageId"
+        element={
+          <ProtectedRoute>
+            <PackageSubscribePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/subscribe/success/:subscriptionId"
+        element={
+          <ProtectedRoute>
+            <PackageSubscribeSuccessPage />
           </ProtectedRoute>
         }
       />
