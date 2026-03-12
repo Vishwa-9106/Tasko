@@ -436,7 +436,7 @@ function getAdminSessionToken(req: Request): string {
   return readTrimmedString((req.body as { sessionToken?: unknown })?.sessionToken);
 }
 
-function getWorkerSessionToken(req: Request): string {
+export function getWorkerSessionToken(req: Request): string {
   const headerToken = readTrimmedString(req.header("x-worker-session-token"));
   if (headerToken) {
     return headerToken;
@@ -450,7 +450,7 @@ function getWorkerSessionToken(req: Request): string {
   return readTrimmedString((req.body as { sessionToken?: unknown })?.sessionToken);
 }
 
-function resolveWorkerSession(sessionToken: string): string | null {
+export function resolveWorkerSession(sessionToken: string): string | null {
   const session = workerSessions.get(sessionToken);
   if (!session) {
     return null;

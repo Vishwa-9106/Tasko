@@ -115,6 +115,20 @@ function normalizeSubscription(record, index) {
   };
 }
 
+function normalizePackageVisit(record, index) {
+  return {
+    id: String(record?.id || record?.schedule_id || index + 1),
+    userPackageId: String(record?.userPackageId || record?.user_package_id || ""),
+    packageName: String(record?.packageName || record?.package_name || "").trim(),
+    serviceDate: String(record?.serviceDate || record?.service_date || "").trim(),
+    timeSlot: String(record?.timeSlot || record?.time_slot || "").trim(),
+    status: String(record?.status || "pending").trim(),
+    visitIndex: Number(record?.visitIndex ?? record?.visit_index ?? index + 1) || index + 1,
+    totalVisits: Number(record?.totalVisits ?? record?.total_visits ?? 1) || 1,
+    fullAddress: String(record?.fullAddress || record?.address || "").trim()
+  };
+}
+
 function formatDate(value) {
   const parsed = new Date(value || "");
   if (Number.isNaN(parsed.getTime())) return "-";
@@ -133,8 +147,11 @@ export default function PackagesPage() {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
+  const [visitsLoading, setVisitsLoading] = useState(false);
   const [error, setError] = useState("");
   const [subscriptionsError, setSubscriptionsError] = useState("");
+  const [visits, setVisits] = useState([]);
+  const [visitsError, setVisitsError] = useState("");
 
   useEffect(() => {
     if (location.hash !== "#my-packages") return;
@@ -215,10 +232,57 @@ export default function PackagesPage() {
     });
   }, [user?.uid]);
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setVisits([]);
+      return;
+    }
+
+    const loadVisits = async () => {
+      setVisitsLoading(true);
+      setVisitsError("");
+      try {
+        const response = await api.get("/api/package-schedules", {
+          params: { userId: user.uid }
+        });
+        const normalized = Array.isArray(response.data)
+          ? response.data.map((item, index) => normalizePackageVisit(item, index))
+          : [];
+        setVisits(normalized);
+      } catch (_error) {
+        setVisitsError("Unable to load package visit schedule right now.");
+      } finally {
+        setVisitsLoading(false);
+      }
+    };
+
+    loadVisits().catch(() => {
+      setVisits([]);
+      setVisitsLoading(false);
+      setVisitsError("Unable to load package visit schedule right now.");
+    });
+  }, [user?.uid]);
+
   const activeSubscriptions = useMemo(
     () => subscriptions.filter((item) => String(item.status || "").toLowerCase() === "active"),
     [subscriptions]
   );
+
+  const visitsBySubscription = useMemo(() => {
+    const grouped = new Map();
+    visits.forEach((visit) => {
+      const list = grouped.get(visit.userPackageId) || [];
+      list.push(visit);
+      grouped.set(visit.userPackageId, list);
+    });
+    grouped.forEach((list, key) => {
+      grouped.set(
+        key,
+        [...list].sort((left, right) => new Date(left.serviceDate).getTime() - new Date(right.serviceDate).getTime())
+      );
+    });
+    return grouped;
+  }, [visits]);
 
   return (
     <UserPortalShell activeNav="packages">
@@ -243,25 +307,59 @@ export default function PackagesPage() {
         {activeSubscriptions.length > 0 ? (
           <div className="tasko-my-packages-grid">
             {activeSubscriptions.map((subscription) => (
-              <article key={subscription.id} className="tasko-card tasko-my-package-card">
-                <div className="tasko-my-package-head">
-                  <div>
-                    <p className="tasko-package-frequency">{subscription.status}</p>
-                    <h3>{subscription.packageName}</h3>
-                  </div>
-                  <span className="tasko-package-duration-badge">{subscription.paymentStatus}</span>
-                </div>
-                <p className="tasko-package-price">{toPrice(subscription.packagePrice)}</p>
-                <div className="tasko-my-package-meta">
-                  <p><strong>Start Date:</strong> {formatDate(subscription.startDate)}</p>
-                  <p><strong>Time Slot:</strong> {subscription.timeSlot || "-"}</p>
-                  <p><strong>Address:</strong> {subscription.addressTitle || "Saved Address"}</p>
-                </div>
-                <p className="tasko-package-description">{subscription.fullAddress || "Address not available."}</p>
-              </article>
+              (() => {
+                const schedule = visitsBySubscription.get(subscription.id) || [];
+                const nextVisit = schedule.find((visit) => !["completed", "cancelled"].includes(String(visit.status).toLowerCase())) || null;
+                const completedVisits = schedule.filter((visit) => String(visit.status).toLowerCase() === "completed").length;
+
+                return (
+                  <article key={subscription.id} className="tasko-card tasko-my-package-card">
+                    <div className="tasko-my-package-head">
+                      <div>
+                        <p className="tasko-package-frequency">{subscription.status}</p>
+                        <h3>{subscription.packageName}</h3>
+                      </div>
+                      <span className="tasko-package-duration-badge">{subscription.paymentStatus}</span>
+                    </div>
+                    <p className="tasko-package-price">{toPrice(subscription.packagePrice)}</p>
+                    <div className="tasko-my-package-meta">
+                      <p><strong>Start Date:</strong> {formatDate(subscription.startDate)}</p>
+                      <p><strong>Time Slot:</strong> {subscription.timeSlot || "-"}</p>
+                      <p><strong>Address:</strong> {subscription.addressTitle || "Saved Address"}</p>
+                    </div>
+                    <p className="tasko-package-description">{subscription.fullAddress || "Address not available."}</p>
+
+                    <div className="tasko-package-visit-summary">
+                      <p><strong>Completed Visits:</strong> {completedVisits}/{schedule.length || 0}</p>
+                      <p>
+                        <strong>Next Visit:</strong>{" "}
+                        {nextVisit ? `${formatDate(nextVisit.serviceDate)} • ${nextVisit.timeSlot || "-"}` : "No pending visits"}
+                      </p>
+                    </div>
+
+                    {schedule.length > 0 ? (
+                      <div className="tasko-package-visit-list">
+                        {schedule.slice(0, 4).map((visit) => (
+                          <div key={visit.id} className="tasko-package-visit-item">
+                            <strong>
+                              Visit {visit.visitIndex}/{visit.totalVisits}
+                            </strong>
+                            <span>{formatDate(visit.serviceDate)}</span>
+                            <span>{visit.timeSlot || "-"}</span>
+                            <span>{visit.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })()
             ))}
           </div>
         ) : null}
+
+        {visitsLoading ? <p className="tasko-empty-state">Loading package visit schedule...</p> : null}
+        {!visitsLoading && visitsError ? <p className="tasko-empty-state">{visitsError}</p> : null}
       </section>
 
       {error ? <p className="tasko-empty-state">{error}</p> : null}

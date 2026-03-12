@@ -131,6 +131,18 @@ function getCustomerPhone(job) {
   return readText(job?.userPhone) || readText(job?.user_phone) || readText(job?.customerPhone) || "";
 }
 
+function getJobBookingType(job) {
+  const explicitType = readText(job?.bookingType) || readText(job?.booking_type);
+  if (explicitType.toLowerCase() === "package") return "package";
+  return String(job?.id || "").startsWith("package-") ? "package" : "service";
+}
+
+function getJobActionId(job) {
+  const scheduleId = readText(job?.scheduleId) || readText(job?.schedule_id);
+  if (scheduleId) return scheduleId;
+  return String(job?.id || "").replace(/^package-/, "");
+}
+
 function getServiceName(job) {
   return (
     readText(job?.serviceName) ||
@@ -307,8 +319,20 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
       setError("");
 
       try {
-        const [workerResponse, jobsResponse] = await Promise.all([api.get("/api/workers/me"), api.get("/api/workers/my-jobs")]);
-        const workerPayload = workerResponse.data;
+        const [workerResult, jobsResult, packageJobsResult] = await Promise.allSettled([
+          api.get("/api/workers/me"),
+          api.get("/api/workers/my-jobs"),
+          api.get("/api/workers/my-package-jobs")
+        ]);
+
+        if (workerResult.status !== "fulfilled") {
+          throw workerResult.reason;
+        }
+
+        const workerPayload = workerResult.value.data;
+        const serviceJobs = jobsResult.status === "fulfilled" && Array.isArray(jobsResult.value.data) ? jobsResult.value.data : [];
+        const packageJobs =
+          packageJobsResult.status === "fulfilled" && Array.isArray(packageJobsResult.value.data) ? packageJobsResult.value.data : [];
 
         if (workerPayload.status !== "Active") {
           clearWorkerSession();
@@ -321,7 +345,7 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
         }
 
         setWorker(workerPayload);
-        setJobs(Array.isArray(jobsResponse.data) ? jobsResponse.data : []);
+        setJobs([...serviceJobs, ...packageJobs]);
       } catch (loadError) {
         if (loadError?.response?.status === 401 || loadError?.response?.status === 403) {
           clearWorkerSession();
@@ -521,7 +545,11 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
     setJobActionMessage("");
 
     try {
-      await api.patch(`/api/bookings/${targetJob.id}/status`, { status: nextStatus });
+      if (getJobBookingType(targetJob) === "package") {
+        await api.patch(`/api/workers/my-package-jobs/${getJobActionId(targetJob)}/status`, { status: nextStatus });
+      } else {
+        await api.patch(`/api/bookings/${targetJob.id}/status`, { status: nextStatus });
+      }
       setJobs((current) =>
         current.map((job) => (job.id === targetJob.id ? { ...job, status: nextStatus, updatedAt: new Date().toISOString() } : job))
       );
@@ -551,13 +579,17 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
   };
 
   const markArrived = async (targetJobId) => {
+    const targetJob = jobs.find((job) => job.id === targetJobId);
     setJobActionLoading(targetJobId);
     setJobActionError("");
     setJobActionMessage("");
 
     try {
-      const response = await api.post(`/api/workers/my-jobs/${targetJobId}/arrived`);
-      const arrivalPayload = response?.data || {};
+      const response =
+        getJobBookingType(targetJob) === "package"
+          ? await api.post(`/api/workers/my-package-jobs/${getJobActionId(targetJob)}/arrived`)
+          : await api.post(`/api/workers/my-jobs/${targetJobId}/arrived`);
+      const arrivalPayload = response?.data?.schedule || response?.data || {};
 
       setJobCheckpoint(targetJobId, {
         arrivedAt: arrivalPayload.workerArrivedAt || new Date().toISOString()
@@ -568,6 +600,10 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
             ? {
                 ...job,
                 ...arrivalPayload,
+                id: targetJobId,
+                bookingId: targetJobId,
+                booking_id: targetJobId,
+                scheduleId: getJobActionId(targetJob),
                 updatedAt: new Date().toISOString()
               }
             : job
@@ -583,13 +619,17 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
   };
 
   const requestCompletionOtp = async (targetJobId) => {
+    const targetJob = jobs.find((job) => job.id === targetJobId);
     setJobActionLoading(targetJobId);
     setJobActionError("");
     setJobActionMessage("");
 
     try {
-      const response = await api.post(`/api/workers/my-jobs/${targetJobId}/request-completion-otp`);
-      const completionPayload = response?.data || {};
+      const response =
+        getJobBookingType(targetJob) === "package"
+          ? await api.post(`/api/workers/my-package-jobs/${getJobActionId(targetJob)}/request-completion-otp`)
+          : await api.post(`/api/workers/my-jobs/${targetJobId}/request-completion-otp`);
+      const completionPayload = response?.data?.schedule || response?.data || {};
 
       setJobs((current) =>
         current.map((job) =>
@@ -597,6 +637,10 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
             ? {
                 ...job,
                 ...completionPayload,
+                id: targetJobId,
+                bookingId: targetJobId,
+                booking_id: targetJobId,
+                scheduleId: getJobActionId(targetJob),
                 updatedAt: new Date().toISOString()
               }
             : job

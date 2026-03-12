@@ -86,6 +86,7 @@ function normalizeBookingStatus(value) {
 
 function buildOtpNotifications(booking) {
   const bookingId = readText(booking?.id) || readText(booking?.bookingId) || readText(booking?.booking_id);
+  const entityType = readText(booking?.bookingType) || readText(booking?.booking_type) || "service";
   const status = normalizeBookingStatus(booking?.status);
   if (!bookingId || ["completed", "cancelled"].includes(status)) {
     return [];
@@ -108,8 +109,9 @@ function buildOtpNotifications(booking) {
   const arrivedAt = readDate(booking?.workerArrivedAt) || readDate(booking?.worker_arrived_at);
   if (startOtp && arrivedAt && !["in_progress", "completed", "cancelled"].includes(status)) {
     notifications.push({
-      id: `${bookingId}:start:${startOtp}`,
+      id: `${entityType}:${bookingId}:start:${startOtp}`,
       bookingId,
+      bookingType: entityType,
       type: "start",
       otp: startOtp,
       title:
@@ -133,8 +135,9 @@ function buildOtpNotifications(booking) {
     readDate(booking?.completionOtpRequestedAt) || readDate(booking?.completion_otp_requested_at);
   if (completionOtp && completionRequestedAt && status === "in_progress") {
     notifications.push({
-      id: `${bookingId}:completion:${completionOtp}`,
+      id: `${entityType}:${bookingId}:completion:${completionOtp}`,
       bookingId,
+      bookingType: entityType,
       type: "completion",
       otp: completionOtp,
       title:
@@ -181,13 +184,23 @@ export default function UserPortalShell({ children, activeNav = "home" }) {
     let disposed = false;
 
     const syncOtpNotifications = async () => {
-      const response = await api.get("/api/bookings", {
-        params: { userId: user.uid, limit: 20 }
-      });
+      const [bookingsResponse, packageSchedulesResponse] = await Promise.allSettled([
+        api.get("/api/bookings", {
+          params: { userId: user.uid, limit: 20 }
+        }),
+        api.get("/api/package-schedules", {
+          params: { userId: user.uid }
+        })
+      ]);
       if (disposed) return;
 
-      const bookings = Array.isArray(response.data) ? response.data : [];
-      const notifications = bookings
+      const bookings =
+        bookingsResponse.status === "fulfilled" && Array.isArray(bookingsResponse.value.data) ? bookingsResponse.value.data : [];
+      const packageSchedules =
+        packageSchedulesResponse.status === "fulfilled" && Array.isArray(packageSchedulesResponse.value.data)
+          ? packageSchedulesResponse.value.data
+          : [];
+      const notifications = [...bookings, ...packageSchedules]
         .flatMap((booking) => buildOtpNotifications(booking))
         .filter(Boolean)
         .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());

@@ -1,5 +1,6 @@
 import { Express, Request, Response } from "express";
 import { db } from "./firebaseAdmin";
+import { getWorkerSessionToken, resolveWorkerSession } from "./workerHiringRoutes";
 
 type PackageVisitFrequency = "daily" | "weekly" | "every_2_days" | "monthly";
 type PackageStatus = "active" | "disabled";
@@ -65,6 +66,40 @@ type UserPackageRecord = {
   updated_at: string;
 };
 
+type PackageScheduleStatus = "pending" | "assigned" | "arrived" | "in_progress" | "completed" | "cancelled";
+
+type PackageScheduleRecord = {
+  schedule_id: number;
+  user_package_id: number;
+  user_id: string;
+  package_id: number;
+  package_name: string;
+  package_category: string;
+  address_id: string;
+  address_title: string;
+  street: string;
+  city: string;
+  pincode: string;
+  service_date: string;
+  time_slot: PackageTimeSlot;
+  visit_index: number;
+  total_visits: number;
+  services_included: string[];
+  status: PackageScheduleStatus;
+  assigned_worker_id: string;
+  assigned_worker_name: string;
+  start_otp: string;
+  completion_otp: string;
+  worker_arrived_at: string;
+  completion_otp_requested_at: string;
+  arrival_notification_title: string;
+  arrival_notification_message: string;
+  completion_notification_title: string;
+  completion_notification_message: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type SeedPackage = {
   name: string;
   category: string;
@@ -84,6 +119,7 @@ type RegisterPackageRoutesOptions = {
 const inMemoryPackages = new Map<number, PackageRecord>();
 const inMemoryPackageServices = new Map<number, PackageServiceRecord>();
 const inMemoryUserPackages = new Map<number, UserPackageRecord>();
+const inMemoryPackageSchedules = new Map<number, PackageScheduleRecord>();
 const inMemoryCounters = new Map<CounterTableName, number>();
 const packagesReadCacheTtlMs = Math.max(5000, Number(process.env.PACKAGES_READ_CACHE_MS || 30000));
 let packagesResponseCache: { expiresAt: number; value: Array<Record<string, unknown>> } | null = null;
@@ -444,6 +480,16 @@ function normalizePaymentStatus(value: unknown): UserPackagePaymentStatus {
   return "paid";
 }
 
+function normalizePackageScheduleStatus(value: unknown): PackageScheduleStatus {
+  const normalized = readTrimmedString(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "assigned") return "assigned";
+  if (normalized === "arrived") return "arrived";
+  if (normalized === "in_progress") return "in_progress";
+  if (normalized === "completed") return "completed";
+  if (normalized === "cancelled") return "cancelled";
+  return "pending";
+}
+
 function normalizeUserPackageRecord(data: Record<string, unknown>, docIdHint: string): UserPackageRecord {
   const now = new Date().toISOString();
   const userPackageId = parsePositiveInt(data.user_package_id ?? data.id ?? docIdHint, parsePositiveInt(inMemoryUserPackages.size + 1, 1));
@@ -470,6 +516,45 @@ function normalizeUserPackageRecord(data: Record<string, unknown>, docIdHint: st
     payment_method: readTrimmedString(data.payment_method ?? data.paymentMethod),
     assigned_worker_id: readTrimmedString(data.assigned_worker_id ?? data.assignedWorkerId),
     assigned_worker_name: readTrimmedString(data.assigned_worker_name ?? data.assignedWorkerName),
+    created_at: createdAt,
+    updated_at: updatedAt
+  };
+}
+
+function normalizePackageScheduleRecord(data: Record<string, unknown>, docIdHint: string): PackageScheduleRecord {
+  const now = new Date().toISOString();
+  const scheduleId = parsePositiveInt(data.schedule_id ?? data.id ?? docIdHint, parsePositiveInt(inMemoryPackageSchedules.size + 1, 1));
+  const createdAt = parseDateLike(data.created_at ?? data.createdAt, now);
+  const updatedAt = parseDateLike(data.updated_at ?? data.updatedAt ?? data.created_at ?? data.createdAt, createdAt);
+
+  return {
+    schedule_id: scheduleId,
+    user_package_id: parsePositiveInt(data.user_package_id ?? data.userPackageId, 1),
+    user_id: readTrimmedString(data.user_id ?? data.userId),
+    package_id: parsePositiveInt(data.package_id ?? data.packageId, 1),
+    package_name: readTrimmedString(data.package_name ?? data.packageName ?? data.name),
+    package_category: readTrimmedString(data.package_category ?? data.packageCategory ?? data.category),
+    address_id: readTrimmedString(data.address_id ?? data.addressId),
+    address_title: readTrimmedString(data.address_title ?? data.addressTitle),
+    street: readTrimmedString(data.street ?? data.address_line ?? data.addressLine),
+    city: readTrimmedString(data.city),
+    pincode: readTrimmedString(data.pincode),
+    service_date: readTrimmedString(data.service_date ?? data.serviceDate ?? data.date),
+    time_slot: normalizeTimeSlot(data.time_slot ?? data.timeSlot ?? data.preferredTimeSlot),
+    visit_index: Math.max(1, parsePositiveInt(data.visit_index ?? data.visitIndex, 1)),
+    total_visits: Math.max(1, parsePositiveInt(data.total_visits ?? data.totalVisits, 1)),
+    services_included: uniqueStrings(readStringArray(data.services_included ?? data.servicesIncluded ?? data.services)),
+    status: normalizePackageScheduleStatus(data.status),
+    assigned_worker_id: readTrimmedString(data.assigned_worker_id ?? data.assignedWorkerId),
+    assigned_worker_name: readTrimmedString(data.assigned_worker_name ?? data.assignedWorkerName),
+    start_otp: readTrimmedString(data.start_otp ?? data.startOtp ?? data.job_start_otp ?? data.jobStartOtp),
+    completion_otp: readTrimmedString(data.completion_otp ?? data.completionOtp ?? data.job_completion_otp ?? data.jobCompletionOtp),
+    worker_arrived_at: readTrimmedString(data.worker_arrived_at ?? data.workerArrivedAt),
+    completion_otp_requested_at: readTrimmedString(data.completion_otp_requested_at ?? data.completionOtpRequestedAt),
+    arrival_notification_title: readTrimmedString(data.arrival_notification_title ?? data.arrivalNotificationTitle),
+    arrival_notification_message: readTrimmedString(data.arrival_notification_message ?? data.arrivalNotificationMessage),
+    completion_notification_title: readTrimmedString(data.completion_notification_title ?? data.completionNotificationTitle),
+    completion_notification_message: readTrimmedString(data.completion_notification_message ?? data.completionNotificationMessage),
     created_at: createdAt,
     updated_at: updatedAt
   };
@@ -555,6 +640,72 @@ function toUserPackageCollectionPayload(record: UserPackageRecord): Record<strin
     assignedWorkerId: record.assigned_worker_id,
     assigned_worker_name: record.assigned_worker_name,
     assignedWorkerName: record.assigned_worker_name,
+    created_at: record.created_at,
+    createdAt: record.created_at,
+    updated_at: record.updated_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function toPackageScheduleCollectionPayload(record: PackageScheduleRecord): Record<string, unknown> {
+  return {
+    id: String(record.schedule_id),
+    schedule_id: record.schedule_id,
+    user_package_id: record.user_package_id,
+    userPackageId: record.user_package_id,
+    user_id: record.user_id,
+    userId: record.user_id,
+    package_id: record.package_id,
+    packageId: record.package_id,
+    package_name: record.package_name,
+    packageName: record.package_name,
+    package_category: record.package_category,
+    packageCategory: record.package_category,
+    address_id: record.address_id,
+    addressId: record.address_id,
+    address_title: record.address_title,
+    addressTitle: record.address_title,
+    street: record.street,
+    city: record.city,
+    pincode: record.pincode,
+    service_date: record.service_date,
+    serviceDate: record.service_date,
+    date: record.service_date,
+    time_slot: record.time_slot,
+    timeSlot: record.time_slot,
+    preferredTimeSlot: record.time_slot,
+    visit_index: record.visit_index,
+    visitIndex: record.visit_index,
+    total_visits: record.total_visits,
+    totalVisits: record.total_visits,
+    services_included: record.services_included,
+    servicesIncluded: record.services_included,
+    services: record.services_included,
+    status: record.status,
+    assigned_worker_id: record.assigned_worker_id,
+    assignedWorkerId: record.assigned_worker_id,
+    assigned_worker_name: record.assigned_worker_name,
+    assignedWorkerName: record.assigned_worker_name,
+    start_otp: record.start_otp,
+    startOtp: record.start_otp,
+    job_start_otp: record.start_otp,
+    jobStartOtp: record.start_otp,
+    completion_otp: record.completion_otp,
+    completionOtp: record.completion_otp,
+    job_completion_otp: record.completion_otp,
+    jobCompletionOtp: record.completion_otp,
+    worker_arrived_at: record.worker_arrived_at,
+    workerArrivedAt: record.worker_arrived_at,
+    completion_otp_requested_at: record.completion_otp_requested_at,
+    completionOtpRequestedAt: record.completion_otp_requested_at,
+    arrival_notification_title: record.arrival_notification_title,
+    arrivalNotificationTitle: record.arrival_notification_title,
+    arrival_notification_message: record.arrival_notification_message,
+    arrivalNotificationMessage: record.arrival_notification_message,
+    completion_notification_title: record.completion_notification_title,
+    completionNotificationTitle: record.completion_notification_title,
+    completion_notification_message: record.completion_notification_message,
+    completionNotificationMessage: record.completion_notification_message,
     created_at: record.created_at,
     createdAt: record.created_at,
     updated_at: record.updated_at,
@@ -893,6 +1044,245 @@ async function listAllUserPackages(): Promise<UserPackageRecord[]> {
   return Array.from(inMemoryUserPackages.values()).sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
 }
 
+async function savePackageScheduleRecord(record: PackageScheduleRecord): Promise<void> {
+  try {
+    await db.collection("package_schedule").doc(String(record.schedule_id)).set(toPackageScheduleCollectionPayload(record), { merge: true });
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemoryPackageSchedules.set(record.schedule_id, record);
+  await ensureCounterBaseline("package_schedule", record.schedule_id);
+}
+
+async function getPackageScheduleById(scheduleId: number): Promise<PackageScheduleRecord | null> {
+  if (inMemoryPackageSchedules.has(scheduleId)) {
+    return inMemoryPackageSchedules.get(scheduleId) || null;
+  }
+
+  try {
+    const snapshot = await db.collection("package_schedule").doc(String(scheduleId)).get();
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    const record = normalizePackageScheduleRecord((snapshot.data() as Record<string, unknown>) || {}, snapshot.id);
+    inMemoryPackageSchedules.set(record.schedule_id, record);
+    updateInMemoryCounter("package_schedule", record.schedule_id);
+    return record;
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return inMemoryPackageSchedules.get(scheduleId) || null;
+}
+
+async function listPackageSchedulesByUserPackageId(userPackageId: number): Promise<PackageScheduleRecord[]> {
+  try {
+    const snapshot = await db.collection("package_schedule").where("user_package_id", "==", userPackageId).get();
+    const records = snapshot.docs.map((document) => normalizePackageScheduleRecord(document.data(), document.id));
+    records.forEach((record) => {
+      inMemoryPackageSchedules.set(record.schedule_id, record);
+      updateInMemoryCounter("package_schedule", record.schedule_id);
+    });
+    return records.sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return Array.from(inMemoryPackageSchedules.values())
+    .filter((record) => record.user_package_id === userPackageId)
+    .sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+}
+
+async function listPackageSchedulesByUserId(userId: string): Promise<PackageScheduleRecord[]> {
+  try {
+    const snapshot = await db.collection("package_schedule").where("user_id", "==", userId).get();
+    const records = snapshot.docs.map((document) => normalizePackageScheduleRecord(document.data(), document.id));
+    records.forEach((record) => {
+      inMemoryPackageSchedules.set(record.schedule_id, record);
+      updateInMemoryCounter("package_schedule", record.schedule_id);
+    });
+    return records.sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return Array.from(inMemoryPackageSchedules.values())
+    .filter((record) => record.user_id === userId)
+    .sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+}
+
+async function listPackageSchedulesByWorkerId(workerId: string): Promise<PackageScheduleRecord[]> {
+  try {
+    const snapshot = await db.collection("package_schedule").where("assigned_worker_id", "==", workerId).get();
+    const records = snapshot.docs.map((document) => normalizePackageScheduleRecord(document.data(), document.id));
+    records.forEach((record) => {
+      inMemoryPackageSchedules.set(record.schedule_id, record);
+      updateInMemoryCounter("package_schedule", record.schedule_id);
+    });
+    return records.sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return Array.from(inMemoryPackageSchedules.values())
+    .filter((record) => record.assigned_worker_id === workerId)
+    .sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+}
+
+async function listAllPackageSchedules(): Promise<PackageScheduleRecord[]> {
+  try {
+    const snapshot = await db.collection("package_schedule").get();
+    const records = snapshot.docs.map((document) => normalizePackageScheduleRecord(document.data(), document.id));
+    records.forEach((record) => {
+      inMemoryPackageSchedules.set(record.schedule_id, record);
+      updateInMemoryCounter("package_schedule", record.schedule_id);
+    });
+    return records.sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return Array.from(inMemoryPackageSchedules.values()).sort((left, right) => Date.parse(left.service_date) - Date.parse(right.service_date));
+}
+
+async function updatePackageSchedulesForSubscription(
+  userPackageId: number,
+  updater: (record: PackageScheduleRecord) => PackageScheduleRecord
+): Promise<PackageScheduleRecord[]> {
+  const schedules = await listPackageSchedulesByUserPackageId(userPackageId);
+  const nextSchedules: PackageScheduleRecord[] = [];
+
+  for (const schedule of schedules) {
+    const updated = updater(schedule);
+    updated.created_at = schedule.created_at;
+    await savePackageScheduleRecord(updated);
+    nextSchedules.push(updated);
+  }
+
+  return nextSchedules;
+}
+
+async function syncSubscriptionStatusFromSchedules(userPackageId: number): Promise<UserPackageRecord | null> {
+  const subscription = await getUserPackageById(userPackageId);
+  if (!subscription) {
+    return null;
+  }
+
+  const schedules = await listPackageSchedulesByUserPackageId(userPackageId);
+  if (schedules.length === 0) {
+    return subscription;
+  }
+
+  const hasActiveVisit = schedules.some((schedule) => !["completed", "cancelled"].includes(schedule.status));
+  const allCancelled = schedules.every((schedule) => schedule.status === "cancelled");
+  const allClosed = schedules.every((schedule) => ["completed", "cancelled"].includes(schedule.status));
+  const nextStatus: UserPackageStatus = allCancelled ? "cancelled" : allClosed && !hasActiveVisit ? "completed" : "active";
+
+  if (subscription.status === nextStatus) {
+    return subscription;
+  }
+
+  const updated = normalizeUserPackageRecord(
+    {
+      ...toUserPackageCollectionPayload(subscription),
+      status: nextStatus,
+      updated_at: new Date().toISOString()
+    },
+    String(subscription.user_package_id)
+  );
+  updated.created_at = subscription.created_at;
+  await saveUserPackageRecord(updated);
+  return updated;
+}
+
+async function createPackageSchedulesForSubscription(
+  subscription: UserPackageRecord,
+  packageRecord: PackageRecord,
+  servicesIncluded: string[]
+): Promise<PackageScheduleRecord[]> {
+  const serviceDates = generatePackageScheduleDates(subscription.start_date, subscription.end_date, packageRecord.visit_frequency);
+  const now = new Date().toISOString();
+  const totalVisits = serviceDates.length;
+  const schedules: PackageScheduleRecord[] = [];
+
+  for (let index = 0; index < serviceDates.length; index += 1) {
+    const scheduleId = await getNextSequenceValue("package_schedule");
+    const schedule = normalizePackageScheduleRecord(
+      {
+        schedule_id: scheduleId,
+        user_package_id: subscription.user_package_id,
+        user_id: subscription.user_id,
+        package_id: subscription.package_id,
+        package_name: subscription.package_name,
+        package_category: packageRecord.category,
+        address_id: subscription.address_id,
+        address_title: subscription.address_title,
+        street: subscription.street,
+        city: subscription.city,
+        pincode: subscription.pincode,
+        service_date: serviceDates[index],
+        time_slot: subscription.time_slot,
+        visit_index: index + 1,
+        total_visits: totalVisits,
+        services_included: servicesIncluded,
+        status: subscription.assigned_worker_id ? "assigned" : "pending",
+        assigned_worker_id: subscription.assigned_worker_id,
+        assigned_worker_name: subscription.assigned_worker_name,
+        created_at: now,
+        updated_at: now
+      },
+      String(scheduleId)
+    );
+    await savePackageScheduleRecord(schedule);
+    schedules.push(schedule);
+  }
+
+  return schedules;
+}
+
+async function loadUsersByIds(userIds: string[]): Promise<Map<string, Record<string, unknown>>> {
+  const usersById = new Map<string, Record<string, unknown>>();
+  const dedupedIds = uniqueStrings(userIds);
+  if (dedupedIds.length === 0) {
+    return usersById;
+  }
+
+  try {
+    const userSnapshots = await Promise.all(
+      dedupedIds.map(async (userId) => {
+        const userDoc = await db.collection("users").doc(userId).get();
+        if (!userDoc.exists) return null;
+        return [userId, (userDoc.data() as Record<string, unknown>) || {}] as const;
+      })
+    );
+
+    userSnapshots.forEach((entry) => {
+      if (!entry) return;
+      usersById.set(entry[0], entry[1]);
+    });
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return usersById;
+}
+
 async function removePackageServiceRecords(packageId: number): Promise<void> {
   const existingServices = await listPackageServicesForPackage(packageId);
 
@@ -1155,6 +1545,154 @@ function buildUserPackageResponse(record: UserPackageRecord): Record<string, unk
   };
 }
 
+function buildPackageScheduleResponse(record: PackageScheduleRecord): Record<string, unknown> {
+  const fullAddress = [record.street, record.city, record.pincode].filter(Boolean).join(", ");
+  const visitLabel = `Visit ${record.visit_index} of ${record.total_visits}`;
+  const servicesLabel = record.services_included.length > 0 ? record.services_included.join(", ") : "Recurring package service";
+
+  return {
+    id: String(record.schedule_id),
+    schedule_id: record.schedule_id,
+    scheduleId: String(record.schedule_id),
+    userPackageId: String(record.user_package_id),
+    user_package_id: record.user_package_id,
+    userId: record.user_id,
+    user_id: record.user_id,
+    packageId: String(record.package_id),
+    package_id: record.package_id,
+    packageName: record.package_name,
+    package_name: record.package_name,
+    packageCategory: record.package_category,
+    package_category: record.package_category,
+    addressId: record.address_id,
+    address_id: record.address_id,
+    addressTitle: record.address_title,
+    address_title: record.address_title,
+    street: record.street,
+    city: record.city,
+    pincode: record.pincode,
+    fullAddress,
+    address: fullAddress,
+    serviceDate: record.service_date,
+    service_date: record.service_date,
+    date: record.service_date,
+    timeSlot: record.time_slot,
+    time_slot: record.time_slot,
+    preferredTimeSlot: record.time_slot,
+    visitIndex: record.visit_index,
+    visit_index: record.visit_index,
+    totalVisits: record.total_visits,
+    total_visits: record.total_visits,
+    visitLabel,
+    servicesIncluded: record.services_included,
+    services_included: record.services_included,
+    services: record.services_included,
+    status: record.status,
+    assignedWorkerId: record.assigned_worker_id,
+    assigned_worker_id: record.assigned_worker_id,
+    assignedWorkerName: record.assigned_worker_name,
+    assigned_worker_name: record.assigned_worker_name,
+    startOtp: record.start_otp,
+    start_otp: record.start_otp,
+    jobStartOtp: record.start_otp,
+    job_start_otp: record.start_otp,
+    completionOtp: record.completion_otp,
+    completion_otp: record.completion_otp,
+    jobCompletionOtp: record.completion_otp,
+    job_completion_otp: record.completion_otp,
+    workerArrivedAt: record.worker_arrived_at,
+    worker_arrived_at: record.worker_arrived_at,
+    completionOtpRequestedAt: record.completion_otp_requested_at,
+    completion_otp_requested_at: record.completion_otp_requested_at,
+    arrivalNotificationTitle: record.arrival_notification_title,
+    arrival_notification_title: record.arrival_notification_title,
+    arrivalNotificationMessage: record.arrival_notification_message,
+    arrival_notification_message: record.arrival_notification_message,
+    completionNotificationTitle: record.completion_notification_title,
+    completion_notification_title: record.completion_notification_title,
+    completionNotificationMessage: record.completion_notification_message,
+    completion_notification_message: record.completion_notification_message,
+    serviceName: `${record.package_name} (${visitLabel})`,
+    serviceCategory: record.package_category || "Package Service",
+    category: record.package_category || "Package Service",
+    subCategory: record.package_name,
+    notes: `Included services: ${servicesLabel}`,
+    specialInstructions: `Included services: ${servicesLabel}`,
+    bookingType: "package",
+    createdAt: record.created_at,
+    created_at: record.created_at,
+    updatedAt: record.updated_at,
+    updated_at: record.updated_at
+  };
+}
+
+function buildPackageWorkerJobResponse(
+  record: PackageScheduleRecord,
+  userData?: Record<string, unknown> | null
+): Record<string, unknown> {
+  const response = buildPackageScheduleResponse(record);
+  const userName =
+    readTrimmedString(userData?.name) ||
+    readTrimmedString(userData?.full_name) ||
+    readTrimmedString(userData?.fullName) ||
+    "Customer";
+  const userPhone =
+    readTrimmedString(userData?.mobile) ||
+    readTrimmedString(userData?.number) ||
+    readTrimmedString(userData?.phone);
+  const userEmail = readTrimmedString(userData?.email) || readTrimmedString(userData?.mail);
+
+  return {
+    ...response,
+    id: `package-${record.schedule_id}`,
+    bookingId: `package-${record.schedule_id}`,
+    booking_id: `package-${record.schedule_id}`,
+    scheduleId: String(record.schedule_id),
+    userName,
+    user_name: userName,
+    userPhone,
+    user_phone: userPhone,
+    userEmail,
+    user_email: userEmail
+  };
+}
+
+function getPackageVisitStepDays(frequency: PackageVisitFrequency): number {
+  if (frequency === "daily") return 1;
+  if (frequency === "every_2_days") return 2;
+  if (frequency === "monthly") return 30;
+  return 7;
+}
+
+function generatePackageScheduleDates(startDate: string, endDate: string, frequency: PackageVisitFrequency): string[] {
+  const parsedStart = new Date(startDate);
+  const parsedEnd = new Date(endDate);
+  if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+    return [];
+  }
+
+  const dates: string[] = [];
+  const cursor = new Date(parsedStart);
+  const stepDays = getPackageVisitStepDays(frequency);
+
+  while (cursor.getTime() <= parsedEnd.getTime()) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() + stepDays);
+  }
+
+  if (dates.length === 0) {
+    dates.push(parsedStart.toISOString().slice(0, 10));
+  }
+
+  return dates;
+}
+
+function generateNumericOtp(length = 4): string {
+  const min = 10 ** Math.max(0, length - 1);
+  const max = 10 ** Math.max(1, length);
+  return String(Math.floor(min + Math.random() * (max - min)));
+}
+
 async function createSamplePackages(): Promise<void> {
   const now = new Date().toISOString();
 
@@ -1346,9 +1884,15 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
       );
 
       await saveUserPackageRecord(record);
+      const packageServices = await listPackageServicesForPackage(packageRecord.package_id);
+      const servicesIncluded = uniqueStrings(
+        (packageServices.length > 0 ? packageServices.map((service) => service.sub_category_name) : packageRecord.services_included).filter(Boolean)
+      );
+      const schedules = await createPackageSchedulesForSubscription(record, packageRecord, servicesIncluded);
       return res.status(201).json({
         message: "Package subscription created successfully.",
-        subscription: buildUserPackageResponse(record)
+        subscription: buildUserPackageResponse(record),
+        schedules: schedules.map((schedule) => buildPackageScheduleResponse(schedule))
       });
     } catch (error) {
       return res.status(500).json({
@@ -1381,6 +1925,52 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
       updated.created_at = existing.created_at;
 
       await saveUserPackageRecord(updated);
+      if (updated.status === "cancelled" || updated.status === "completed") {
+        await updatePackageSchedulesForSubscription(updated.user_package_id, (schedule) =>
+          normalizePackageScheduleRecord(
+            {
+              ...toPackageScheduleCollectionPayload(schedule),
+              status: updated.status,
+              updated_at: new Date().toISOString()
+            },
+            String(schedule.schedule_id)
+          )
+        );
+      }
+      if (updated.status === "active") {
+        await updatePackageSchedulesForSubscription(updated.user_package_id, (schedule) =>
+          normalizePackageScheduleRecord(
+            {
+              ...toPackageScheduleCollectionPayload(schedule),
+              status:
+                schedule.status === "completed"
+                  ? "completed"
+                  : schedule.status === "arrived" || schedule.status === "in_progress"
+                    ? schedule.status
+                    : schedule.assigned_worker_id
+                      ? "assigned"
+                      : "pending",
+              updated_at: new Date().toISOString()
+            },
+            String(schedule.schedule_id)
+          )
+        );
+      }
+      if (updated.status === "pending") {
+        await updatePackageSchedulesForSubscription(updated.user_package_id, (schedule) =>
+          normalizePackageScheduleRecord(
+            {
+              ...toPackageScheduleCollectionPayload(schedule),
+              status:
+                schedule.status === "completed" || schedule.status === "cancelled"
+                  ? schedule.status
+                  : "pending",
+              updated_at: new Date().toISOString()
+            },
+            String(schedule.schedule_id)
+          )
+        );
+      }
       return res.json({
         message: "Package booking status updated successfully.",
         subscription: buildUserPackageResponse(updated)
@@ -1417,6 +2007,25 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
       updated.created_at = existing.created_at;
 
       await saveUserPackageRecord(updated);
+      await updatePackageSchedulesForSubscription(updated.user_package_id, (schedule) =>
+        normalizePackageScheduleRecord(
+          {
+            ...toPackageScheduleCollectionPayload(schedule),
+            assigned_worker_id: updated.assigned_worker_id,
+            assigned_worker_name: updated.assigned_worker_name,
+            status:
+              schedule.status === "completed" || schedule.status === "cancelled"
+                ? schedule.status
+                : schedule.status === "arrived" || schedule.status === "in_progress"
+                  ? schedule.status
+                  : updated.assigned_worker_id
+                    ? "assigned"
+                    : "pending",
+            updated_at: new Date().toISOString()
+          },
+          String(schedule.schedule_id)
+        )
+      );
       return res.json({
         message: "Worker assigned to package booking successfully.",
         subscription: buildUserPackageResponse(updated)
@@ -1424,6 +2033,252 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
     } catch (error) {
       return res.status(500).json({
         message: "Failed to assign worker to package booking",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.get("/api/package-schedules", async (req: Request, res: Response) => {
+    try {
+      const userId = readTrimmedString(req.query.userId);
+      const workerId = readTrimmedString(req.query.workerId);
+      const subscriptionId = parsePositiveInt(req.query.subscriptionId, 0);
+      const status = readTrimmedString(req.query.status).toLowerCase();
+
+      let schedules: PackageScheduleRecord[] = [];
+      if (subscriptionId) {
+        schedules = await listPackageSchedulesByUserPackageId(subscriptionId);
+      } else if (workerId) {
+        schedules = await listPackageSchedulesByWorkerId(workerId);
+      } else if (userId) {
+        schedules = await listPackageSchedulesByUserId(userId);
+      } else {
+        schedules = await listAllPackageSchedules();
+      }
+
+      const filtered = status ? schedules.filter((schedule) => schedule.status === normalizePackageScheduleStatus(status)) : schedules;
+      return res.json(filtered.map((schedule) => buildPackageScheduleResponse(schedule)));
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to load package schedules",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.get("/api/package-schedules/:scheduleId", async (req: Request, res: Response) => {
+    try {
+      const scheduleId = parsePositiveInt(req.params.scheduleId, 0);
+      if (!scheduleId) {
+        return res.status(400).json({ message: "Valid scheduleId is required." });
+      }
+
+      const record = await getPackageScheduleById(scheduleId);
+      if (!record) {
+        return res.status(404).json({ message: "Package visit not found." });
+      }
+
+      return res.json(buildPackageScheduleResponse(record));
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to load package visit",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.get("/api/workers/my-package-jobs", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = getWorkerSessionToken(req);
+      if (!sessionToken) {
+        return res.status(401).json({ message: "Worker session token is required" });
+      }
+
+      const workerId = resolveWorkerSession(sessionToken);
+      if (!workerId) {
+        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      }
+
+      const schedules = await listPackageSchedulesByWorkerId(workerId);
+      const userIds = uniqueStrings(schedules.map((schedule) => schedule.user_id));
+      const usersById = await loadUsersByIds(userIds);
+
+      const jobs = schedules
+        .filter((schedule) => schedule.status !== "cancelled")
+        .map((schedule) => buildPackageWorkerJobResponse(schedule, usersById.get(schedule.user_id) || null));
+
+      return res.json(jobs);
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to load package jobs",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.post("/api/workers/my-package-jobs/:scheduleId/arrived", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = getWorkerSessionToken(req);
+      if (!sessionToken) {
+        return res.status(401).json({ message: "Worker session token is required" });
+      }
+
+      const workerId = resolveWorkerSession(sessionToken);
+      if (!workerId) {
+        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      }
+
+      const scheduleId = parsePositiveInt(req.params.scheduleId, 0);
+      if (!scheduleId) {
+        return res.status(400).json({ message: "Valid scheduleId is required." });
+      }
+
+      const existing = await getPackageScheduleById(scheduleId);
+      if (!existing) {
+        return res.status(404).json({ message: "Package visit not found." });
+      }
+      if (!existing.assigned_worker_id || existing.assigned_worker_id !== workerId) {
+        return res.status(403).json({ message: "This package visit is not assigned to the current worker." });
+      }
+      if (["in_progress", "completed", "cancelled"].includes(existing.status)) {
+        return res.status(400).json({ message: "This package visit cannot be marked as arrived." });
+      }
+
+      const startOtp = existing.start_otp || generateNumericOtp(4);
+      const notificationMessage = `Your worker has arrived for ${existing.package_name}. Share OTP ${startOtp} to start the visit.`;
+      const updated = normalizePackageScheduleRecord(
+        {
+          ...toPackageScheduleCollectionPayload(existing),
+          status: "arrived",
+          start_otp: startOtp,
+          worker_arrived_at: new Date().toISOString(),
+          arrival_notification_title: "Worker Arrived",
+          arrival_notification_message: notificationMessage,
+          updated_at: new Date().toISOString()
+        },
+        String(scheduleId)
+      );
+      updated.created_at = existing.created_at;
+
+      await savePackageScheduleRecord(updated);
+      return res.json({
+        message: "Arrival recorded and OTP shared with the user.",
+        schedule: buildPackageScheduleResponse(updated)
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to record package visit arrival",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.post("/api/workers/my-package-jobs/:scheduleId/request-completion-otp", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = getWorkerSessionToken(req);
+      if (!sessionToken) {
+        return res.status(401).json({ message: "Worker session token is required" });
+      }
+
+      const workerId = resolveWorkerSession(sessionToken);
+      if (!workerId) {
+        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      }
+
+      const scheduleId = parsePositiveInt(req.params.scheduleId, 0);
+      if (!scheduleId) {
+        return res.status(400).json({ message: "Valid scheduleId is required." });
+      }
+
+      const existing = await getPackageScheduleById(scheduleId);
+      if (!existing) {
+        return res.status(404).json({ message: "Package visit not found." });
+      }
+      if (!existing.assigned_worker_id || existing.assigned_worker_id !== workerId) {
+        return res.status(403).json({ message: "This package visit is not assigned to the current worker." });
+      }
+      if (existing.status !== "in_progress") {
+        return res.status(400).json({ message: "Completion OTP can only be requested for in-progress package visits." });
+      }
+
+      const completionOtp = existing.completion_otp || generateNumericOtp(4);
+      const notificationMessage = `Your worker is ready to complete ${existing.package_name}. Share OTP ${completionOtp} to finish the visit.`;
+      const updated = normalizePackageScheduleRecord(
+        {
+          ...toPackageScheduleCollectionPayload(existing),
+          completion_otp: completionOtp,
+          completion_otp_requested_at: new Date().toISOString(),
+          completion_notification_title: "Completion OTP Ready",
+          completion_notification_message: notificationMessage,
+          updated_at: new Date().toISOString()
+        },
+        String(scheduleId)
+      );
+      updated.created_at = existing.created_at;
+
+      await savePackageScheduleRecord(updated);
+      return res.json({
+        message: "Completion OTP shared with the user.",
+        schedule: buildPackageScheduleResponse(updated)
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to request package completion OTP",
+        error: getErrorMessage(error)
+      });
+    }
+  });
+
+  app.patch("/api/workers/my-package-jobs/:scheduleId/status", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = getWorkerSessionToken(req);
+      if (!sessionToken) {
+        return res.status(401).json({ message: "Worker session token is required" });
+      }
+
+      const workerId = resolveWorkerSession(sessionToken);
+      if (!workerId) {
+        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      }
+
+      const scheduleId = parsePositiveInt(req.params.scheduleId, 0);
+      if (!scheduleId) {
+        return res.status(400).json({ message: "Valid scheduleId is required." });
+      }
+
+      const existing = await getPackageScheduleById(scheduleId);
+      if (!existing) {
+        return res.status(404).json({ message: "Package visit not found." });
+      }
+      if (!existing.assigned_worker_id || existing.assigned_worker_id !== workerId) {
+        return res.status(403).json({ message: "This package visit is not assigned to the current worker." });
+      }
+
+      const nextStatus = normalizePackageScheduleStatus(isRecord(req.body) ? req.body.status : existing.status);
+      if (!["in_progress", "completed"].includes(nextStatus)) {
+        return res.status(400).json({ message: "Only in_progress or completed status is supported for worker updates." });
+      }
+
+      const updated = normalizePackageScheduleRecord(
+        {
+          ...toPackageScheduleCollectionPayload(existing),
+          status: nextStatus,
+          updated_at: new Date().toISOString()
+        },
+        String(scheduleId)
+      );
+      updated.created_at = existing.created_at;
+
+      await savePackageScheduleRecord(updated);
+      await syncSubscriptionStatusFromSchedules(updated.user_package_id);
+
+      return res.json({
+        message: "Package visit status updated successfully.",
+        schedule: buildPackageScheduleResponse(updated)
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to update package visit status",
         error: getErrorMessage(error)
       });
     }
