@@ -1,15 +1,91 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { api, WORKER_ID_KEY, WORKER_SESSION_TOKEN_KEY } from "../api";
+import { useEffect, useState } from "react";
+import { signInWithCustomToken, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { api, WORKER_ID_KEY } from "../api";
 import TaskoBrandMark from "../components/TaskoBrandMark";
+import { auth, initializeFirebaseClient, waitForInitialAuthSession } from "../firebase";
+
+function getWorkerAuthErrorMessage(error) {
+  const code = error?.code || "";
+  const fallback = error?.response?.data?.message || error?.message || "Worker sign-in failed.";
+
+  if (code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password") {
+    return "Invalid worker ID/email or password.";
+  }
+  if (code === "auth/user-disabled") {
+    return "This worker account is disabled. Please contact Tasko admin.";
+  }
+  if (code === "auth/invalid-email") {
+    return "Enter a valid login email.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Network error. Check your connection and retry.";
+  }
+
+  return fallback;
+}
+
+function isEmailIdentifier(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+async function resolveWorkerIdentifier(identifier) {
+  const normalizedIdentifier = String(identifier || "").trim();
+  if (!normalizedIdentifier) {
+    throw new Error("Worker ID or login email is required.");
+  }
+
+  if (isEmailIdentifier(normalizedIdentifier)) {
+    return {
+      email: normalizedIdentifier.toLowerCase(),
+      workerId: ""
+    };
+  }
+
+  const workerId = normalizedIdentifier.toUpperCase();
+  const response = await api.get(`/api/workers/${encodeURIComponent(workerId)}`);
+  const worker = response.data || {};
+
+  return {
+    email: String(worker.email || "").trim().toLowerCase(),
+    workerId: String(worker.worker_id || worker.id || workerId).trim().toUpperCase()
+  };
+}
+
+function isFirebaseInvalidCredential(error) {
+  const code = error?.code || "";
+  return code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password";
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    waitForInitialAuthSession()
+      .then((firebaseUser) => {
+        if (active && firebaseUser) {
+          navigate("/home", { replace: true });
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
+
+  const successMessage =
+    new URLSearchParams(location.search).get("reset") === "success"
+      ? "Your password has been successfully updated. Please log in."
+      : "";
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -17,23 +93,47 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await api.post("/api/workers/login", {
-        identifier: identifier.trim(),
-        password
-      });
+      const normalizedIdentifier = identifier.trim();
+      const data = await resolveWorkerIdentifier(normalizedIdentifier);
 
-      const sessionToken = response.data?.sessionToken;
-      const workerId = response.data?.worker?.workerId;
-
-      if (!sessionToken || !workerId) {
-        throw new Error("Invalid login response.");
+      if (!data?.email) {
+        throw new Error("Worker login email could not be resolved.");
       }
 
-      localStorage.setItem(WORKER_SESSION_TOKEN_KEY, sessionToken);
-      localStorage.setItem(WORKER_ID_KEY, workerId);
+      await initializeFirebaseClient();
+      let credential;
+
+      try {
+        credential = await signInWithEmailAndPassword(auth, data.email, password);
+      } catch (firebaseError) {
+        if (!isFirebaseInvalidCredential(firebaseError)) {
+          throw firebaseError;
+        }
+
+        const fallbackResponse = await api.post("/api/workers/auth/login", {
+          identifier: normalizedIdentifier,
+          password
+        });
+        const customToken = fallbackResponse.data?.customToken;
+        if (!customToken) {
+          throw new Error("Worker login failed.");
+        }
+        credential = await signInWithCustomToken(auth, customToken);
+      }
+
+      const idToken = await credential.user.getIdToken(true);
+      const validateResponse = await api.post("/api/workers/session/validate", { idToken });
+      const workerId = validateResponse.data?.worker?.workerId || data?.workerId;
+
+      if (workerId) {
+        localStorage.setItem(WORKER_ID_KEY, workerId);
+      }
       navigate("/home", { replace: true });
     } catch (loginError) {
-      setError(loginError?.response?.data?.message || "Worker login failed.");
+      if (auth) {
+        await signOut(auth).catch(() => {});
+      }
+      setError(getWorkerAuthErrorMessage(loginError));
     } finally {
       setLoading(false);
     }
@@ -69,9 +169,9 @@ export default function LoginPage() {
             </h1>
             <p>Access assigned jobs, live availability controls, and the worker execution flow with the credentials issued by Tasko.</p>
             <ul className="auth-copy-points">
-              <li>EMPLOYEE ID OR MOBILE LOGIN</li>
+              <li>WORKER ID OR EMAIL LOGIN</li>
               <li>ADMIN-APPROVED ACCESS</li>
-              <li>SECURE SESSION WORKSPACE</li>
+              <li>FIREBASE-SECURED WORKSPACE</li>
             </ul>
           </div>
 
@@ -83,7 +183,7 @@ export default function LoginPage() {
                 className="auth-input"
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}
-                placeholder="Employee ID or mobile number"
+                placeholder="Worker ID or login email"
                 autoComplete="username"
                 required
               />
@@ -106,6 +206,13 @@ export default function LoginPage() {
                   {showPassword ? "Hide" : "Show"}
                 </button>
               </div>
+              <div className="auth-helper-row">
+                <span className="auth-helper-copy">Need to reset your password?</span>
+                <Link to="/forgot-password" className="auth-inline-link">
+                  Forgot Password?
+                </Link>
+              </div>
+              {successMessage ? <p className="auth-success">{successMessage}</p> : null}
               {error ? <p className="auth-error">{error}</p> : null}
               <button type="submit" className="auth-primary-btn" disabled={loading}>
                 {loading ? "SIGNING IN..." : "LOGIN"}

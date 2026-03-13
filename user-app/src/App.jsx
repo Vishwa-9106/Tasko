@@ -3,6 +3,8 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import PublicOnlyRoute from "./components/PublicOnlyRoute";
 import LandingPage from "./pages/Landing";
 import AuthPage from "./pages/Auth";
+import ForgotPasswordPage from "./pages/ForgotPassword";
+import ResetPasswordPage from "./pages/ResetPassword";
 import HomePage from "./pages/Home";
 import PackagesPage from "./pages/Packages";
 import PackageSubscribePage from "./pages/PackageSubscribe";
@@ -33,6 +35,8 @@ export default function App() {
           </PublicOnlyRoute>
         }
       />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
       <Route path="/login" element={<Navigate to="/auth" replace />} />
       <Route
         path="/home"

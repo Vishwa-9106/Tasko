@@ -1,6 +1,6 @@
 import { Express, Request, Response } from "express";
 import { db } from "./firebaseAdmin";
-import { getWorkerSessionToken, resolveWorkerSession } from "./workerHiringRoutes";
+import { resolveAuthenticatedWorker } from "./workerHiringRoutes";
 
 type PackageVisitFrequency = "daily" | "weekly" | "every_2_days" | "monthly";
 type PackageStatus = "active" | "disabled";
@@ -2089,15 +2089,14 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
 
   app.get("/api/workers/my-package-jobs", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
+      const workerId = worker.worker_id;
 
       const schedules = await listPackageSchedulesByWorkerId(workerId);
       const userIds = uniqueStrings(schedules.map((schedule) => schedule.user_id));
@@ -2118,15 +2117,14 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
 
   app.post("/api/workers/my-package-jobs/:scheduleId/arrived", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
+      const workerId = worker.worker_id;
 
       const scheduleId = parsePositiveInt(req.params.scheduleId, 0);
       if (!scheduleId) {
@@ -2175,15 +2173,14 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
 
   app.post("/api/workers/my-package-jobs/:scheduleId/request-completion-otp", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
+      const workerId = worker.worker_id;
 
       const scheduleId = parsePositiveInt(req.params.scheduleId, 0);
       if (!scheduleId) {
@@ -2231,15 +2228,14 @@ export function registerPackageRoutes(app: Express, options: RegisterPackageRout
 
   app.patch("/api/workers/my-package-jobs/:scheduleId/status", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
+      const workerId = worker.worker_id;
 
       const scheduleId = parsePositiveInt(req.params.scheduleId, 0);
       if (!scheduleId) {

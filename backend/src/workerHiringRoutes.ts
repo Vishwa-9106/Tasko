@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { Express, Request, Response } from "express";
 import { Query } from "firebase-admin/firestore";
 import path from "path";
-import { db, timestamp } from "./firebaseAdmin";
+import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
 import {
   PricingConfiguration,
   PricingModel,
@@ -17,8 +17,10 @@ import {
 import {
   isWorkerApplicationStatusNotifiable,
   sendEmail,
+  sendPasswordResetEmail,
   sendWorkerApplicationStatusEmail
 } from "./services/mailService";
+import { issuePasswordResetToken, markPasswordResetTokenUsed, validatePasswordResetToken } from "./services/passwordResetService";
 
 type WorkerApplicationStatus = "Under Review" | "Visit Required" | "Approved" | "Rejected" | "Account Created";
 type WorkerStatus = "Active" | "Suspended" | "Terminated";
@@ -39,7 +41,7 @@ type WorkerApplicationRecord = {
   approved_worker_id?: string;
 };
 
-type WorkerRecord = {
+export type WorkerRecord = {
   worker_id: string;
   full_name: string;
   phone: string;
@@ -47,6 +49,7 @@ type WorkerRecord = {
   category: string;
   salary: number;
   password_hash: string;
+  firebase_uid?: string;
   status: WorkerStatus;
   joining_date: string;
   created_at: string;
@@ -77,18 +80,11 @@ type ServiceCatalogEntry = {
   subcategory: SubcategoryRecord;
 };
 
-type SessionRecord = {
-  workerId: string;
-  createdAt: number;
-};
-
 type RegisterWorkerHiringOptions = {
   validateAdminSession: (token: string) => boolean;
   clearBookingCache?: () => void;
 };
 
-const workerSessions = new Map<string, SessionRecord>();
-const workerSessionTtlMs = 1000 * 60 * 60 * 24;
 const inMemoryWorkerApplications = new Map<string, WorkerApplicationRecord>();
 const inMemoryWorkers = new Map<string, WorkerRecord>();
 const inMemoryCategories = new Map<string, CategoryRecord>();
@@ -241,6 +237,33 @@ function toSlug(value: string): string {
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function maskEmailAddress(email: string): string {
+  const normalizedEmail = readTrimmedString(email).toLowerCase();
+  const [localPart, domain] = normalizedEmail.split("@");
+  if (!localPart || !domain) {
+    return normalizedEmail;
+  }
+
+  if (localPart.length <= 2) {
+    return `${localPart[0] || ""}***@${domain}`;
+  }
+
+  return `${localPart.slice(0, 2)}***@${domain}`;
+}
+
+function getBaseUrl(envValue: string | undefined, fallback: string): string {
+  const normalized = readTrimmedString(envValue);
+  if (!normalized) {
+    return fallback;
+  }
+
+  return normalized.replace(/\/+$/, "");
+}
+
+function getWorkerAppBaseUrl(): string {
+  return getBaseUrl(process.env.TASKO_WORKER_APP_URL || process.env.WORKER_APP_URL, "http://localhost:3001");
 }
 
 function generateNumericOtp(length = 4): string {
@@ -437,41 +460,12 @@ function getAdminSessionToken(req: Request): string {
 }
 
 export function getWorkerSessionToken(req: Request): string {
-  const headerToken = readTrimmedString(req.header("x-worker-session-token"));
-  if (headerToken) {
-    return headerToken;
-  }
-
   const authorizationHeader = readTrimmedString(req.header("authorization"));
   if (authorizationHeader.toLowerCase().startsWith("bearer ")) {
     return authorizationHeader.slice(7).trim();
   }
 
-  return readTrimmedString((req.body as { sessionToken?: unknown })?.sessionToken);
-}
-
-export function resolveWorkerSession(sessionToken: string): string | null {
-  const session = workerSessions.get(sessionToken);
-  if (!session) {
-    return null;
-  }
-
-  if (Date.now() - session.createdAt > workerSessionTtlMs) {
-    workerSessions.delete(sessionToken);
-    return null;
-  }
-
-  return session.workerId;
-}
-
-function createWorkerSession(workerId: string): string {
-  const token = crypto.randomBytes(32).toString("hex");
-  workerSessions.set(token, { workerId, createdAt: Date.now() });
-  return token;
-}
-
-function clearWorkerSession(sessionToken: string): void {
-  workerSessions.delete(sessionToken);
+  return readTrimmedString((req.body as { idToken?: unknown; sessionToken?: unknown })?.idToken);
 }
 
 function hashPassword(password: string): string {
@@ -563,6 +557,7 @@ function normalizeWorkerRecord(workerId: string, data: Record<string, unknown>):
     category: readTrimmedString(data.category),
     salary: Number.isFinite(Number(data.salary)) ? Number(data.salary) : 18000,
     password_hash: readTrimmedString(data.password_hash),
+    firebase_uid: readTrimmedString(data.firebase_uid) || undefined,
     status: normalizeWorkerStatus(data.status),
     joining_date: readTrimmedString(data.joining_date) || now.slice(0, 10),
     created_at: readTrimmedString(data.created_at) || now,
@@ -588,6 +583,307 @@ function toWorkerResponse(worker: WorkerRecord): Record<string, unknown> {
     online: worker.online,
     rating: worker.rating
   };
+}
+
+async function persistWorkerFirebaseUid(worker: WorkerRecord, firebaseUid: string): Promise<WorkerRecord> {
+  const updatedAt = new Date().toISOString();
+  const nextWorker = {
+    ...worker,
+    firebase_uid: firebaseUid,
+    updated_at: updatedAt
+  };
+
+  try {
+    await db.collection("workers").doc(worker.worker_id).set(
+      {
+        firebase_uid: firebaseUid,
+        updated_at: updatedAt
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  inMemoryWorkers.set(worker.worker_id, nextWorker);
+  setWorkerProfileCache(worker.worker_id, nextWorker);
+  return nextWorker;
+}
+
+async function syncWorkerRoleRecord(worker: WorkerRecord, firebaseUid: string): Promise<void> {
+  const now = new Date().toISOString();
+
+  try {
+    await db.collection("users").doc(firebaseUid).set(
+      {
+        uid: firebaseUid,
+        email: worker.email,
+        name: worker.full_name,
+        role: "worker",
+        workerId: worker.worker_id,
+        workerStatus: worker.status,
+        updatedAt: now
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+}
+
+async function findWorkerByFirebaseUid(firebaseUid: string): Promise<WorkerRecord | null> {
+  const normalizedUid = readTrimmedString(firebaseUid);
+  if (!normalizedUid) {
+    return null;
+  }
+
+  const memoryMatch =
+    Array.from(inMemoryWorkers.values()).find((worker) => worker.firebase_uid === normalizedUid) || null;
+  if (memoryMatch) {
+    return memoryMatch;
+  }
+
+  try {
+    const snapshot = await db.collection("workers").where("firebase_uid", "==", normalizedUid).limit(1).get();
+    if (!snapshot.empty) {
+      const worker = normalizeWorkerRecord(snapshot.docs[0].id, snapshot.docs[0].data());
+      inMemoryWorkers.set(worker.worker_id, worker);
+      setWorkerProfileCache(worker.worker_id, worker);
+      return worker;
+    }
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  return null;
+}
+
+async function findWorkerByEmail(email: string): Promise<WorkerRecord | null> {
+  const normalizedEmail = readTrimmedString(email).toLowerCase();
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const memoryMatch =
+    Array.from(inMemoryWorkers.values()).find((worker) => worker.email === normalizedEmail) || null;
+  if (memoryMatch) {
+    return memoryMatch;
+  }
+
+  try {
+    const snapshot = await db.collection("workers").where("email", "==", normalizedEmail).limit(1).get();
+    if (!snapshot.empty) {
+      const worker = normalizeWorkerRecord(snapshot.docs[0].id, snapshot.docs[0].data());
+      inMemoryWorkers.set(worker.worker_id, worker);
+      setWorkerProfileCache(worker.worker_id, worker);
+      return worker;
+    }
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  const allWorkers = await listWorkers();
+  return allWorkers.find((worker) => worker.email === normalizedEmail) || null;
+}
+
+async function findWorkerByPhone(phone: string): Promise<WorkerRecord | null> {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  const memoryMatch =
+    Array.from(inMemoryWorkers.values()).find((worker) => worker.phone === normalizedPhone) || null;
+  if (memoryMatch) {
+    return memoryMatch;
+  }
+
+  try {
+    const snapshot = await db.collection("workers").where("phone", "==", normalizedPhone).limit(1).get();
+    if (!snapshot.empty) {
+      const worker = normalizeWorkerRecord(snapshot.docs[0].id, snapshot.docs[0].data());
+      inMemoryWorkers.set(worker.worker_id, worker);
+      setWorkerProfileCache(worker.worker_id, worker);
+      return worker;
+    }
+  } catch (error) {
+    if (!isFirestoreUnavailableError(error)) {
+      throw error;
+    }
+  }
+
+  const allWorkers = await listWorkers();
+  return allWorkers.find((worker) => worker.phone === normalizedPhone) || null;
+}
+
+async function findWorkerByLoginIdentifier(identifier: string): Promise<WorkerRecord | null> {
+  const normalizedIdentifier = readTrimmedString(identifier);
+  if (!normalizedIdentifier) {
+    return null;
+  }
+
+  if (isValidEmail(normalizedIdentifier)) {
+    return findWorkerByEmail(normalizedIdentifier);
+  }
+
+  const normalizedWorkerId = normalizedIdentifier.toUpperCase();
+  const byId = await getWorkerById(normalizedWorkerId);
+  if (byId) {
+    return byId;
+  }
+
+  const normalizedPhone = normalizePhone(normalizedIdentifier);
+  if (normalizedPhone) {
+    const byPhone = await findWorkerByPhone(normalizedPhone);
+    if (byPhone) {
+      return byPhone;
+    }
+  }
+
+  return findWorkerByEmail(normalizedIdentifier);
+}
+
+async function ensureWorkerFirebaseAccount(
+  worker: WorkerRecord,
+  initialPassword: string = generateWorkerPassword(worker.phone)
+): Promise<{ uid: string; email: string; worker: WorkerRecord }> {
+  const normalizedEmail = readTrimmedString(worker.email).toLowerCase();
+  if (!normalizedEmail) {
+    throw new Error("Worker account is missing a login email.");
+  }
+
+  let authUser = null;
+
+  if (worker.firebase_uid) {
+    try {
+      authUser = await adminAuth.getUser(worker.firebase_uid);
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code !== "auth/user-not-found") {
+        throw error;
+      }
+    }
+  }
+
+  if (!authUser) {
+    try {
+      authUser = await adminAuth.getUserByEmail(normalizedEmail);
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code !== "auth/user-not-found") {
+        throw error;
+      }
+    }
+  }
+
+  if (!authUser) {
+    try {
+      authUser = await adminAuth.createUser({
+        email: normalizedEmail,
+        password: initialPassword,
+        displayName: worker.full_name || worker.worker_id,
+        disabled: worker.status !== "Active"
+      });
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code !== "auth/email-already-exists") {
+        throw error;
+      }
+      authUser = await adminAuth.getUserByEmail(normalizedEmail);
+    }
+  } else {
+    authUser = await adminAuth.updateUser(authUser.uid, {
+      email: normalizedEmail,
+      displayName: worker.full_name || worker.worker_id,
+      disabled: worker.status !== "Active"
+    });
+  }
+
+  let syncedWorker = worker;
+  if (syncedWorker.firebase_uid !== authUser.uid) {
+    syncedWorker = await persistWorkerFirebaseUid(worker, authUser.uid);
+  }
+
+  await syncWorkerRoleRecord(syncedWorker, authUser.uid);
+
+  return {
+    uid: authUser.uid,
+    email: normalizedEmail,
+    worker: syncedWorker
+  };
+}
+
+async function setWorkerFirebasePassword(worker: WorkerRecord, password: string): Promise<{ uid: string; email: string; worker: WorkerRecord }> {
+  const firebaseAccount = await ensureWorkerFirebaseAccount(worker, password);
+  await adminAuth.updateUser(firebaseAccount.uid, {
+    password,
+    disabled: firebaseAccount.worker.status !== "Active"
+  });
+
+  return firebaseAccount;
+}
+
+async function resolveWorkerFromFirebaseToken(idToken: string): Promise<WorkerRecord | null> {
+  const normalizedToken = readTrimmedString(idToken);
+  if (!normalizedToken) {
+    return null;
+  }
+
+  const decoded = await adminAuth.verifyIdToken(normalizedToken);
+  let worker = await findWorkerByFirebaseUid(decoded.uid);
+
+  if (!worker && decoded.email) {
+    worker = await findWorkerByEmail(decoded.email);
+  }
+
+  if (!worker) {
+    return null;
+  }
+
+  if (!worker.firebase_uid || worker.firebase_uid !== decoded.uid) {
+    worker = await persistWorkerFirebaseUid(worker, decoded.uid);
+  }
+
+  await syncWorkerRoleRecord(worker, decoded.uid);
+  return worker;
+}
+
+export async function resolveAuthenticatedWorker(req: Request): Promise<WorkerRecord | null> {
+  const idToken = getWorkerSessionToken(req);
+  if (!idToken) {
+    return null;
+  }
+
+  return resolveWorkerFromFirebaseToken(idToken);
+}
+
+export async function resolveAuthenticatedWorkerId(req: Request): Promise<string | null> {
+  const worker = await resolveAuthenticatedWorker(req);
+  return worker?.worker_id || null;
+}
+
+async function syncExistingWorkersToFirebase(): Promise<void> {
+  const workers = await listWorkers();
+  for (const worker of workers) {
+    if (!worker.email) {
+      continue;
+    }
+
+    try {
+      await ensureWorkerFirebaseAccount(worker);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`Failed to sync Firebase worker account for ${worker.worker_id}: ${getErrorMessage(error)}`);
+    }
+  }
 }
 
 function resolveDocumentExtension(name: string, type: string): string {
@@ -1565,6 +1861,40 @@ function toApplicationResponse(
 }
 
 export function registerWorkerHiringRoutes(app: Express, options: RegisterWorkerHiringOptions): void {
+  void syncExistingWorkersToFirebase().catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error(`Failed to sync existing workers to Firebase: ${getErrorMessage(error)}`);
+  });
+
+  const resolveWorkerLoginIdentifier = async (req: Request, res: Response) => {
+    try {
+      const identifier = readTrimmedString((req.body as { identifier?: unknown }).identifier);
+      if (!identifier) {
+        return res.status(400).json({ message: "identifier is required" });
+      }
+
+      const worker = await findWorkerByLoginIdentifier(identifier);
+      if (!worker) {
+        return res.status(404).json({ message: "Worker account not found." });
+      }
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
+      }
+      if (!worker.email) {
+        return res.status(400).json({ message: "Worker account is missing a login email." });
+      }
+
+      const firebaseAccount = await ensureWorkerFirebaseAccount(worker);
+      return res.json({
+        email: firebaseAccount.email,
+        workerId: firebaseAccount.worker.worker_id,
+        firebaseUid: firebaseAccount.uid
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to resolve worker login", error: getErrorMessage(error) });
+    }
+  };
+
   app.post("/api/worker-applications", async (req: Request, res: Response) => {
     try {
       const fullName = readTrimmedString((req.body as { fullName?: unknown }).fullName);
@@ -2167,8 +2497,6 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(500).json({ message: "Generated workerId is invalid." });
       }
       const accountPassword = generateWorkerPassword(application.phone);
-
-      const passwordHash = hashPassword(accountPassword);
       const now = new Date().toISOString();
       const salary = Number.isFinite(Number((req.body as { salary?: unknown }).salary))
         ? Math.max(0, Number((req.body as { salary?: unknown }).salary))
@@ -2176,11 +2504,11 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
       const workerPayload: WorkerRecord = {
         worker_id: workerId.toUpperCase(),
         full_name: application.full_name,
-        phone: application.phone,
-        email: application.email,
+        phone: normalizePhone(application.phone),
+        email: readTrimmedString(application.email).toLowerCase(),
         category: application.category_applied,
         salary,
-        password_hash: passwordHash,
+        password_hash: "",
         status: "Active",
         joining_date: now.slice(0, 10),
         created_at: now,
@@ -2209,6 +2537,19 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         approved_worker_id: workerId
       });
 
+      let firebaseUid = "";
+      let loginEmail = workerPayload.email;
+      let provisioningError = "";
+      try {
+        const firebaseAccount = await ensureWorkerFirebaseAccount(workerPayload, accountPassword);
+        firebaseUid = firebaseAccount.uid;
+        loginEmail = firebaseAccount.email;
+      } catch (error) {
+        provisioningError = getErrorMessage(error);
+        // eslint-disable-next-line no-console
+        console.error(`Failed to provision Firebase worker account for ${workerId}: ${provisioningError}`);
+      }
+
       const emailDelivery = await sendEmail(
         application.email,
         "Your Tasko Worker Account Has Been Created",
@@ -2219,11 +2560,12 @@ Congratulations! Your worker account has been approved and created successfully 
 Here are your login credentials:
 
 Worker ID: ${workerId}
-Password: ${accountPassword}
+Login Email: ${loginEmail}
+Temporary Password: ${accountPassword}
 
-You can log in to the Tasko Worker App using these credentials.
+You can log in to the Tasko Worker App using your worker ID or login email with this password.
 
-For security reasons, we recommend changing your password after your first login.
+If you forget the password later, use the "Forgot password" option in the worker app to receive a Firebase reset link on your email.
 
 Welcome to Tasko!
 
@@ -2237,10 +2579,15 @@ Tasko Team`
       }
 
       return res.status(201).json({
-        message: emailDelivery.sent
-          ? "Worker account created successfully and login details sent to email."
-          : "Worker account created but email notification failed.",
+        message: provisioningError
+          ? "Worker account created, but Firebase sync will retry automatically."
+          : emailDelivery.sent
+            ? "Worker account created successfully and login details sent to email."
+            : "Worker account created but email notification failed.",
         workerId,
+        firebaseUid,
+        loginEmail,
+        provisioningError,
         email: {
           attempted: true,
           sent: emailDelivery.sent,
@@ -2290,70 +2637,74 @@ Tasko Team`
     }
   });
 
-  app.post("/api/workers/login", async (req: Request, res: Response) => {
+  app.post("/api/workers/auth/resolve-identifier", resolveWorkerLoginIdentifier);
+  app.post("/api/workers/resolve-identifier", resolveWorkerLoginIdentifier);
+  app.post("/api/workers/auth/login", async (req: Request, res: Response) => {
     try {
       const identifier = readTrimmedString((req.body as { identifier?: unknown }).identifier);
       const password = readTrimmedString((req.body as { password?: unknown }).password);
+
       if (!identifier || !password) {
         return res.status(400).json({ message: "identifier and password are required" });
       }
 
-      const workerIdIdentifier = identifier.toUpperCase();
-      const phoneIdentifier = normalizePhone(identifier);
-      let worker: WorkerRecord | null = null;
-      try {
-        const [byDocId, byWorkerIdExact, byWorkerIdUpper, byPhone] = await Promise.all([
-          db.collection("workers").doc(identifier).get(),
-          db.collection("workers").where("worker_id", "==", identifier).limit(1).get(),
-          db.collection("workers").where("worker_id", "==", workerIdIdentifier).limit(1).get(),
-          phoneIdentifier
-            ? db.collection("workers").where("phone", "==", phoneIdentifier).limit(1).get()
-            : Promise.resolve(null)
-        ]);
-
-        if (byDocId.exists) {
-          worker = normalizeWorkerRecord(byDocId.id, byDocId.data() || {});
-        } else if (!byWorkerIdExact.empty) {
-          worker = normalizeWorkerRecord(byWorkerIdExact.docs[0].id, byWorkerIdExact.docs[0].data());
-        } else if (!byWorkerIdUpper.empty) {
-          worker = normalizeWorkerRecord(byWorkerIdUpper.docs[0].id, byWorkerIdUpper.docs[0].data());
-        } else if (byPhone && !byPhone.empty) {
-          worker = normalizeWorkerRecord(byPhone.docs[0].id, byPhone.docs[0].data());
-        }
-      } catch (error) {
-        if (!isFirestoreUnavailableError(error)) {
-          throw error;
-        }
-      }
-
-      if (!worker) {
-        worker =
-          inMemoryWorkers.get(identifier) ||
-          inMemoryWorkers.get(workerIdIdentifier) ||
-          Array.from(inMemoryWorkers.values()).find(
-            (record) =>
-              record.phone === phoneIdentifier ||
-              record.worker_id.toUpperCase() === workerIdIdentifier
-          ) ||
-          null;
-      }
-      if (!worker || !verifyPassword(password, worker.password_hash)) {
-        return res.status(401).json({ message: "Invalid worker credentials." });
+      const worker = await findWorkerByLoginIdentifier(identifier);
+      if (!worker || !worker.password_hash || !verifyPassword(password, worker.password_hash)) {
+        return res.status(401).json({ message: "Invalid worker ID/email or password." });
       }
       if (worker.status !== "Active") {
         return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
 
-      const sessionToken = createWorkerSession(worker.worker_id);
+      const firebaseAccount = await setWorkerFirebasePassword(worker, password);
+      const customToken = await adminAuth.createCustomToken(firebaseAccount.uid);
+
       return res.json({
-        sessionToken,
+        customToken,
+        email: firebaseAccount.email,
         worker: {
-          workerId: worker.worker_id,
-          fullName: worker.full_name,
-          phone: worker.phone,
-          email: worker.email,
-          category: worker.category,
-          status: worker.status
+          workerId: firebaseAccount.worker.worker_id,
+          fullName: firebaseAccount.worker.full_name,
+          phone: firebaseAccount.worker.phone,
+          email: firebaseAccount.worker.email,
+          category: firebaseAccount.worker.category,
+          status: firebaseAccount.worker.status
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Worker login failed", error: getErrorMessage(error) });
+    }
+  });
+  app.post("/api/workers/login", async (req: Request, res: Response) => {
+    try {
+      const identifier = readTrimmedString((req.body as { identifier?: unknown }).identifier);
+      const password = readTrimmedString((req.body as { password?: unknown }).password);
+
+      if (!identifier || !password) {
+        return res.status(400).json({ message: "identifier and password are required" });
+      }
+
+      const worker = await findWorkerByLoginIdentifier(identifier);
+      if (!worker || !worker.password_hash || !verifyPassword(password, worker.password_hash)) {
+        return res.status(401).json({ message: "Invalid worker ID/email or password." });
+      }
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
+      }
+
+      const firebaseAccount = await setWorkerFirebasePassword(worker, password);
+      const customToken = await adminAuth.createCustomToken(firebaseAccount.uid);
+
+      return res.json({
+        customToken,
+        email: firebaseAccount.email,
+        worker: {
+          workerId: firebaseAccount.worker.worker_id,
+          fullName: firebaseAccount.worker.full_name,
+          phone: firebaseAccount.worker.phone,
+          email: firebaseAccount.worker.email,
+          category: firebaseAccount.worker.category,
+          status: firebaseAccount.worker.status
         }
       });
     } catch (error) {
@@ -2361,21 +2712,151 @@ Tasko Team`
     }
   });
 
+  app.post("/api/workers/auth/forgot-password", async (req: Request, res: Response) => {
+    const genericMessage = "If an account with that email exists, a password reset link has been sent.";
+
+    try {
+      const email = readTrimmedString((req.body as { email?: unknown }).email).toLowerCase();
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required." });
+      }
+
+      if (!isValidEmail(email)) {
+        return res.status(400).json({ message: "Please enter a valid email address." });
+      }
+
+      const worker = await findWorkerByEmail(email);
+      if (!worker) {
+        return res.json({ message: genericMessage });
+      }
+
+      const displayName = worker.full_name || worker.worker_id || "Tasko worker";
+      const { token, expiresInMinutes } = await issuePasswordResetToken({
+        audience: "worker",
+        accountKey: `worker:${worker.worker_id}`,
+        email,
+        displayName,
+        workerId: worker.worker_id,
+        firebaseUid: worker.firebase_uid
+      });
+      const resetUrl = `${getWorkerAppBaseUrl()}/reset-password/${encodeURIComponent(token)}`;
+      const emailDelivery = await sendPasswordResetEmail({
+        recipientEmail: email,
+        recipientName: displayName,
+        resetUrl,
+        expiresInMinutes,
+        audience: "worker"
+      });
+
+      if (!emailDelivery.sent && !emailDelivery.skipped) {
+        return res.status(500).json({ message: "Failed to send password reset email." });
+      }
+
+      return res.json({ message: genericMessage });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to process password reset request", error: getErrorMessage(error) });
+    }
+  });
+
+  app.get("/api/workers/auth/reset-password/:token", async (req: Request, res: Response) => {
+    try {
+      const token = readTrimmedString(req.params.token);
+      const resetRecord = await validatePasswordResetToken("worker", token);
+
+      if (!resetRecord) {
+        return res.status(400).json({ message: "This password reset link is invalid or has expired." });
+      }
+
+      return res.json({
+        valid: true,
+        email: maskEmailAddress(resetRecord.email),
+        expiresAt: resetRecord.expiresAt
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to validate password reset token", error: getErrorMessage(error) });
+    }
+  });
+
+  app.post("/api/workers/auth/reset-password/:token", async (req: Request, res: Response) => {
+    try {
+      const token = readTrimmedString(req.params.token);
+      const password = readTrimmedString((req.body as { password?: unknown }).password);
+      const confirmPassword = readTrimmedString((req.body as { confirmPassword?: unknown }).confirmPassword);
+
+      if (!password || !confirmPassword) {
+        return res.status(400).json({ message: "Both password fields are required." });
+      }
+
+      if (password.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters." });
+      }
+
+      if (password !== confirmPassword) {
+        return res.status(400).json({ message: "Password and confirm password must match." });
+      }
+
+      const resetRecord = await validatePasswordResetToken("worker", token);
+      if (!resetRecord) {
+        return res.status(400).json({ message: "This password reset link is invalid or has expired." });
+      }
+
+      let worker = resetRecord.workerId ? await getWorkerById(resetRecord.workerId) : null;
+      if (!worker) {
+        worker = await findWorkerByEmail(resetRecord.email);
+      }
+      if (!worker) {
+        return res.status(400).json({ message: "This password reset link is invalid or has expired." });
+      }
+
+      const updatedAt = new Date().toISOString();
+      const nextWorker: WorkerRecord = {
+        ...worker,
+        password_hash: hashPassword(password),
+        updated_at: updatedAt
+      };
+
+      try {
+        await db.collection("workers").doc(worker.worker_id).set(
+          {
+            password_hash: nextWorker.password_hash,
+            updated_at: updatedAt
+          },
+          { merge: true }
+        );
+      } catch (error) {
+        if (!isFirestoreUnavailableError(error)) {
+          throw error;
+        }
+      }
+
+      inMemoryWorkers.set(nextWorker.worker_id, nextWorker);
+      setWorkerProfileCache(nextWorker.worker_id, nextWorker);
+
+      try {
+        await setWorkerFirebasePassword(nextWorker, password);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn(`Failed to sync Firebase worker password for ${nextWorker.worker_id}: ${getErrorMessage(error)}`);
+      }
+
+      await markPasswordResetTokenUsed(token);
+
+      return res.json({
+        message: "Your password has been successfully updated. Please log in."
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to reset worker password", error: getErrorMessage(error) });
+    }
+  });
+
   app.post("/api/workers/session/validate", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(400).json({ message: "sessionToken is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is invalid or expired" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
-      }
-
-      const worker = await getWorkerById(workerId);
       if (!worker || worker.status !== "Active") {
-        clearWorkerSession(sessionToken);
         return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
 
@@ -2395,32 +2876,17 @@ Tasko Team`
     }
   });
 
-  app.post("/api/workers/logout", (req: Request, res: Response) => {
-    const sessionToken = getWorkerSessionToken(req);
-    if (sessionToken) {
-      clearWorkerSession(sessionToken);
-    }
+  app.post("/api/workers/logout", (_req: Request, res: Response) => {
     return res.json({ message: "Logged out" });
   });
 
   app.get("/api/workers/me", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
-      }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
-      }
-
-      const worker = await getWorkerById(workerId);
+      const worker = await resolveAuthenticatedWorker(req);
       if (!worker) {
-        return res.status(404).json({ message: "Worker not found" });
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
       if (worker.status !== "Active") {
-        clearWorkerSession(sessionToken);
         return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
 
@@ -2432,15 +2898,14 @@ Tasko Team`
 
   app.get("/api/workers/my-jobs", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
+      const workerId = worker.worker_id;
 
       const cachedJobs = getWorkerJobsFromCache(workerId);
       if (cachedJobs) {
@@ -2493,15 +2958,14 @@ Tasko Team`
 
   app.post("/api/workers/my-jobs/:bookingId/arrived", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
+      const workerId = worker.worker_id;
 
       const bookingId = readTrimmedString(req.params.bookingId);
       if (!bookingId) {
@@ -2577,15 +3041,14 @@ Tasko Team`
 
   app.post("/api/workers/my-jobs/:bookingId/request-completion-otp", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
+      const workerId = worker.worker_id;
 
       const bookingId = readTrimmedString(req.params.bookingId);
       if (!bookingId) {
@@ -2661,24 +3124,17 @@ Tasko Team`
 
   app.patch("/api/workers/me/status", async (req: Request, res: Response) => {
     try {
-      const sessionToken = getWorkerSessionToken(req);
-      if (!sessionToken) {
-        return res.status(401).json({ message: "Worker session token is required" });
+      const worker = await resolveAuthenticatedWorker(req);
+      if (!worker) {
+        return res.status(401).json({ message: "Worker authentication is required" });
       }
-
-      const workerId = resolveWorkerSession(sessionToken);
-      if (!workerId) {
-        return res.status(401).json({ message: "Worker session is invalid or expired" });
+      if (worker.status !== "Active") {
+        return res.status(403).json({ message: "Your account is not activated. Please contact Tasko admin." });
       }
 
       const online = (req.body as { online?: unknown }).online;
       if (typeof online !== "boolean") {
         return res.status(400).json({ message: "online must be a boolean" });
-      }
-
-      const worker = await getWorkerById(workerId);
-      if (!worker) {
-        return res.status(404).json({ message: "Worker not found" });
       }
 
       const updatedAt = new Date().toISOString();
@@ -2731,3 +3187,5 @@ Tasko Team`
     }
   });
 }
+
+

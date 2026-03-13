@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import AuthBrandMark from "../components/AuthBrandMark";
 import { useAuth } from "../context/AuthContext";
 import "./Auth.css";
-import taskoLogo from "./tasko-logo.png";
 
 function getFirebaseAuthErrorMessage(error) {
   const code = error?.code || "";
@@ -45,6 +45,7 @@ function getFirebaseAuthErrorMessage(error) {
 export default function AuthPage() {
   const { register, login, loginWithGoogle, loginWithApple, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -58,6 +59,11 @@ export default function AuthPage() {
       navigate("/home", { replace: true });
     }
   }, [navigate, user]);
+
+  const successMessage =
+    !isRegister && new URLSearchParams(location.search).get("reset") === "success"
+      ? "Your password has been successfully updated. Please log in."
+      : "";
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -115,7 +121,7 @@ export default function AuthPage() {
       <header className="auth-nav">
         <div className="auth-shell auth-nav-row">
           <a className="auth-brand" href="/#top" aria-label="Tasko home">
-            <BrandMark className="auth-brand-mark" />
+            <AuthBrandMark className="auth-brand-mark" />
             <span className="auth-brand-text">TASKO</span>
           </a>
           <nav className="auth-nav-links" aria-label="Marketing navigation">
@@ -175,6 +181,14 @@ export default function AuthPage() {
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
+              {!isRegister ? (
+                <div className="auth-helper-row">
+                  <span className="auth-helper-copy">Need to reset your password?</span>
+                  <Link to="/forgot-password" className="auth-inline-link">
+                    Forgot Password?
+                  </Link>
+                </div>
+              ) : null}
               {isRegister ? (
                 <input
                   type="password"
@@ -185,6 +199,7 @@ export default function AuthPage() {
                   required
                 />
               ) : null}
+              {successMessage ? <p className="auth-success">{successMessage}</p> : null}
               {error ? <p className="auth-error">{error}</p> : null}
               <button type="submit" className="auth-primary-btn" disabled={socialLoading !== ""}>
                 {isRegister ? "REGISTER" : "LOGIN"}
@@ -218,34 +233,5 @@ export default function AuthPage() {
         </div>
       </section>
     </div>
-  );
-}
-
-function TaskoMark({ className = "" }) {
-  return <img className={className} src={taskoLogo} alt="Tasko logo" />;
-}
-
-function BrandMark({ className = "" }) {
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const [useFallback, setUseFallback] = useState(false);
-  const sources = [taskoLogo, "/tasko-logo-mark.png", "/tasko-logo.png"];
-
-  if (useFallback) {
-    return <TaskoMark className={className} />;
-  }
-
-  return (
-    <img
-      className={`${className} auth-brand-mark-image`}
-      src={sources[sourceIndex]}
-      alt="Tasko logo"
-      onError={() => {
-        if (sourceIndex < sources.length - 1) {
-          setSourceIndex(sourceIndex + 1);
-          return;
-        }
-        setUseFallback(true);
-      }}
-    />
   );
 }

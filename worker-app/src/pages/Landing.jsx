@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { WORKER_ID_KEY } from "../api";
 import TaskoBrandMark from "../components/TaskoBrandMark";
 import LineIcon from "../components/landing/LineIcon";
 
@@ -51,7 +52,7 @@ const testimonials = [
 ];
 
 export default function LandingPage() {
-  const workerSession = localStorage.getItem("tasko_worker_session_token");
+  const workerSession = localStorage.getItem(WORKER_ID_KEY);
   const loginHref = workerSession ? "/home" : "/login";
   const year = new Date().getFullYear();
 

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { signOut } from "firebase/auth";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { api, WORKER_ID_KEY, WORKER_SESSION_TOKEN_KEY } from "../api";
+import { api, WORKER_ID_KEY } from "../api";
 import TaskoBrandMark from "../components/TaskoBrandMark";
+import { auth, waitForInitialAuthSession } from "../firebase";
 
 const sections = [
   { id: "home", label: "Home", href: "/home" },
@@ -301,24 +303,24 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
   }, []);
 
   const clearWorkerSession = useCallback(() => {
-    localStorage.removeItem(WORKER_SESSION_TOKEN_KEY);
     localStorage.removeItem(WORKER_ID_KEY);
   }, []);
 
   const loadWorkerWorkspace = useCallback(
     async ({ showLoader = false } = {}) => {
-      const sessionToken = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
-      if (!sessionToken) {
-        navigate("/login", { replace: true });
-        return;
-      }
-
       if (showLoader || !hasLoadedWorkspaceRef.current) {
         setLoading(true);
       }
       setError("");
 
       try {
+        const firebaseUser = await waitForInitialAuthSession();
+        if (!firebaseUser) {
+          clearWorkerSession();
+          navigate("/login", { replace: true });
+          return;
+        }
+
         const [workerResult, jobsResult, packageJobsResult] = await Promise.allSettled([
           api.get("/api/workers/me"),
           api.get("/api/workers/my-jobs"),
@@ -336,6 +338,9 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
 
         if (workerPayload.status !== "Active") {
           clearWorkerSession();
+          if (auth) {
+            await signOut(auth).catch(() => {});
+          }
           navigate("/login", { replace: true });
           return;
         }
@@ -349,6 +354,9 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
       } catch (loadError) {
         if (loadError?.response?.status === 401 || loadError?.response?.status === 403) {
           clearWorkerSession();
+          if (auth) {
+            await signOut(auth).catch(() => {});
+          }
           navigate("/login", { replace: true });
           return;
         }
@@ -367,9 +375,6 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
   }, [loadWorkerWorkspace]);
 
   useEffect(() => {
-    const sessionToken = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
-    if (!sessionToken) return undefined;
-
     const poll = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       loadWorkerWorkspace().catch(() => {});
@@ -396,10 +401,9 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
   };
 
   const logout = async () => {
-    const sessionToken = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
     clearWorkerSession();
-    if (sessionToken) {
-      await api.post("/api/workers/logout", { sessionToken }).catch(() => {});
+    if (auth) {
+      await signOut(auth).catch(() => {});
     }
     navigate("/login", { replace: true });
   };

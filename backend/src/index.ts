@@ -8,6 +8,8 @@ import { auth as adminAuth, db, timestamp } from "./firebaseAdmin";
 import { ensurePackagesBootstrapData, registerPackageRoutes } from "./packagesRoutes";
 import { ensureServicesBootstrapData, registerServiceRoutes } from "./serviceRoutes";
 import { calculateBookingSelection } from "./pricingModels";
+import { sendPasswordResetEmail } from "./services/mailService";
+import { issuePasswordResetToken, markPasswordResetTokenUsed, validatePasswordResetToken } from "./services/passwordResetService";
 import { registerTaskoMartRoutes } from "./taskomartRoutes";
 import { getServiceCatalogEntry, registerWorkerHiringRoutes } from "./workerHiringRoutes";
 
@@ -92,6 +94,37 @@ function getErrorMessage(error: unknown): string {
   }
 
   return String(error);
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function maskEmailAddress(email: string): string {
+  const normalizedEmail = email.trim().toLowerCase();
+  const [localPart, domain] = normalizedEmail.split("@");
+  if (!localPart || !domain) {
+    return normalizedEmail;
+  }
+
+  if (localPart.length <= 2) {
+    return `${localPart[0] || ""}***@${domain}`;
+  }
+
+  return `${localPart.slice(0, 2)}***@${domain}`;
+}
+
+function getBaseUrl(envValue: string | undefined, fallback: string): string {
+  const normalized = String(envValue || "").trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  return normalized.replace(/\/+$/, "");
+}
+
+function getUserAppBaseUrl(): string {
+  return getBaseUrl(process.env.TASKO_USER_APP_URL || process.env.USER_APP_URL, "http://localhost:3000");
 }
 
 function isFirestoreUnavailableError(error: unknown): boolean {
@@ -978,6 +1011,170 @@ app.post("/api/auth/register", async (req: Request, res: Response) => {
     console.error(`Failed to register auth account: ${getErrorMessage(error)}`);
     return res.status(500).json({
       message: "Failed to register auth account",
+      error: getErrorMessage(error)
+    });
+  }
+});
+
+app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+  const genericMessage = "If an account with that email exists, a password reset link has been sent.";
+
+  try {
+    const { email } = req.body as { email?: string };
+    const normalizedEmail = (email || "").trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Email is required." });
+    }
+
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ message: "Please enter a valid email address." });
+    }
+
+    let authUser;
+
+    try {
+      authUser = await adminAuth.getUserByEmail(normalizedEmail);
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === "auth/user-not-found") {
+        return res.json({ message: genericMessage });
+      }
+      throw error;
+    }
+
+    const resolvedRole = await resolveRole(authUser.uid);
+    if (resolvedRole === "worker" || resolvedRole === "admin") {
+      return res.json({ message: genericMessage });
+    }
+
+    let displayName = readQueryText(authUser.displayName) || "Tasko member";
+    const memoryUser = inMemoryUsers.get(authUser.uid);
+    if (memoryUser) {
+      displayName = readQueryText(memoryUser.name) || displayName;
+      const memoryRole = readQueryText(memoryUser.role);
+      if (memoryRole === "worker" || memoryRole === "admin") {
+        return res.json({ message: genericMessage });
+      }
+    }
+
+    try {
+      const userDoc = await db.collection("users").doc(authUser.uid).get();
+      if (userDoc.exists) {
+        const userData = (userDoc.data() as Record<string, unknown>) || {};
+        const storedRole = readQueryText(userData.role);
+        if (storedRole === "worker" || storedRole === "admin") {
+          return res.json({ message: genericMessage });
+        }
+        displayName = readQueryText(userData.name) || displayName;
+      }
+    } catch (error) {
+      if (!isFirestoreUnavailableError(error)) {
+        throw error;
+      }
+    }
+
+    const { token, expiresInMinutes } = await issuePasswordResetToken({
+      audience: "user",
+      accountKey: `user:${authUser.uid}`,
+      email: normalizedEmail,
+      displayName,
+      userUid: authUser.uid
+    });
+    const resetUrl = `${getUserAppBaseUrl()}/reset-password/${encodeURIComponent(token)}`;
+    const emailDelivery = await sendPasswordResetEmail({
+      recipientEmail: normalizedEmail,
+      recipientName: displayName,
+      resetUrl,
+      expiresInMinutes,
+      audience: "user"
+    });
+
+    if (!emailDelivery.sent && !emailDelivery.skipped) {
+      return res.status(500).json({ message: "Failed to send password reset email." });
+    }
+
+    return res.json({ message: genericMessage });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to process password reset request.",
+      error: getErrorMessage(error)
+    });
+  }
+});
+
+app.get("/api/auth/reset-password/:token", async (req: Request, res: Response) => {
+  try {
+    const token = readRouteParam(req.params.token);
+    const resetRecord = await validatePasswordResetToken("user", token);
+
+    if (!resetRecord) {
+      return res.status(400).json({ message: "This password reset link is invalid or has expired." });
+    }
+
+    return res.json({
+      valid: true,
+      email: maskEmailAddress(resetRecord.email),
+      expiresAt: resetRecord.expiresAt
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate password reset token.",
+      error: getErrorMessage(error)
+    });
+  }
+});
+
+app.post("/api/auth/reset-password/:token", async (req: Request, res: Response) => {
+  try {
+    const token = readRouteParam(req.params.token);
+    const { password, confirmPassword } = req.body as {
+      password?: string;
+      confirmPassword?: string;
+    };
+    const nextPassword = typeof password === "string" ? password : "";
+    const nextConfirmPassword = typeof confirmPassword === "string" ? confirmPassword : "";
+
+    if (!nextPassword || !nextConfirmPassword) {
+      return res.status(400).json({ message: "Both password fields are required." });
+    }
+
+    if (nextPassword.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters." });
+    }
+
+    if (nextPassword !== nextConfirmPassword) {
+      return res.status(400).json({ message: "Password and confirm password must match." });
+    }
+
+    const resetRecord = await validatePasswordResetToken("user", token);
+    if (!resetRecord) {
+      return res.status(400).json({ message: "This password reset link is invalid or has expired." });
+    }
+
+    let targetUid = resetRecord.userUid || "";
+    if (!targetUid) {
+      const authUser = await adminAuth.getUserByEmail(resetRecord.email);
+      targetUid = authUser.uid;
+    }
+
+    await adminAuth.updateUser(targetUid, {
+      password: nextPassword,
+      disabled: false
+    });
+    await markPasswordResetTokenUsed(token);
+
+    return res.json({
+      message: "Your password has been successfully updated. Please log in."
+    });
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "auth/user-not-found") {
+      return res.status(400).json({ message: "This password reset link is invalid or has expired." });
+    }
+
+    return res.status(500).json({
+      message: "Failed to reset password.",
       error: getErrorMessage(error)
     });
   }
@@ -2222,3 +2419,6 @@ function startServer() {
 }
 
 startServer();
+
+
+
