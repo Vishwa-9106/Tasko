@@ -244,6 +244,34 @@ function writeStoredCheckpoints(value) {
   localStorage.setItem(workerJobCheckpointsKey, JSON.stringify(value));
 }
 
+function getBrowserLocation(options) {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("Geolocation is not supported on this device."));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+}
+
+function getGeolocationErrorMessage(error) {
+  if (!error || typeof error !== "object") {
+    return "Unable to capture your location right now.";
+  }
+
+  if (error.code === 1) {
+    return "Location access is required to confirm arrival. Enable it and try again.";
+  }
+  if (error.code === 2) {
+    return "Your current location could not be determined. Please try again near the customer address.";
+  }
+  if (error.code === 3) {
+    return "Location request timed out. Please try again.";
+  }
+  return error.message || "Unable to capture your location right now.";
+}
+
 function SummaryCard({ label, value, hint }) {
   return (
     <article className="worker-flow-stat-card">
@@ -584,15 +612,33 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
 
   const markArrived = async (targetJobId) => {
     const targetJob = jobs.find((job) => job.id === targetJobId);
+    if (!targetJob) {
+      setJobActionError("Selected job could not be found.");
+      setJobActionMessage("");
+      return;
+    }
+
     setJobActionLoading(targetJobId);
     setJobActionError("");
     setJobActionMessage("");
 
     try {
+      const position = await getBrowserLocation({
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 2 * 60 * 1000
+      });
+      const arrivalLocationPayload = {
+        workerLatitude: Number(Number(position.coords.latitude).toFixed(6)),
+        workerLongitude: Number(Number(position.coords.longitude).toFixed(6)),
+        workerLocationAccuracy: Number.isFinite(Number(position.coords.accuracy))
+          ? Math.round(Number(position.coords.accuracy))
+          : undefined
+      };
       const response =
         getJobBookingType(targetJob) === "package"
-          ? await api.post(`/api/workers/my-package-jobs/${getJobActionId(targetJob)}/arrived`)
-          : await api.post(`/api/workers/my-jobs/${targetJobId}/arrived`);
+          ? await api.post(`/api/workers/my-package-jobs/${getJobActionId(targetJob)}/arrived`, arrivalLocationPayload)
+          : await api.post(`/api/workers/my-jobs/${targetJobId}/arrived`, arrivalLocationPayload);
       const arrivalPayload = response?.data?.schedule || response?.data || {};
 
       setJobCheckpoint(targetJobId, {
@@ -616,7 +662,11 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
       setJobActionMessage("Arrival recorded. The customer can now view the start OTP in the user app.");
       loadWorkerWorkspace().catch(() => {});
     } catch (arrivalError) {
-      setJobActionError(arrivalError?.response?.data?.message || "Failed to record arrival.");
+      setJobActionError(
+        arrivalError?.response?.data?.message ||
+          getGeolocationErrorMessage(arrivalError) ||
+          "Failed to record arrival."
+      );
     } finally {
       setJobActionLoading("");
     }
@@ -1048,8 +1098,13 @@ export default function WorkerWorkspacePage({ section, jobId = "" }) {
               )}
 
               {flowStatus === "assigned" ? (
-                <button type="button" className="worker-flow-btn worker-flow-btn-ghost" onClick={() => markArrived(selectedJob.id)}>
-                  I Arrived
+                <button
+                  type="button"
+                  className="worker-flow-btn worker-flow-btn-ghost"
+                  onClick={() => markArrived(selectedJob.id)}
+                  disabled={actionInFlight}
+                >
+                  {actionInFlight ? "Recording..." : "I Arrived"}
                 </button>
               ) : (
                 <button type="button" className="worker-flow-btn worker-flow-btn-ghost is-disabled" disabled>

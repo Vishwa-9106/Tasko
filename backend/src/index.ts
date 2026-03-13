@@ -38,6 +38,20 @@ const dashboardReadCache = new Map<string, { expiresAt: number; value: unknown }
 const dashboardReadCacheTtlMs = Math.max(5000, Number(process.env.DASHBOARD_READ_CACHE_MS || 30000));
 const adminAnalyticsCacheTtlMs = Math.max(5000, Number(process.env.ADMIN_ANALYTICS_CACHE_MS || 60000));
 let adminAnalyticsCache: { expiresAt: number; value: Record<string, number> } | null = null;
+const reverseGeocodeCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    value: {
+      address: string;
+      latitude: number;
+      longitude: number;
+      placeId: string;
+      provider: "google_maps";
+    };
+  }
+>();
+const reverseGeocodeCacheTtlMs = Math.max(60000, Number(process.env.GOOGLE_GEOCODE_CACHE_MS || 30 * 60 * 1000));
 
 app.use(
   cors({
@@ -424,6 +438,84 @@ function readQueryText(value: unknown): string {
     return typeof value[0] === "string" ? value[0].trim() : "";
   }
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function roundCoordinate(value: number, decimals = 6): number {
+  const scale = 10 ** decimals;
+  return Math.round(value * scale) / scale;
+}
+
+function buildCoordinateCacheKey(latitude: number, longitude: number): string {
+  return `${roundCoordinate(latitude, 5)}:${roundCoordinate(longitude, 5)}`;
+}
+
+async function reverseGeocodeCoordinates(latitude: number, longitude: number): Promise<{
+  address: string;
+  latitude: number;
+  longitude: number;
+  placeId: string;
+  provider: "google_maps";
+}> {
+  const apiKey = readQueryText(process.env.GOOGLE_MAPS_API_KEY);
+  if (!apiKey) {
+    throw new Error("GOOGLE_MAPS_API_KEY is not configured.");
+  }
+
+  const normalizedLatitude = roundCoordinate(latitude);
+  const normalizedLongitude = roundCoordinate(longitude);
+  const cacheKey = buildCoordinateCacheKey(normalizedLatitude, normalizedLongitude);
+  const cached = reverseGeocodeCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.value;
+  }
+
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("latlng", `${normalizedLatitude},${normalizedLongitude}`);
+  url.searchParams.set("key", apiKey);
+
+  const googleResponse = await fetch(url.toString());
+  if (!googleResponse.ok) {
+    throw new Error(`Google reverse geocoding failed with status ${googleResponse.status}.`);
+  }
+
+  const payload = (await googleResponse.json()) as {
+    status?: string;
+    error_message?: string;
+    results?: Array<{ formatted_address?: string; place_id?: string }>;
+  };
+  const providerStatus = readQueryText(payload.status);
+  if (providerStatus && providerStatus !== "OK" && providerStatus !== "ZERO_RESULTS") {
+    throw new Error(readQueryText(payload.error_message) || `Google reverse geocoding returned ${providerStatus}.`);
+  }
+
+  const firstResult = Array.isArray(payload.results)
+    ? payload.results.find((entry) => readQueryText(entry.formatted_address))
+    : null;
+  const result = {
+    address: readQueryText(firstResult?.formatted_address),
+    latitude: normalizedLatitude,
+    longitude: normalizedLongitude,
+    placeId: readQueryText(firstResult?.place_id),
+    provider: "google_maps" as const
+  };
+
+  reverseGeocodeCache.set(cacheKey, {
+    value: result,
+    expiresAt: Date.now() + reverseGeocodeCacheTtlMs
+  });
+
+  return result;
 }
 
 type UserAddressRecord = {
@@ -894,6 +986,32 @@ app.get("/api/config/client", (_req: Request, res: Response) => {
       appId: process.env.FIREBASE_WEB_APP_ID || ""
     }
   });
+});
+
+app.post("/api/location/reverse-geocode", async (req: Request, res: Response) => {
+  try {
+    const latitude = readFiniteNumber(isRecord(req.body) ? req.body.latitude ?? req.body.lat : undefined);
+    const longitude = readFiniteNumber(isRecord(req.body) ? req.body.longitude ?? req.body.lng : undefined);
+
+    if (latitude === null || longitude === null) {
+      return res.status(400).json({ message: "Valid latitude and longitude are required." });
+    }
+    if (latitude < -90 || latitude > 90) {
+      return res.status(400).json({ message: "Latitude must be between -90 and 90." });
+    }
+    if (longitude < -180 || longitude > 180) {
+      return res.status(400).json({ message: "Longitude must be between -180 and 180." });
+    }
+
+    const result = await reverseGeocodeCoordinates(latitude, longitude);
+    return res.json(result);
+  } catch (error) {
+    const message = getErrorMessage(error);
+    return res.status(message.includes("GOOGLE_MAPS_API_KEY") ? 503 : 500).json({
+      message: "Failed to reverse geocode the selected coordinates.",
+      error: message
+    });
+  }
 });
 
 app.post("/api/auth/validate", async (req: Request, res: Response) => {
@@ -1827,6 +1945,15 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     const recurringDays = serviceType === "package" ? readText(req.body.recurringDays) : "";
     const specialInstructions = readText(req.body.specialInstructions) || readText(req.body.notes);
     const directAddress = readText(req.body.address) || readText(req.body.serviceAddress);
+    const rawServiceLatitude = req.body.latitude ?? req.body.serviceLatitude ?? req.body.service_latitude;
+    const rawServiceLongitude = req.body.longitude ?? req.body.serviceLongitude ?? req.body.service_longitude;
+    const rawServiceLocationAccuracy =
+      req.body.locationAccuracy ?? req.body.serviceLocationAccuracy ?? req.body.service_location_accuracy;
+    const serviceLatitudePresent = rawServiceLatitude !== undefined && rawServiceLatitude !== null && `${rawServiceLatitude}`.trim() !== "";
+    const serviceLongitudePresent = rawServiceLongitude !== undefined && rawServiceLongitude !== null && `${rawServiceLongitude}`.trim() !== "";
+    const serviceLatitude = readNumber(rawServiceLatitude);
+    const serviceLongitude = readNumber(rawServiceLongitude);
+    const serviceLocationAccuracy = readNumber(rawServiceLocationAccuracy);
     const selectedPackageRecord = readRecord(req.body.selectedPackage);
     const selectedShiftRecord = readRecord(req.body.selectedShift);
     const selectedMealRecord = readRecord(req.body.selectedMeal);
@@ -1869,6 +1996,25 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     if (serviceType === "package" && !recurringDays) {
       return res.status(400).json({ message: "recurringDays is required when serviceType is package" });
     }
+
+    if (serviceLatitudePresent !== serviceLongitudePresent) {
+      return res.status(400).json({ message: "Both latitude and longitude are required when sharing live location." });
+    }
+    if (serviceLatitudePresent && (serviceLatitude === null || serviceLatitude < -90 || serviceLatitude > 90)) {
+      return res.status(400).json({ message: "Latitude must be a valid value between -90 and 90." });
+    }
+    if (serviceLongitudePresent && (serviceLongitude === null || serviceLongitude < -180 || serviceLongitude > 180)) {
+      return res.status(400).json({ message: "Longitude must be a valid value between -180 and 180." });
+    }
+    if (serviceLocationAccuracy !== null && serviceLocationAccuracy < 0) {
+      return res.status(400).json({ message: "locationAccuracy must be zero or greater." });
+    }
+
+    const normalizedServiceLatitude = serviceLatitudePresent && serviceLatitude !== null ? roundCoordinate(serviceLatitude) : null;
+    const normalizedServiceLongitude =
+      serviceLongitudePresent && serviceLongitude !== null ? roundCoordinate(serviceLongitude) : null;
+    const normalizedServiceLocationAccuracy =
+      serviceLocationAccuracy !== null ? Math.round(serviceLocationAccuracy) : null;
 
     let address = directAddress;
     if (!address && userId) {
@@ -1977,6 +2123,24 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       booking_date: serviceDate,
       time_slot: preferredTimeSlot,
       address,
+      ...(normalizedServiceLatitude !== null
+        ? {
+            serviceLatitude: normalizedServiceLatitude,
+            service_latitude: normalizedServiceLatitude
+          }
+        : {}),
+      ...(normalizedServiceLongitude !== null
+        ? {
+            serviceLongitude: normalizedServiceLongitude,
+            service_longitude: normalizedServiceLongitude
+          }
+        : {}),
+      ...(normalizedServiceLocationAccuracy !== null
+        ? {
+            serviceLocationAccuracy: normalizedServiceLocationAccuracy,
+            service_location_accuracy: normalizedServiceLocationAccuracy
+          }
+        : {}),
       booking_type: serviceType,
       assigned_worker_id: "",
       created_at: timestamp(),

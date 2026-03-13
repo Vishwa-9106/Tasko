@@ -31,6 +31,13 @@ const CATEGORY_LIST_PATH = NAV_PATH_BY_LABEL.Category;
 
 const defaultRequestNotes = {};
 const defaultSalaryDraft = {};
+const defaultVisitScheduleDraft = {};
+const reviewableApplicationStatuses = ["Under Review", "Approved", "Visit Scheduled", "Rejected"];
+const defaultVisitSchedule = {
+  visitOfficeAddress: "Tasko Service Office\nXXX Street, YY Colony\nDF Area, XYZ District\nTamil Nadu",
+  visitDate: "11.11.2011",
+  visitTime: "11.11"
+};
 
 const date = (value) => {
   const parsed = new Date(value || "");
@@ -51,7 +58,7 @@ const money = (value) =>
 
 const statusLabel = (status) => {
   const normalized = String(status || "").toLowerCase();
-  if (normalized === "visit required") return "Visit Required";
+  if (normalized === "visit required" || normalized === "visit scheduled") return "Visit Scheduled";
   if (normalized === "account created") return "Account Created";
   if (normalized === "under review") return "Under Review";
   if (normalized === "approved") return "Approved";
@@ -64,7 +71,7 @@ const statusBadgeClass = (status) => {
   if (["approved", "account created", "active"].includes(normalized)) return "erp-badge erp-badge-positive";
   if (["rejected", "terminated"].includes(normalized)) return "erp-badge erp-badge-negative";
   if (["under review", "suspended"].includes(normalized)) return "erp-badge erp-badge-neutral";
-  if (["visit required"].includes(normalized)) return "erp-badge erp-badge-warn";
+  if (["visit required", "visit scheduled"].includes(normalized)) return "erp-badge erp-badge-warn";
   return "erp-badge";
 };
 
@@ -86,8 +93,27 @@ function normalizeApplication(record) {
     status: statusLabel(record.status),
     adminNotes: record.admin_notes || "",
     appliedAt: record.applied_at || record.createdAt || "",
-    approvedWorkerId: record.approved_worker_id || ""
+    approvedWorkerId: record.approved_worker_id || "",
+    visitOfficeAddress: record.visit_office_address || record.visitOfficeAddress || "",
+    visitDate: record.visit_date || record.visitDate || "",
+    visitTime: record.visit_time || record.visitTime || ""
   };
+}
+
+function readVisitScheduleDraft(application, draft = {}) {
+  return {
+    visitOfficeAddress: String(draft.visitOfficeAddress ?? application?.visitOfficeAddress ?? "").trim(),
+    visitDate: String(draft.visitDate ?? application?.visitDate ?? "").trim(),
+    visitTime: String(draft.visitTime ?? application?.visitTime ?? "").trim()
+  };
+}
+
+function resolveVisitSchedule(statusValue, application, draft = {}) {
+  if (statusValue === "Visit Scheduled") {
+    return { ...defaultVisitSchedule };
+  }
+
+  return readVisitScheduleDraft(application, draft);
 }
 
 function normalizeWorker(record) {
@@ -223,6 +249,7 @@ export default function AdminApp() {
   const [drawer, setDrawer] = useState(null);
   const [requestNotes, setRequestNotes] = useState(defaultRequestNotes);
   const [salaryDraft, setSalaryDraft] = useState(defaultSalaryDraft);
+  const [visitScheduleDraft, setVisitScheduleDraft] = useState(defaultVisitScheduleDraft);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const subcategoryRouteCategoryId = useMemo(() => parseSubcategoryRoute(locationPath), [locationPath]);
   
@@ -452,16 +479,32 @@ export default function AdminApp() {
   const refreshApplicationInState = (updated) => {
     const normalized = normalizeApplication(updated);
     setApplications((current) => current.map((application) => (application.id === normalized.id ? normalized : application)));
+    setRequestNotes((current) => ({ ...current, [normalized.id]: normalized.adminNotes }));
+    setVisitScheduleDraft((current) => ({
+      ...current,
+      [normalized.id]: {
+        visitOfficeAddress: normalized.visitOfficeAddress,
+        visitDate: normalized.visitDate,
+        visitTime: normalized.visitTime
+      }
+    }));
     if (drawer?.id === normalized.id) {
       setDrawer(normalized);
     }
   };
 
   const updateApplicationStatus = async (applicationId, statusValue, options = {}) => {
+    const currentApplication =
+      applications.find((application) => application.id === applicationId) || (drawer?.id === applicationId ? drawer : null);
+    const visitSchedule = resolveVisitSchedule(statusValue, currentApplication, visitScheduleDraft[applicationId]);
+
     try {
-      const response = await api.patch(`/api/admin/worker/status/${applicationId}`, {
+      const response = await api.patch(`/api/admin/worker-applications/${applicationId}`, {
         status: statusValue,
         adminNotes: requestNotes[applicationId] || "",
+        visitOfficeAddress: visitSchedule.visitOfficeAddress,
+        visitDate: visitSchedule.visitDate,
+        visitTime: visitSchedule.visitTime,
         sessionToken
       });
       if (response.data?.application) {
@@ -944,8 +987,8 @@ export default function AdminApp() {
     () => ({
       applications: applications.length,
       underReview: applications.filter((application) => application.status === "Under Review").length,
-      visitRequired: applications.filter((application) => application.status === "Visit Required").length,
-      accountCreated: applications.filter((application) => Boolean(application.approvedWorkerId)).length
+      visitScheduled: applications.filter((application) => application.status === "Visit Scheduled").length,
+      accountCreated: applications.filter((application) => application.status === "Account Created").length
     }),
     [applications]
   );
@@ -1072,7 +1115,7 @@ export default function AdminApp() {
               <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="erp-card p-4"><p className="erp-eyebrow">Applications</p><h2 className="text-2xl font-bold">{counts.applications}</h2></div>
                 <div className="erp-card p-4"><p className="erp-eyebrow">Under Review</p><h2 className="text-2xl font-bold">{counts.underReview}</h2></div>
-                <div className="erp-card p-4"><p className="erp-eyebrow">Visit Required</p><h2 className="text-2xl font-bold">{counts.visitRequired}</h2></div>
+                <div className="erp-card p-4"><p className="erp-eyebrow">Visit Scheduled</p><h2 className="text-2xl font-bold">{counts.visitScheduled}</h2></div>
                 <div className="erp-card p-4"><p className="erp-eyebrow">Account Created</p><h2 className="text-2xl font-bold">{counts.accountCreated}</h2></div>
                 <div className="erp-card p-4 md:col-span-2 xl:col-span-4">
                   <p className="text-sm text-slate-600">
@@ -1122,7 +1165,7 @@ export default function AdminApp() {
                             <div className="flex flex-wrap gap-2">
                               <button type="button" className="erp-btn erp-btn-soft" onClick={() => setDrawer(application)}>View Details</button>
                               <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(application.id, "Approved")}>Approve</button>
-                              <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(application.id, "Visit Required")}>Mark as Visit Required</button>
+                              <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(application.id, "Visit Scheduled")}>Schedule Visit</button>
                               <button type="button" className="erp-btn erp-btn-danger" onClick={() => updateApplicationStatus(application.id, "Rejected")}>Reject</button>
                               <button type="button" className="erp-btn erp-btn-danger" onClick={() => requestWorkerApplicationDelete(application)}>Delete</button>
                               <button
@@ -1437,11 +1480,25 @@ export default function AdminApp() {
                   value={drawer.status}
                   onChange={(event) => setDrawer((current) => (current ? { ...current, status: event.target.value } : current))}
                 >
-                  {["Under Review", "Visit Required", "Approved", "Rejected", "Account Created"].map((status) => (
-                    <option key={status} value={status}>{status}</option>
+                  {[...reviewableApplicationStatuses, ...(drawer.status === "Account Created" ? ["Account Created"] : [])].map((status) => (
+                    <option key={status} value={status} disabled={status === "Account Created"}>{status}</option>
                   ))}
                 </select>
               </label>
+
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Scheduled Visit Details</p>
+                <p className="mt-1 whitespace-pre-line text-sm font-medium text-slate-900">{defaultVisitSchedule.visitOfficeAddress}</p>
+                <p className="mt-3 text-sm text-slate-700">
+                  Date: <span className="font-medium text-slate-900">{defaultVisitSchedule.visitDate}</span>
+                </p>
+                <p className="text-sm text-slate-700">
+                  Time: <span className="font-medium text-slate-900">{defaultVisitSchedule.visitTime}</span>
+                </p>
+                <p className="mt-3 text-xs text-slate-500">
+                  These details are applied automatically when the admin selects Visit Scheduled.
+                </p>
+              </div>
 
               <label className="block">
                 <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Salary (for account creation)</span>
@@ -1459,10 +1516,12 @@ export default function AdminApp() {
                   type="button"
                   className="erp-btn erp-btn-soft"
                   onClick={() => updateApplicationStatus(drawer.id, drawer.status, { closeDrawerOnSuccess: true })}
+                  disabled={drawer.status === "Account Created"}
                 >
                   Save Review
                 </button>
                 <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(drawer.id, "Approved")}>Approve</button>
+                <button type="button" className="erp-btn erp-btn-soft" onClick={() => updateApplicationStatus(drawer.id, "Visit Scheduled")}>Schedule Visit</button>
                 <button type="button" className="erp-btn erp-btn-danger" onClick={() => updateApplicationStatus(drawer.id, "Rejected")}>Reject</button>
                 <button
                   type="button"

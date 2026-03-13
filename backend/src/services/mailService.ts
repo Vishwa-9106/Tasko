@@ -2,14 +2,24 @@ import dotenv from "dotenv";
 import nodemailer from "nodemailer";
 import path from "path";
 
-export type WorkerApplicationNotificationStatus = "Approved" | "Rejected" | "Visit Required";
+export type WorkerApplicationNotificationStatus = "Approved" | "Rejected" | "Visit Scheduled";
 export type TaskoAccountAudience = "user" | "worker";
 
 type WorkerStatusEmailParams = {
   workerEmail: string;
   workerName: string;
   applicationStatus: WorkerApplicationNotificationStatus;
-  optionalMessage?: string;
+  visitOfficeAddress?: string;
+  visitDate?: string;
+  visitTime?: string;
+};
+
+type WorkerAccountCreatedEmailParams = {
+  workerEmail: string;
+  workerName: string;
+  workerId: string;
+  password: string;
+  loginLink: string;
 };
 
 type PasswordResetEmailParams = {
@@ -96,12 +106,6 @@ function getTransporter(): nodemailer.Transporter | null {
   return transporter;
 }
 
-function withOptionalMessage(baseText: string, optionalMessage?: string): string {
-  const note = String(optionalMessage || "").trim();
-  if (!note) return baseText;
-  return `${baseText}\n\nAdditional Note:\n${note}`;
-}
-
 function escapeHtml(value: string): string {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -122,10 +126,29 @@ function normalizeEmailContent(content: string | SendEmailContent): SendEmailCon
   };
 }
 
+function getWorkerAppUrl(): string {
+  return String(process.env.TASKO_WORKER_APP_URL || process.env.WORKER_APP_URL || "http://localhost:3001").trim();
+}
+
+function getWorkerLoginUrl(): string {
+  return `${getWorkerAppUrl().replace(/\/+$/, "")}/login`;
+}
+
+function formatVisitDate(value: string): string {
+  const normalized = String(value || "").trim();
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return normalized;
+  }
+
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
 function createTaskoEmailHtml({
   preheader,
   greeting,
   title,
+  introLine,
   bodyLines,
   ctaLabel,
   ctaUrl,
@@ -134,6 +157,7 @@ function createTaskoEmailHtml({
   preheader: string;
   greeting: string;
   title: string;
+  introLine?: string;
   bodyLines: string[];
   ctaLabel: string;
   ctaUrl: string;
@@ -142,8 +166,17 @@ function createTaskoEmailHtml({
   const safePreheader = escapeHtml(preheader);
   const safeGreeting = escapeHtml(greeting);
   const safeTitle = escapeHtml(title);
-  const safeFooter = escapeHtml(footerNote);
-  const paragraphs = bodyLines.map((line) => `<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.7;">${escapeHtml(line)}</p>`).join("");
+  const safeFooter = escapeHtml(footerNote).replace(/\n/g, "<br />");
+  const safeIntroLine = String(introLine || "").trim();
+  const introHtml = safeIntroLine
+    ? `<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.7;">${escapeHtml(safeIntroLine).replace(/\n/g, "<br />")}</p>`
+    : "";
+  const paragraphs = bodyLines
+    .map(
+      (line) =>
+        `<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.7;">${escapeHtml(line).replace(/\n/g, "<br />")}</p>`
+    )
+    .join("");
 
   return `
 <!doctype html>
@@ -168,6 +201,7 @@ function createTaskoEmailHtml({
             <tr>
               <td style="padding:28px;">
                 <p style="margin:0 0 16px;color:#111827;font-size:16px;line-height:1.7;font-weight:600;">${safeGreeting}</p>
+                ${introHtml}
                 ${paragraphs}
                 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:28px 0 22px;">
                   <tr>
@@ -188,64 +222,185 @@ function createTaskoEmailHtml({
 </html>`;
 }
 
-function createStatusEmailContent(
-  workerName: string,
-  applicationStatus: WorkerApplicationNotificationStatus,
-  optionalMessage?: string
-): { subject: string; text: string } {
-  if (applicationStatus === "Rejected") {
+function createStatusEmailContent(params: WorkerStatusEmailParams): {
+  subject: string;
+  content: SendEmailContent;
+} {
+  const workerName = String(params.workerName || "").trim() || "Worker";
+
+  if (params.applicationStatus === "Approved") {
+    const subject = "Your Tasko Worker Application Has Been Approved";
+    const text = `Hello ${workerName},
+
+Good news!
+
+Your application to join Tasko as a service worker has been approved.
+
+As the next step in the onboarding process, you will need to visit our office for verification and final setup.
+
+The exact date and time for the visit will be announced later. Our team will notify you soon with the schedule details.
+
+Please keep an eye on your email for further instructions.
+
+Best regards
+Tasko Team`;
+
     return {
-      subject: "Tasko Worker Application Update",
-      text: withOptionalMessage(
-        `Hello ${workerName},
-
-Thank you for applying to become a worker on Tasko.
-
-After reviewing your application and test results, we regret to inform you that your application has been rejected at this time.
-
-You may reapply in the future after improving your skills.
-
-Regards,
-Tasko Team`,
-        optionalMessage
-      )
+      subject,
+      content: {
+        text,
+        html: createTaskoEmailHtml({
+          preheader: "Your Tasko worker application has been approved.",
+          greeting: `Hello ${workerName},`,
+          title: "Application Approved",
+          introLine: "Good news!",
+          bodyLines: [
+            "Your application to join Tasko as a service worker has been approved.",
+            "As the next step in the onboarding process, you will need to visit our office for verification and final setup.",
+            "The exact date and time for the visit will be announced later. Our team will notify you soon with the schedule details.",
+            "Please keep an eye on your email for further instructions."
+          ],
+          ctaLabel: "Worker Portal",
+          ctaUrl: getWorkerLoginUrl(),
+          footerNote: "Best regards\nTasko Team"
+        })
+      }
     };
   }
 
-  if (applicationStatus === "Visit Required") {
+  if (params.applicationStatus === "Visit Scheduled") {
+    const visitOfficeAddress = String(params.visitOfficeAddress || "").trim();
+    const visitDate = formatVisitDate(params.visitDate || "");
+    const visitTime = String(params.visitTime || "").trim();
+    const subject = "Tasko Worker Verification Visit Scheduled";
+    const text = `Hello ${workerName},
+
+Your worker application has passed the initial review and you are required to visit our office for identity verification and onboarding completion.
+
+Visit Details
+
+Office Address:
+${visitOfficeAddress}
+
+Date: ${visitDate}
+Time: ${visitTime}
+
+Please make sure to arrive on time. If you are unable to attend, please contact the Tasko team.
+
+We look forward to meeting you.
+
+Best regards
+Tasko Team`;
+
     return {
-      subject: "Tasko Application - Visit Required",
-      text: withOptionalMessage(
-        `Hello ${workerName},
-
-Your Tasko worker application has been reviewed.
-
-Before approval, a verification visit is required. Our team may contact you shortly for further verification.
-
-Please keep your phone available.
-
-Regards,
-Tasko Team`,
-        optionalMessage
-      )
+      subject,
+      content: {
+        text,
+        html: createTaskoEmailHtml({
+          preheader: "Your Tasko verification visit has been scheduled.",
+          greeting: `Hello ${workerName},`,
+          title: "Verification Visit Scheduled",
+          bodyLines: [
+            "Your worker application has passed the initial review and you are required to visit our office for identity verification and onboarding completion.",
+            `Visit Details\n\nOffice Address:\n${visitOfficeAddress}\n\nDate: ${visitDate}\nTime: ${visitTime}`,
+            "Please make sure to arrive on time. If you are unable to attend, please contact the Tasko team.",
+            "We look forward to meeting you."
+          ],
+          ctaLabel: "Worker Portal",
+          ctaUrl: getWorkerLoginUrl(),
+          footerNote: "Best regards\nTasko Team"
+        })
+      }
     };
   }
+
+  const subject = "Update on Your Tasko Worker Application";
+  const text = `Hello ${workerName},
+
+Thank you for applying to join Tasko as a service worker.
+
+After reviewing your application and evaluation results, we regret to inform you that your application has not been approved at this time.
+
+You may apply again in the future.
+
+We appreciate your interest in Tasko.
+
+Best regards
+Tasko Team`;
 
   return {
-    subject: "Welcome to Tasko",
-    text: withOptionalMessage(
-      `Hello ${workerName},
+    subject,
+    content: {
+      text,
+      html: createTaskoEmailHtml({
+        preheader: "There is an update on your Tasko worker application.",
+        greeting: `Hello ${workerName},`,
+        title: "Application Update",
+        bodyLines: [
+          "Thank you for applying to join Tasko as a service worker.",
+          "After reviewing your application and evaluation results, we regret to inform you that your application has not been approved at this time.",
+          "You may apply again in the future.",
+          "We appreciate your interest in Tasko."
+        ],
+        ctaLabel: "Tasko",
+        ctaUrl: getWorkerAppUrl(),
+        footerNote: "Best regards\nTasko Team"
+      })
+    }
+  };
+}
 
-Congratulations! Your worker application has been approved.
+function createWorkerAccountCreatedEmailContent(
+  params: WorkerAccountCreatedEmailParams
+): { subject: string; content: SendEmailContent } {
+  const workerName = String(params.workerName || "").trim() || "Worker";
+  const workerId = String(params.workerId || "").trim();
+  const password = String(params.password || "").trim();
+  const loginLink = String(params.loginLink || "").trim();
+  const subject = "Your Tasko Worker Account Has Been Created";
+  const text = `Hello ${workerName},
 
-You can now log in to the Tasko worker dashboard and start accepting jobs.
+Congratulations!
 
-We wish you success working with Tasko.
+Your Tasko worker account has been successfully created and you can now log in to the Tasko worker platform.
 
-Regards,
-Tasko Team`,
-      optionalMessage
-    )
+Your Login Credentials
+
+Worker ID: ${workerId}
+Password: ${password}
+
+You can log in using the following link:
+
+${loginLink}
+
+For security reasons, please change your password after your first login.
+
+Welcome to the Tasko worker network.
+
+Best regards
+Tasko Team`;
+
+  return {
+    subject,
+    content: {
+      text,
+      html: createTaskoEmailHtml({
+        preheader: "Your Tasko worker account is ready.",
+        greeting: `Hello ${workerName},`,
+        title: "Worker Account Created",
+        introLine: "Congratulations!",
+        bodyLines: [
+          "Your Tasko worker account has been successfully created and you can now log in to the Tasko worker platform.",
+          `Your Login Credentials\n\nWorker ID: ${workerId}\nPassword: ${password}`,
+          `You can log in using the following link:\n\n${loginLink}`,
+          "For security reasons, please change your password after your first login.",
+          "Welcome to the Tasko worker network."
+        ],
+        ctaLabel: "Open Login",
+        ctaUrl: loginLink,
+        footerNote: "Best regards\nTasko Team"
+      })
+    }
   };
 }
 
@@ -295,7 +450,7 @@ Tasko Team`;
 export function isWorkerApplicationStatusNotifiable(
   status: string
 ): status is WorkerApplicationNotificationStatus {
-  return status === "Approved" || status === "Rejected" || status === "Visit Required";
+  return status === "Approved" || status === "Rejected" || status === "Visit Scheduled";
 }
 
 export async function sendEmail(
@@ -335,13 +490,15 @@ export async function sendEmail(
 export async function sendWorkerApplicationStatusEmail(
   params: WorkerStatusEmailParams
 ): Promise<SendEmailResult> {
-  const workerName = String(params.workerName || "").trim() || "Applicant";
-  const { subject, text } = createStatusEmailContent(
-    workerName,
-    params.applicationStatus,
-    params.optionalMessage
-  );
-  return sendEmail(params.workerEmail, subject, text);
+  const { subject, content } = createStatusEmailContent(params);
+  return sendEmail(params.workerEmail, subject, content);
+}
+
+export async function sendWorkerAccountCreatedEmail(
+  params: WorkerAccountCreatedEmailParams
+): Promise<SendEmailResult> {
+  const { subject, content } = createWorkerAccountCreatedEmailContent(params);
+  return sendEmail(params.workerEmail, subject, content);
 }
 
 export async function sendPasswordResetEmail(

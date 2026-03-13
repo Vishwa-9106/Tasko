@@ -18,11 +18,12 @@ import {
   isWorkerApplicationStatusNotifiable,
   sendEmail,
   sendPasswordResetEmail,
+  sendWorkerAccountCreatedEmail,
   sendWorkerApplicationStatusEmail
 } from "./services/mailService";
 import { issuePasswordResetToken, markPasswordResetTokenUsed, validatePasswordResetToken } from "./services/passwordResetService";
 
-type WorkerApplicationStatus = "Under Review" | "Visit Required" | "Approved" | "Rejected" | "Account Created";
+type WorkerApplicationStatus = "Under Review" | "Visit Scheduled" | "Approved" | "Rejected" | "Account Created";
 type WorkerStatus = "Active" | "Suspended" | "Terminated";
 
 type WorkerApplicationRecord = {
@@ -39,6 +40,9 @@ type WorkerApplicationRecord = {
   applied_at: string;
   reviewed_at?: string;
   approved_worker_id?: string;
+  visit_office_address?: string;
+  visit_date?: string;
+  visit_time?: string;
 };
 
 export type WorkerRecord = {
@@ -84,6 +88,13 @@ type RegisterWorkerHiringOptions = {
   validateAdminSession: (token: string) => boolean;
   clearBookingCache?: () => void;
 };
+
+const defaultVisitSchedule = {
+  visitOfficeAddress: "Tasko Service Office\nXXX Street, YY Colony\nDF Area, XYZ District\nTamil Nadu",
+  visitDate: "11.11.2011",
+  visitTime: "11.11"
+};
+const workerArrivalMaxDistanceMeters = Math.max(25, Number(process.env.WORKER_ARRIVAL_MAX_DISTANCE_METERS || 150));
 
 const inMemoryWorkerApplications = new Map<string, WorkerApplicationRecord>();
 const inMemoryWorkers = new Map<string, WorkerRecord>();
@@ -195,6 +206,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function roundCoordinate(value: number, decimals = 6): number {
+  const scale = 10 ** decimals;
+  return Math.round(value * scale) / scale;
+}
+
+function toRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function calculateDistanceMeters(
+  sourceLatitude: number,
+  sourceLongitude: number,
+  targetLatitude: number,
+  targetLongitude: number
+): number {
+  const earthRadiusMeters = 6371000;
+  const latitudeDelta = toRadians(targetLatitude - sourceLatitude);
+  const longitudeDelta = toRadians(targetLongitude - sourceLongitude);
+  const startLatitude = toRadians(sourceLatitude);
+  const endLatitude = toRadians(targetLatitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.asin(Math.sqrt(haversine));
 }
 
 function readPositiveIntQuery(value: unknown, fallback: number, max = 100): number {
@@ -413,8 +461,8 @@ function isAlreadyExistsError(error: unknown): boolean {
 }
 
 function normalizeWorkerApplicationStatus(value: unknown): WorkerApplicationStatus {
-  const normalized = readTrimmedString(value).toLowerCase().replace(/_/g, " ");
-  if (normalized === "visit required") return "Visit Required";
+  const normalized = readTrimmedString(value).toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ");
+  if (normalized === "visit required" || normalized === "visit scheduled") return "Visit Scheduled";
   if (normalized === "approved") return "Approved";
   if (normalized === "rejected") return "Rejected";
   if (normalized === "account created") return "Account Created";
@@ -425,11 +473,76 @@ function parseWorkerApplicationStatus(value: unknown): WorkerApplicationStatus |
   const normalized = readTrimmedString(value).toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ");
   if (!normalized) return null;
   if (normalized === "under review") return "Under Review";
-  if (normalized === "visit required") return "Visit Required";
+  if (normalized === "visit required" || normalized === "visit scheduled") return "Visit Scheduled";
   if (normalized === "approved") return "Approved";
   if (normalized === "rejected") return "Rejected";
   if (normalized === "account created") return "Account Created";
   return null;
+}
+
+function readOptionalStringProperty(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): { present: boolean; value: string } {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) {
+      return {
+        present: true,
+        value: readTrimmedString(record[key])
+      };
+    }
+  }
+
+  return {
+    present: false,
+    value: ""
+  };
+}
+
+function resolveVisitScheduleForStatus(
+  status: WorkerApplicationStatus,
+  application: WorkerApplicationRecord,
+  input: {
+    visitOfficeAddressPresent: boolean;
+    visitOfficeAddress: string;
+    visitDatePresent: boolean;
+    visitDate: string;
+    visitTimePresent: boolean;
+    visitTime: string;
+  }
+): {
+  visitOfficeAddress: string;
+  visitDate: string;
+  visitTime: string;
+  writeVisitOfficeAddress: string | undefined;
+  writeVisitDate: string | undefined;
+  writeVisitTime: string | undefined;
+} {
+  if (status === "Visit Scheduled") {
+    return {
+      visitOfficeAddress: defaultVisitSchedule.visitOfficeAddress,
+      visitDate: defaultVisitSchedule.visitDate,
+      visitTime: defaultVisitSchedule.visitTime,
+      writeVisitOfficeAddress: defaultVisitSchedule.visitOfficeAddress,
+      writeVisitDate: defaultVisitSchedule.visitDate,
+      writeVisitTime: defaultVisitSchedule.visitTime
+    };
+  }
+
+  const visitOfficeAddress = input.visitOfficeAddressPresent
+    ? input.visitOfficeAddress
+    : application.visit_office_address || "";
+  const visitDate = input.visitDatePresent ? input.visitDate : application.visit_date || "";
+  const visitTime = input.visitTimePresent ? input.visitTime : application.visit_time || "";
+
+  return {
+    visitOfficeAddress,
+    visitDate,
+    visitTime,
+    writeVisitOfficeAddress: input.visitOfficeAddressPresent ? visitOfficeAddress : undefined,
+    writeVisitDate: input.visitDatePresent ? visitDate : undefined,
+    writeVisitTime: input.visitTimePresent ? visitTime : undefined
+  };
 }
 
 function normalizeWorkerStatus(value: unknown): WorkerStatus {
@@ -945,7 +1058,11 @@ function normalizeWorkerApplicationRecord(
     admin_notes: readTrimmedString(data.admin_notes),
     applied_at: appliedAt,
     reviewed_at: readTrimmedString(data.reviewed_at) || undefined,
-    approved_worker_id: readTrimmedString(data.approved_worker_id) || undefined
+    approved_worker_id: readTrimmedString(data.approved_worker_id) || undefined,
+    visit_office_address:
+      readTrimmedString(data.visit_office_address) || readTrimmedString(data.visitOfficeAddress) || undefined,
+    visit_date: readTrimmedString(data.visit_date) || readTrimmedString(data.visitDate) || undefined,
+    visit_time: readTrimmedString(data.visit_time) || readTrimmedString(data.visitTime) || undefined
   };
 }
 
@@ -1856,7 +1973,10 @@ function toApplicationResponse(
     applied_at: application.applied_at,
     createdAt: application.applied_at,
     reviewed_at: application.reviewed_at || "",
-    approved_worker_id: application.approved_worker_id || ""
+    approved_worker_id: application.approved_worker_id || "",
+    visit_office_address: application.visit_office_address || "",
+    visit_date: application.visit_date || "",
+    visit_time: application.visit_time || ""
   };
 }
 
@@ -2283,11 +2403,17 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(400).json({ message: "applicationId is required" });
       }
 
-      const rawStatus = (req.body as { status?: unknown }).status;
+      const body = isRecord(req.body) ? req.body : {};
+      const rawStatus = body.status;
       const status = parseWorkerApplicationStatus(rawStatus);
-      const adminNotes = readTrimmedString((req.body as { adminNotes?: unknown }).adminNotes);
+      const adminNotes = readTrimmedString(body.adminNotes);
       if (rawStatus !== undefined && rawStatus !== null && !status) {
         return res.status(400).json({ message: "Invalid application status" });
+      }
+      if (status === "Account Created") {
+        return res
+          .status(400)
+          .json({ message: "Use the account creation action to mark an application as Account Created." });
       }
 
       const existingApplication = await getWorkerApplicationById(applicationId);
@@ -2295,10 +2421,26 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(404).json({ message: "Application not found" });
       }
 
+      const visitOfficeAddressInput = readOptionalStringProperty(body, "visitOfficeAddress", "visit_office_address");
+      const visitDateInput = readOptionalStringProperty(body, "visitDate", "visit_date");
+      const visitTimeInput = readOptionalStringProperty(body, "visitTime", "visit_time");
+      const nextStatus = status || existingApplication.status;
+      const visitSchedule = resolveVisitScheduleForStatus(nextStatus, existingApplication, {
+        visitOfficeAddressPresent: visitOfficeAddressInput.present,
+        visitOfficeAddress: visitOfficeAddressInput.value,
+        visitDatePresent: visitDateInput.present,
+        visitDate: visitDateInput.value,
+        visitTimePresent: visitTimeInput.present,
+        visitTime: visitTimeInput.value
+      });
+
       const updatedApplication = await updateWorkerApplication(applicationId, {
         status: status || undefined,
         admin_notes: adminNotes || undefined,
-        reviewed_at: new Date().toISOString()
+        reviewed_at: new Date().toISOString(),
+        visit_office_address: visitSchedule.writeVisitOfficeAddress,
+        visit_date: visitSchedule.writeVisitDate,
+        visit_time: visitSchedule.writeVisitTime
       });
 
       if (!updatedApplication) {
@@ -2322,7 +2464,9 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
           workerEmail: updatedApplication.email,
           workerName: updatedApplication.full_name,
           applicationStatus: updatedApplication.status,
-          optionalMessage: adminNotes || undefined
+          visitOfficeAddress: updatedApplication.visit_office_address,
+          visitDate: updatedApplication.visit_date,
+          visitTime: updatedApplication.visit_time
         });
         emailNotification.sent = delivery.sent;
         emailNotification.skipped = delivery.skipped;
@@ -2362,27 +2506,43 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         return res.status(400).json({ message: "workerId is required" });
       }
 
-      const status = parseWorkerApplicationStatus((req.body as { status?: unknown }).status);
+      const body = isRecord(req.body) ? req.body : {};
+      const status = parseWorkerApplicationStatus(body.status);
       if (!status) {
         return res.status(400).json({ message: "Invalid application status" });
       }
       if (!isWorkerApplicationStatusNotifiable(status)) {
         return res
           .status(400)
-          .json({ message: "Only Approved, Rejected, or Visit Required are allowed for this endpoint." });
+          .json({ message: "Only Approved, Rejected, or Visit Scheduled are allowed for this endpoint." });
       }
-      const adminNotes = readTrimmedString((req.body as { adminNotes?: unknown }).adminNotes);
+      const adminNotes = readTrimmedString(body.adminNotes);
 
       const application = await resolveWorkerApplicationForStatusUpdate(workerId);
       if (!application) {
         return res.status(404).json({ message: "Worker application not found" });
       }
 
+      const visitOfficeAddressInput = readOptionalStringProperty(body, "visitOfficeAddress", "visit_office_address");
+      const visitDateInput = readOptionalStringProperty(body, "visitDate", "visit_date");
+      const visitTimeInput = readOptionalStringProperty(body, "visitTime", "visit_time");
+      const visitSchedule = resolveVisitScheduleForStatus(status, application, {
+        visitOfficeAddressPresent: visitOfficeAddressInput.present,
+        visitOfficeAddress: visitOfficeAddressInput.value,
+        visitDatePresent: visitDateInput.present,
+        visitDate: visitDateInput.value,
+        visitTimePresent: visitTimeInput.present,
+        visitTime: visitTimeInput.value
+      });
+
       const statusChanged = application.status !== status;
       const updatedApplication = await updateWorkerApplication(application.id, {
         status,
         admin_notes: adminNotes || undefined,
-        reviewed_at: new Date().toISOString()
+        reviewed_at: new Date().toISOString(),
+        visit_office_address: visitSchedule.writeVisitOfficeAddress,
+        visit_date: visitSchedule.writeVisitDate,
+        visit_time: visitSchedule.writeVisitTime
       });
 
       if (!updatedApplication) {
@@ -2401,7 +2561,9 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
           workerEmail: updatedApplication.email,
           workerName: updatedApplication.full_name,
           applicationStatus: status,
-          optionalMessage: adminNotes || undefined
+          visitOfficeAddress: updatedApplication.visit_office_address,
+          visitDate: updatedApplication.visit_date,
+          visitTime: updatedApplication.visit_time
         });
         emailNotification.sent = delivery.sent;
         emailNotification.skipped = delivery.skipped;
@@ -2508,7 +2670,7 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
         email: readTrimmedString(application.email).toLowerCase(),
         category: application.category_applied,
         salary,
-        password_hash: "",
+        password_hash: hashPassword(accountPassword),
         status: "Active",
         joining_date: now.slice(0, 10),
         created_at: now,
@@ -2531,47 +2693,30 @@ export function registerWorkerHiringRoutes(app: Express, options: RegisterWorker
 
       const adminNotes = readTrimmedString((req.body as { adminNotes?: unknown }).adminNotes);
       const updatedApplication = await updateWorkerApplication(applicationId, {
-        status: "Approved",
+        status: "Account Created",
         admin_notes: adminNotes || application.admin_notes,
         reviewed_at: now,
         approved_worker_id: workerId
       });
 
       let firebaseUid = "";
-      let loginEmail = workerPayload.email;
       let provisioningError = "";
       try {
         const firebaseAccount = await ensureWorkerFirebaseAccount(workerPayload, accountPassword);
         firebaseUid = firebaseAccount.uid;
-        loginEmail = firebaseAccount.email;
       } catch (error) {
         provisioningError = getErrorMessage(error);
         // eslint-disable-next-line no-console
         console.error(`Failed to provision Firebase worker account for ${workerId}: ${provisioningError}`);
       }
 
-      const emailDelivery = await sendEmail(
-        application.email,
-        "Your Tasko Worker Account Has Been Created",
-        `Hello ${application.full_name},
-
-Congratulations! Your worker account has been approved and created successfully on Tasko.
-
-Here are your login credentials:
-
-Worker ID: ${workerId}
-Login Email: ${loginEmail}
-Temporary Password: ${accountPassword}
-
-You can log in to the Tasko Worker App using your worker ID or login email with this password.
-
-If you forget the password later, use the "Forgot password" option in the worker app to receive a Firebase reset link on your email.
-
-Welcome to Tasko!
-
-Regards,
-Tasko Team`
-      );
+      const emailDelivery = await sendWorkerAccountCreatedEmail({
+        workerEmail: application.email,
+        workerName: application.full_name,
+        workerId,
+        password: accountPassword,
+        loginLink: `${getWorkerAppBaseUrl()}/login`
+      });
 
       if (!emailDelivery.sent && emailDelivery.error) {
         // eslint-disable-next-line no-console
@@ -2586,7 +2731,6 @@ Tasko Team`
             : "Worker account created but email notification failed.",
         workerId,
         firebaseUid,
-        loginEmail,
         provisioningError,
         email: {
           attempted: true,
@@ -2989,6 +3133,43 @@ Tasko Team`
         return res.status(400).json({ message: "This booking cannot be marked as arrived." });
       }
 
+      const body = isRecord(req.body) ? req.body : {};
+      const workerLatitude = readFiniteNumber(body.workerLatitude ?? body.worker_latitude);
+      const workerLongitude = readFiniteNumber(body.workerLongitude ?? body.worker_longitude);
+      const workerLocationAccuracyValue = readFiniteNumber(body.workerLocationAccuracy ?? body.worker_location_accuracy);
+      if (workerLatitude === null || workerLongitude === null) {
+        return res.status(400).json({ message: "Current worker location is required to record arrival." });
+      }
+      if (workerLatitude < -90 || workerLatitude > 90 || workerLongitude < -180 || workerLongitude > 180) {
+        return res.status(400).json({ message: "Worker location coordinates are invalid." });
+      }
+
+      const normalizedWorkerLatitude = roundCoordinate(workerLatitude);
+      const normalizedWorkerLongitude = roundCoordinate(workerLongitude);
+      const normalizedWorkerLocationAccuracy =
+        workerLocationAccuracyValue !== null && workerLocationAccuracyValue >= 0
+          ? Math.round(workerLocationAccuracyValue)
+          : null;
+      const serviceLatitude = readFiniteNumber(bookingData.serviceLatitude ?? bookingData.service_latitude);
+      const serviceLongitude = readFiniteNumber(bookingData.serviceLongitude ?? bookingData.service_longitude);
+      const hasServiceCoordinates =
+        serviceLatitude !== null &&
+        serviceLatitude >= -90 &&
+        serviceLatitude <= 90 &&
+        serviceLongitude !== null &&
+        serviceLongitude >= -180 &&
+        serviceLongitude <= 180;
+      const workerArrivalDistanceMeters = hasServiceCoordinates
+        ? Math.round(calculateDistanceMeters(serviceLatitude, serviceLongitude, normalizedWorkerLatitude, normalizedWorkerLongitude))
+        : null;
+      const allowedDistanceMeters =
+        workerArrivalMaxDistanceMeters + (normalizedWorkerLocationAccuracy !== null ? normalizedWorkerLocationAccuracy : 0);
+      if (workerArrivalDistanceMeters !== null && workerArrivalDistanceMeters > allowedDistanceMeters) {
+        return res.status(400).json({
+          message: `You are ${workerArrivalDistanceMeters} meters away from the job location. Reach the customer location before marking arrival.`
+        });
+      }
+
       const existingStartOtp =
         readTrimmedString(bookingData.startOtp) ||
         readTrimmedString(bookingData.start_otp) ||
@@ -3009,6 +3190,14 @@ Tasko Team`
           start_otp: startOtp,
           workerArrivedAt: timestamp(),
           worker_arrived_at: timestamp(),
+          workerArrivalLatitude: normalizedWorkerLatitude,
+          worker_arrival_latitude: normalizedWorkerLatitude,
+          workerArrivalLongitude: normalizedWorkerLongitude,
+          worker_arrival_longitude: normalizedWorkerLongitude,
+          workerArrivalAccuracy: normalizedWorkerLocationAccuracy,
+          worker_arrival_accuracy: normalizedWorkerLocationAccuracy,
+          workerArrivalDistanceMeters: workerArrivalDistanceMeters,
+          worker_arrival_distance_meters: workerArrivalDistanceMeters,
           arrivalNotificationTitle: "Worker Arrived",
           arrival_notification_title: "Worker Arrived",
           arrivalNotificationMessage: notificationMessage,
@@ -3029,6 +3218,14 @@ Tasko Team`
         start_otp: startOtp,
         workerArrivedAt: arrivedAtIso,
         worker_arrived_at: arrivedAtIso,
+        workerArrivalLatitude: normalizedWorkerLatitude,
+        worker_arrival_latitude: normalizedWorkerLatitude,
+        workerArrivalLongitude: normalizedWorkerLongitude,
+        worker_arrival_longitude: normalizedWorkerLongitude,
+        workerArrivalAccuracy: normalizedWorkerLocationAccuracy,
+        worker_arrival_accuracy: normalizedWorkerLocationAccuracy,
+        workerArrivalDistanceMeters: workerArrivalDistanceMeters,
+        worker_arrival_distance_meters: workerArrivalDistanceMeters,
         arrivalNotificationTitle: "Worker Arrived",
         arrival_notification_title: "Worker Arrived",
         arrivalNotificationMessage: notificationMessage,

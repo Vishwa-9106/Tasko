@@ -90,6 +90,42 @@ function buildSelectionFromQuery(searchParams, pricingModel, pricingConfig) {
   };
 }
 
+function getBrowserLocation(options) {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("Geolocation is not supported on this device."));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+}
+
+function buildReverseGeocodeCacheKey(latitude, longitude) {
+  return `reverse-geocode:${Number(latitude).toFixed(5)}:${Number(longitude).toFixed(5)}`;
+}
+
+function getGeolocationErrorMessage(error) {
+  if (!error || typeof error !== "object") {
+    return "Unable to access your location right now.";
+  }
+
+  if (error.code === 1) {
+    return "Location permission was denied. Enable it to use your current location.";
+  }
+  if (error.code === 2) {
+    return "Your location could not be determined. Try again in an open area.";
+  }
+  if (error.code === 3) {
+    return "Location request timed out. Please try again.";
+  }
+  return error.message || "Unable to access your location right now.";
+}
+
+function formatLocationAccuracy(value) {
+  return Number.isFinite(Number(value)) ? `${Math.round(Number(value))} m` : "-";
+}
+
 export default function BookingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -103,6 +139,15 @@ export default function BookingPage() {
   const [formMessage, setFormMessage] = useState("");
   const [bookingsMessage, setBookingsMessage] = useState("");
   const [bookingSuccessModal, setBookingSuccessModal] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [locationMessage, setLocationMessage] = useState("");
+  const [currentLocation, setCurrentLocation] = useState({
+    address: "",
+    latitude: null,
+    longitude: null,
+    accuracy: null
+  });
   const [selection, setSelection] = useState({
     selectedPackage: "",
     selectedUnits: 1,
@@ -249,6 +294,59 @@ export default function BookingPage() {
     });
   }, [activeTab, bookings]);
 
+  const useCurrentLocation = useCallback(async () => {
+    setLocationLoading(true);
+    setLocationError("");
+    setLocationMessage("");
+
+    try {
+      const position = await getBrowserLocation({
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 5 * 60 * 1000
+      });
+      const latitude = Number(Number(position.coords.latitude).toFixed(6));
+      const longitude = Number(Number(position.coords.longitude).toFixed(6));
+      const accuracy = Number.isFinite(Number(position.coords.accuracy))
+        ? Math.round(Number(position.coords.accuracy))
+        : null;
+      const cacheKey = buildReverseGeocodeCacheKey(latitude, longitude);
+      const cachedAddress = readSessionCache(cacheKey, 12 * 60 * 60 * 1000);
+      let address = typeof cachedAddress === "string" ? cachedAddress : "";
+      let nextLocationMessage = "";
+
+      if (!address) {
+        try {
+          const response = await api.post("/api/location/reverse-geocode", { latitude, longitude });
+          address = String(response.data?.address || "").trim();
+          if (address) {
+            writeSessionCache(cacheKey, address);
+          }
+        } catch (error) {
+          nextLocationMessage =
+            "Current coordinates were captured, but address lookup failed. Your saved address will be used unless you retry.";
+        }
+      }
+
+      setCurrentLocation({
+        address,
+        latitude,
+        longitude,
+        accuracy
+      });
+      if (address) {
+        nextLocationMessage = "Current location captured. This booking will use your live location and resolved address.";
+      } else if (!nextLocationMessage) {
+        nextLocationMessage = "Current coordinates captured for this booking.";
+      }
+      setLocationMessage(nextLocationMessage);
+    } catch (error) {
+      setLocationError(getGeolocationErrorMessage(error));
+    } finally {
+      setLocationLoading(false);
+    }
+  }, []);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!user || !selectedService) return;
@@ -280,7 +378,11 @@ export default function BookingPage() {
         selectedHours: selection.selectedHours,
         selectedShiftId: selection.selectedShift,
         selectedMealId: selection.selectedMeal,
-        selectedAddonIds: selection.selectedAddons
+        selectedAddonIds: selection.selectedAddons,
+        address: currentLocation.address || undefined,
+        latitude: currentLocation.latitude ?? undefined,
+        longitude: currentLocation.longitude ?? undefined,
+        locationAccuracy: currentLocation.accuracy ?? undefined
       });
 
       setBookingSuccessModal({
@@ -448,6 +550,27 @@ export default function BookingPage() {
               onChange={(event) => setFormData((current) => ({ ...current, specialInstructions: event.target.value }))}
             />
           </label>
+
+          <div className="tasko-booking-field full">
+            <span>Service Location</span>
+            <div className="tasko-pricing-summary">
+              <p className="tasko-pricing-summary-label">Live Location</p>
+              <h3>{currentLocation.address || "Use your current location for better arrival accuracy"}</h3>
+              <p>
+                {currentLocation.latitude !== null && currentLocation.longitude !== null
+                  ? `Lat ${currentLocation.latitude}, Lng ${currentLocation.longitude}`
+                  : "Your saved profile address will be used if you skip live location."}
+              </p>
+              <p>Accuracy: {formatLocationAccuracy(currentLocation.accuracy)}</p>
+              <div className="tasko-booking-actions-row">
+                <button type="button" className="tasko-secondary-button" onClick={() => useCurrentLocation()} disabled={locationLoading}>
+                  {locationLoading ? "Detecting..." : currentLocation.latitude !== null ? "Refresh Current Location" : "Use Current Location"}
+                </button>
+              </div>
+              {locationError ? <p>{locationError}</p> : null}
+              {locationMessage ? <p>{locationMessage}</p> : null}
+            </div>
+          </div>
         </form>
 
         {selectedService ? (
