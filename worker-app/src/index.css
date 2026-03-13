@@ -1938,15 +1938,17 @@ body {
 }
 
 .worker-flow-shell {
-  width: min(1180px, calc(100% - 2rem));
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-inline: clamp(1rem, 2vw, 1.8rem);
 }
 
 .worker-flow-header-inner {
-  min-height: 82px;
+  min-height: 74px;
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 1rem;
+  gap: 0.85rem;
   align-items: center;
 }
 
@@ -1972,13 +1974,13 @@ body {
 
 .worker-flow-brand strong {
   font-family: "Montserrat", sans-serif;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   letter-spacing: 0.16em;
 }
 
 .worker-flow-brand span {
   color: var(--worker-muted);
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 600;
 }
 
@@ -1990,8 +1992,8 @@ body {
 }
 
 .worker-flow-nav-link {
-  min-height: 46px;
-  padding: 0 1.2rem;
+  min-height: 42px;
+  padding: 0 1rem;
   border-radius: 999px;
   border: 1px solid transparent;
   display: inline-flex;
@@ -2000,7 +2002,7 @@ body {
   text-decoration: none;
   color: var(--worker-muted);
   font-family: "Montserrat", sans-serif;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2028,13 +2030,13 @@ body {
   background: rgba(21, 115, 71, 0.08);
   color: #115a39;
   border-radius: 999px;
-  min-height: 46px;
-  padding: 0 1rem;
+  min-height: 42px;
+  padding: 0 0.9rem;
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
   font-family: "Montserrat", sans-serif;
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2055,8 +2057,8 @@ body {
 }
 
 .worker-flow-avatar {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -2064,7 +2066,7 @@ body {
   background: linear-gradient(135deg, rgba(203, 123, 43, 0.18), rgba(255, 255, 255, 0.95));
   border: 1px solid rgba(203, 123, 43, 0.22);
   font-family: "Montserrat", sans-serif;
-  font-size: 0.86rem;
+  font-size: 0.78rem;
   font-weight: 700;
 }
 
@@ -2073,12 +2075,12 @@ body {
 }
 
 .worker-flow-main {
-  padding: 1.5rem 0 2.5rem;
+  padding: 1.1rem 0 2rem;
 }
 
 .worker-flow-section-stack {
   display: grid;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .worker-flow-hero-card,
@@ -2099,7 +2101,7 @@ body {
 .worker-flow-focus-card,
 .worker-flow-detail-card,
 .worker-flow-empty {
-  padding: 1.35rem;
+  padding: 1.15rem;
 }
 
 .worker-flow-eyebrow,
@@ -2108,7 +2110,7 @@ body {
   margin: 0;
   color: var(--worker-muted);
   font-family: "Montserrat", sans-serif;
-  font-size: 0.76rem;
+  font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -2125,7 +2127,7 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .worker-flow-hero-card h1,
@@ -2135,8 +2137,8 @@ body {
 .worker-flow-workflow-head h2 {
   margin: 0.45rem 0 0;
   font-family: "Montserrat", sans-serif;
-  font-size: clamp(1.5rem, 2vw, 2.15rem);
-  line-height: 1.08;
+  font-size: clamp(1.22rem, 1.6vw, 1.7rem);
+  line-height: 1.12;
 }
 
 .worker-flow-hero-card p:last-child,
@@ -2150,9 +2152,9 @@ body {
 }
 
 .worker-flow-hero-actions {
-  min-width: 260px;
+  min-width: 220px;
   display: grid;
-  gap: 0.8rem;
+  gap: 0.65rem;
   justify-items: end;
 }
 
@@ -2187,7 +2189,7 @@ body {
 
 .worker-flow-refresh-note {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 0.8rem;
   text-align: right;
 }
 
@@ -2195,7 +2197,8 @@ body {
 .worker-flow-progress-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.85rem;
+  align-items: stretch;
 }
 
 .worker-flow-progress-grid {
@@ -2207,13 +2210,14 @@ body {
 }
 
 .worker-flow-stat-card {
-  padding: 1.15rem;
+  padding: 1rem;
   display: grid;
-  gap: 0.75rem;
+  gap: 0.55rem;
+  height: 100%;
 }
 
 .worker-flow-stat-card strong {
-  font-size: clamp(1.9rem, 3vw, 2.6rem);
+  font-size: clamp(1.55rem, 2.4vw, 2.15rem);
   line-height: 1;
 }
 
@@ -2223,13 +2227,13 @@ body {
 .worker-flow-step-card,
 .worker-flow-tabs {
   display: grid;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .worker-flow-profile-head,
 .worker-flow-profile-summary {
   display: grid;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .worker-flow-profile-head {
@@ -2238,24 +2242,31 @@ body {
 }
 
 .worker-flow-profile-avatar {
-  width: 84px;
-  height: 84px;
-  border-radius: 28px;
+  width: 72px;
+  height: 72px;
+  border-radius: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, rgba(203, 123, 43, 0.18), rgba(255, 255, 255, 0.96));
   border: 1px solid rgba(203, 123, 43, 0.22);
   font-family: "Montserrat", sans-serif;
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   font-weight: 700;
 }
 
 .worker-flow-next-job-grid,
 .worker-flow-detail-grid {
   display: grid;
+  gap: 0.85rem;
+}
+
+.worker-flow-next-job-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.worker-flow-detail-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
 }
 
 .worker-flow-detail-grid {
@@ -2263,40 +2274,40 @@ body {
 }
 
 .worker-flow-info-row {
-  padding: 0.95rem 1rem;
+  padding: 0.8rem 0.9rem;
   background: var(--worker-surface-strong);
-  border-radius: 20px;
+  border-radius: 18px;
   border: 1px solid rgba(88, 71, 49, 0.08);
 }
 
 .worker-flow-info-row span {
-  font-size: 0.88rem;
+  font-size: 0.76rem;
 }
 
 .worker-flow-info-row strong {
   max-width: 60%;
   text-align: right;
-  font-size: 0.96rem;
+  font-size: 0.86rem;
 }
 
 .worker-flow-job-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .worker-flow-job-card h3,
 .worker-flow-empty h3,
 .worker-flow-step-card h3 {
   margin: 0.35rem 0 0;
-  font-size: 1.25rem;
+  font-size: 1.05rem;
   font-family: "Montserrat", sans-serif;
 }
 
 .worker-flow-job-card {
-  padding: 1.2rem;
+  padding: 1rem;
   display: grid;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .worker-flow-job-actions,
@@ -2306,16 +2317,16 @@ body {
 }
 
 .worker-flow-btn {
-  min-height: 50px;
-  border-radius: 18px;
-  padding: 0 1.15rem;
+  min-height: 44px;
+  border-radius: 16px;
+  padding: 0 1rem;
   border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   text-decoration: none;
   font-family: "Montserrat", sans-serif;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2357,14 +2368,14 @@ body {
 }
 
 .worker-flow-status {
-  min-height: 34px;
-  padding: 0 0.9rem;
+  min-height: 30px;
+  padding: 0 0.78rem;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-family: "Montserrat", sans-serif;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2401,11 +2412,11 @@ body {
 }
 
 .worker-flow-tab {
-  min-height: 78px;
-  border-radius: 22px;
+  min-height: 68px;
+  border-radius: 18px;
   border: 1px solid rgba(88, 71, 49, 0.1);
   background: var(--worker-surface-strong);
-  padding: 1rem;
+  padding: 0.85rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2415,12 +2426,12 @@ body {
 }
 
 .worker-flow-tab span {
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 
 .worker-flow-tab strong {
-  font-size: 1.3rem;
+  font-size: 1.12rem;
 }
 
 .worker-flow-tab.is-active {
@@ -2431,7 +2442,7 @@ body {
 .worker-flow-text-link {
   color: var(--worker-primary-strong);
   font-family: "Montserrat", sans-serif;
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2444,13 +2455,13 @@ body {
 
 .worker-flow-input {
   width: 100%;
-  min-height: 54px;
-  border-radius: 16px;
+  min-height: 48px;
+  border-radius: 14px;
   border: 1px solid rgba(88, 71, 49, 0.16);
   background: #fffdf8;
   padding: 0 1rem;
   color: var(--worker-text);
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 .worker-flow-input:focus {
@@ -2464,10 +2475,10 @@ body {
 }
 
 .worker-flow-step-card {
-  padding: 1.1rem;
+  padding: 0.95rem;
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(88, 71, 49, 0.1);
-  border-radius: 22px;
+  border-radius: 18px;
 }
 
 .worker-flow-step-card.is-complete {
@@ -2477,10 +2488,10 @@ body {
 
 .worker-flow-feedback {
   margin: 0;
-  padding: 0.95rem 1rem;
-  border-radius: 18px;
+  padding: 0.82rem 0.9rem;
+  border-radius: 16px;
   border: 1px solid transparent;
-  font-size: 0.94rem;
+  font-size: 0.84rem;
 }
 
 .worker-flow-feedback.is-error {
@@ -2510,7 +2521,7 @@ body {
 }
 
 .worker-flow-logout {
-  min-height: 46px;
+  min-height: 42px;
 }
 
 @media (max-width: 1180px) {
@@ -2518,9 +2529,12 @@ body {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .worker-flow-job-list,
-  .worker-flow-detail-grid,
   .worker-flow-next-job-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .worker-flow-job-list,
+  .worker-flow-detail-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2566,21 +2580,22 @@ body {
 
 @media (max-width: 640px) {
   .worker-flow-shell {
-    width: calc(100% - 1rem);
+    padding-inline: 0.85rem;
   }
 
   .worker-flow-main {
-    padding-top: 1rem;
+    padding-top: 0.85rem;
   }
 
   .worker-flow-stats-grid,
   .worker-flow-progress-grid,
-  .worker-flow-tabs {
+  .worker-flow-tabs,
+  .worker-flow-next-job-grid {
     grid-template-columns: 1fr;
   }
 
   .worker-flow-brand strong {
-    font-size: 0.92rem;
+    font-size: 0.86rem;
   }
 
   .worker-flow-brand span,
@@ -2588,7 +2603,7 @@ body {
   .worker-flow-btn,
   .worker-flow-availability,
   .worker-flow-toggle {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
   }
 
   .worker-flow-info-row {
