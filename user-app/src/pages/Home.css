@@ -988,11 +988,423 @@
   font-size: 0.92rem;
 }
 
+.tasko-booking-location-card {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(183, 151, 77, 0.32);
+  background:
+    linear-gradient(180deg, rgba(255, 251, 243, 0.98) 0%, rgba(246, 239, 223, 0.92) 100%);
+  border-radius: 18px;
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+  box-shadow: 0 18px 36px rgba(83, 66, 24, 0.08);
+}
+
+.tasko-booking-location-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.tasko-booking-location-head h3 {
+  margin: 0.3rem 0 0;
+  color: #1c1c1c;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+}
+
+.tasko-booking-location-head p:last-child {
+  margin: 0.28rem 0 0;
+  color: #6a6353;
+  font-size: 0.92rem;
+}
+
+.tasko-booking-location-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(58, 58, 58, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+  color: #5d5340;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tasko-booking-location-status.is-success {
+  border-color: rgba(30, 122, 76, 0.28);
+  background: rgba(223, 244, 231, 0.92);
+  color: #205c3c;
+}
+
+.tasko-booking-location-status.is-info {
+  border-color: rgba(30, 95, 152, 0.22);
+  background: rgba(227, 238, 249, 0.92);
+  color: #1d4f79;
+}
+
+.tasko-booking-location-status.is-warning {
+  border-color: rgba(173, 117, 14, 0.26);
+  background: rgba(255, 243, 214, 0.94);
+  color: #8a5b08;
+}
+
+.tasko-booking-location-status.is-danger {
+  border-color: rgba(166, 56, 56, 0.24);
+  background: rgba(250, 228, 228, 0.96);
+  color: #8f3030;
+}
+
+.tasko-booking-location-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 1rem;
+}
+
+.tasko-booking-location-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.tasko-booking-location-address {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(183, 151, 77, 0.2);
+}
+
+.tasko-booking-location-address h4 {
+  margin: 0;
+  color: #1f1f1f;
+  font-family: "Montserrat", sans-serif;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.tasko-booking-location-address p:last-child {
+  margin: 0;
+  color: #6b6352;
+  font-size: 0.92rem;
+}
+
+.tasko-booking-location-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.tasko-booking-location-meta-item {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(58, 58, 58, 0.08);
+}
+
+.tasko-booking-location-meta-item span {
+  color: #7c7565;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-booking-location-meta-item strong {
+  color: #1f1f1f;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.tasko-booking-location-meta-item-wide {
+  grid-column: 1 / -1;
+}
+
+.tasko-booking-location-actions {
+  margin-top: 0;
+}
+
+.tasko-booking-location-toggle,
+.tasko-booking-location-link {
+  min-height: 44px;
+  border-radius: 12px;
+  padding: 0 1rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-booking-location-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tasko-booking-location-toggle.is-active {
+  border-color: rgba(183, 151, 77, 0.55);
+  background: rgba(198, 167, 94, 0.18);
+  color: #4f3e17;
+}
+
+.tasko-booking-location-link {
+  border: 1px solid rgba(58, 58, 58, 0.24);
+  background: #ffffff;
+  color: #1f1f1f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.tasko-booking-location-link:hover {
+  background: #efefef;
+}
+
+.tasko-booking-location-alert {
+  margin: 0;
+  padding: 0.82rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(58, 58, 58, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  color: #544b3c;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.tasko-booking-location-alert.is-success {
+  border-color: rgba(30, 122, 76, 0.2);
+  background: rgba(223, 244, 231, 0.92);
+  color: #205c3c;
+}
+
+.tasko-booking-location-alert.is-info {
+  border-color: rgba(30, 95, 152, 0.18);
+  background: rgba(227, 238, 249, 0.94);
+  color: #1d4f79;
+}
+
+.tasko-booking-location-alert.is-warning {
+  border-color: rgba(173, 117, 14, 0.22);
+  background: rgba(255, 243, 214, 0.96);
+  color: #8a5b08;
+}
+
+.tasko-booking-location-alert.is-danger {
+  border-color: rgba(166, 56, 56, 0.22);
+  background: rgba(250, 228, 228, 0.96);
+  color: #8f3030;
+}
+
+.tasko-booking-adjust-panel {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgba(183, 151, 77, 0.24);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.tasko-booking-adjust-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.tasko-booking-adjust-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.tasko-booking-adjust-field span {
+  color: #6c624d;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasko-booking-adjust-field input {
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(58, 58, 58, 0.16);
+  background: #fff;
+  padding: 0 0.85rem;
+  color: #1f1f1f;
+  font-size: 0.94rem;
+}
+
+.tasko-booking-adjust-nudges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.tasko-booking-location-map {
+  position: relative;
+  min-height: 320px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(58, 58, 58, 0.1);
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.7), rgba(238, 230, 210, 0.7)),
+    rgba(246, 239, 223, 0.9);
+}
+
+.tasko-booking-location-map-canvas {
+  width: 100%;
+  min-height: 320px;
+  height: 100%;
+  opacity: 0;
+  display: block;
+  transition: opacity 0.2s ease;
+}
+
+.tasko-booking-location-map-canvas.is-ready {
+  opacity: 1;
+}
+
+.tasko-booking-location-map-canvas.is-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tasko-booking-location-map-frame {
+  width: 100%;
+  min-height: 320px;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #f6efdf;
+}
+
+.tasko-booking-location-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  font: inherit;
+}
+
+.tasko-booking-location-map .leaflet-container img,
+.tasko-booking-location-map .leaflet-container .leaflet-tile,
+.tasko-booking-location-map .leaflet-container .leaflet-marker-icon,
+.tasko-booking-location-map .leaflet-container .leaflet-marker-shadow {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.tasko-booking-location-map .leaflet-control-zoom a {
+  color: #3e3118;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom-color: rgba(183, 151, 77, 0.2);
+}
+
+.tasko-booking-location-map .leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.82);
+  color: #675c49;
+}
+
+.tasko-booking-location-map .leaflet-control-attribution a {
+  color: #7a5e1a;
+}
+
+.tasko-booking-map-pin {
+  background: transparent;
+  border: 0;
+}
+
+.tasko-booking-map-pin span {
+  position: relative;
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  transform-origin: center;
+  background: linear-gradient(180deg, #d6b46a 0%, #b4872c 100%);
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 22px rgba(83, 66, 24, 0.28);
+}
+
+.tasko-booking-map-pin span::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.tasko-booking-location-map-placeholder {
+  position: absolute;
+  inset: 0;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  gap: 0.4rem;
+  padding: 1.2rem;
+  text-align: center;
+  background: rgba(246, 239, 223, 0.92);
+}
+
+.tasko-booking-location-map-placeholder strong {
+  color: #433722;
+  font-family: "Montserrat", sans-serif;
+  font-size: 0.95rem;
+}
+
+.tasko-booking-location-map-placeholder span {
+  color: #6f6656;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .tasko-booking-actions-row {
   margin-top: 0.12rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
+}
+
+@media (max-width: 900px) {
+  .tasko-booking-location-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-booking-location-map {
+    min-height: 280px;
+  }
+}
+
+@media (max-width: 640px) {
+  .tasko-booking-location-head {
+    flex-direction: column;
+  }
+
+  .tasko-booking-location-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .tasko-booking-adjust-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tasko-booking-submit,

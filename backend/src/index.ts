@@ -38,20 +38,26 @@ const dashboardReadCache = new Map<string, { expiresAt: number; value: unknown }
 const dashboardReadCacheTtlMs = Math.max(5000, Number(process.env.DASHBOARD_READ_CACHE_MS || 30000));
 const adminAnalyticsCacheTtlMs = Math.max(5000, Number(process.env.ADMIN_ANALYTICS_CACHE_MS || 60000));
 let adminAnalyticsCache: { expiresAt: number; value: Record<string, number> } | null = null;
-const reverseGeocodeCache = new Map<
+type GeocodeProvider = "google_maps" | "openstreetmap" | "coordinates" | "address_only";
+type GeocodeResult = {
+  address: string;
+  latitude: number;
+  longitude: number;
+  placeId: string;
+  provider: GeocodeProvider;
+};
+const geocodeCache = new Map<
   string,
   {
     expiresAt: number;
-    value: {
-      address: string;
-      latitude: number;
-      longitude: number;
-      placeId: string;
-      provider: "google_maps";
-    };
+    value: GeocodeResult;
   }
 >();
-const reverseGeocodeCacheTtlMs = Math.max(60000, Number(process.env.GOOGLE_GEOCODE_CACHE_MS || 30 * 60 * 1000));
+const geocodeCacheTtlMs = Math.max(60000, Number(process.env.GOOGLE_GEOCODE_CACHE_MS || 30 * 60 * 1000));
+const nominatimHeaders = {
+  "User-Agent": "Tasko/1.0 (local-development geocoder)",
+  "Accept-Language": "en-IN,en;q=0.9"
+};
 
 app.use(
   cors({
@@ -460,26 +466,43 @@ function buildCoordinateCacheKey(latitude: number, longitude: number): string {
   return `${roundCoordinate(latitude, 5)}:${roundCoordinate(longitude, 5)}`;
 }
 
-async function reverseGeocodeCoordinates(latitude: number, longitude: number): Promise<{
-  address: string;
-  latitude: number;
-  longitude: number;
-  placeId: string;
-  provider: "google_maps";
-}> {
-  const apiKey = readQueryText(process.env.GOOGLE_MAPS_API_KEY);
-  if (!apiKey) {
-    throw new Error("GOOGLE_MAPS_API_KEY is not configured.");
-  }
+function buildForwardGeocodeCacheKey(address: string): string {
+  return `forward:${readQueryText(address).replace(/\s+/g, " ").toLowerCase()}`;
+}
 
+function createCoordinateFallbackResult(latitude: number, longitude: number): GeocodeResult {
   const normalizedLatitude = roundCoordinate(latitude);
   const normalizedLongitude = roundCoordinate(longitude);
-  const cacheKey = buildCoordinateCacheKey(normalizedLatitude, normalizedLongitude);
-  const cached = reverseGeocodeCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt) {
-    return cached.value;
-  }
+  return {
+    address: `Lat ${normalizedLatitude.toFixed(6)}, Lng ${normalizedLongitude.toFixed(6)}`,
+    latitude: normalizedLatitude,
+    longitude: normalizedLongitude,
+    placeId: "",
+    provider: "coordinates"
+  };
+}
 
+function createForwardGeocodeFallback(address: string): {
+  address: string;
+  placeId: string;
+  provider: GeocodeProvider;
+  resolved: boolean;
+} {
+  return {
+    address: readQueryText(address),
+    placeId: "",
+    provider: "address_only",
+    resolved: false
+  };
+}
+
+async function reverseGeocodeWithGoogle(
+  latitude: number,
+  longitude: number,
+  apiKey: string
+): Promise<GeocodeResult | null> {
+  const normalizedLatitude = roundCoordinate(latitude);
+  const normalizedLongitude = roundCoordinate(longitude);
   const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
   url.searchParams.set("latlng", `${normalizedLatitude},${normalizedLongitude}`);
   url.searchParams.set("key", apiKey);
@@ -502,20 +525,223 @@ async function reverseGeocodeCoordinates(latitude: number, longitude: number): P
   const firstResult = Array.isArray(payload.results)
     ? payload.results.find((entry) => readQueryText(entry.formatted_address))
     : null;
-  const result = {
-    address: readQueryText(firstResult?.formatted_address),
+  if (!firstResult) {
+    return null;
+  }
+
+  return {
+    address: readQueryText(firstResult.formatted_address),
     latitude: normalizedLatitude,
     longitude: normalizedLongitude,
-    placeId: readQueryText(firstResult?.place_id),
-    provider: "google_maps" as const
+    placeId: readQueryText(firstResult.place_id),
+    provider: "google_maps"
   };
+}
 
-  reverseGeocodeCache.set(cacheKey, {
-    value: result,
-    expiresAt: Date.now() + reverseGeocodeCacheTtlMs
+async function reverseGeocodeWithOpenStreetMap(latitude: number, longitude: number): Promise<GeocodeResult | null> {
+  const normalizedLatitude = roundCoordinate(latitude);
+  const normalizedLongitude = roundCoordinate(longitude);
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(normalizedLatitude));
+  url.searchParams.set("lon", String(normalizedLongitude));
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("addressdetails", "1");
+
+  const osmResponse = await fetch(url.toString(), {
+    headers: nominatimHeaders
   });
+  if (!osmResponse.ok) {
+    throw new Error(`OpenStreetMap reverse geocoding failed with status ${osmResponse.status}.`);
+  }
 
-  return result;
+  const payload = (await osmResponse.json()) as {
+    display_name?: string;
+    place_id?: string | number;
+  };
+  const address = readQueryText(payload.display_name);
+  if (!address) {
+    return null;
+  }
+
+  return {
+    address,
+    latitude: normalizedLatitude,
+    longitude: normalizedLongitude,
+    placeId: readQueryText(payload.place_id),
+    provider: "openstreetmap"
+  };
+}
+
+async function reverseGeocodeCoordinates(latitude: number, longitude: number): Promise<GeocodeResult> {
+  const normalizedLatitude = roundCoordinate(latitude);
+  const normalizedLongitude = roundCoordinate(longitude);
+  const cacheKey = buildCoordinateCacheKey(normalizedLatitude, normalizedLongitude);
+  const cached = geocodeCache.get(`reverse:${cacheKey}`);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.value;
+  }
+
+  const apiKey = readQueryText(process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_BROWSER_API_KEY);
+  const providers: Array<() => Promise<GeocodeResult | null>> = [];
+  if (apiKey) {
+    providers.push(() => reverseGeocodeWithGoogle(normalizedLatitude, normalizedLongitude, apiKey));
+  }
+  providers.push(() => reverseGeocodeWithOpenStreetMap(normalizedLatitude, normalizedLongitude));
+
+  let lastError: unknown = null;
+  for (const provider of providers) {
+    try {
+      const result = await provider();
+      if (!result) {
+        continue;
+      }
+      geocodeCache.set(`reverse:${cacheKey}`, {
+        value: result,
+        expiresAt: Date.now() + geocodeCacheTtlMs
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    console.warn("Reverse geocoding providers failed, using coordinate fallback:", getErrorMessage(lastError));
+  }
+
+  const fallbackResult = createCoordinateFallbackResult(normalizedLatitude, normalizedLongitude);
+  geocodeCache.set(`reverse:${cacheKey}`, {
+    value: fallbackResult,
+    expiresAt: Date.now() + geocodeCacheTtlMs
+  });
+  return fallbackResult;
+}
+
+async function forwardGeocodeWithGoogle(address: string, apiKey: string): Promise<GeocodeResult | null> {
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("address", address);
+  url.searchParams.set("key", apiKey);
+
+  const googleResponse = await fetch(url.toString());
+  if (!googleResponse.ok) {
+    throw new Error(`Google address geocoding failed with status ${googleResponse.status}.`);
+  }
+
+  const payload = (await googleResponse.json()) as {
+    status?: string;
+    error_message?: string;
+    results?: Array<{
+      formatted_address?: string;
+      place_id?: string;
+      geometry?: {
+        location?: {
+          lat?: number;
+          lng?: number;
+        };
+      };
+    }>;
+  };
+  const providerStatus = readQueryText(payload.status);
+  if (providerStatus && providerStatus !== "OK" && providerStatus !== "ZERO_RESULTS") {
+    throw new Error(readQueryText(payload.error_message) || `Google address geocoding returned ${providerStatus}.`);
+  }
+
+  const firstResult = Array.isArray(payload.results)
+    ? payload.results.find((entry) => {
+        const latitude = entry.geometry?.location?.lat;
+        const longitude = entry.geometry?.location?.lng;
+        return readQueryText(entry.formatted_address) && Number.isFinite(latitude) && Number.isFinite(longitude);
+      })
+    : null;
+  if (!firstResult) {
+    return null;
+  }
+
+  return {
+    address: readQueryText(firstResult.formatted_address),
+    latitude: roundCoordinate(Number(firstResult.geometry?.location?.lat)),
+    longitude: roundCoordinate(Number(firstResult.geometry?.location?.lng)),
+    placeId: readQueryText(firstResult.place_id),
+    provider: "google_maps"
+  };
+}
+
+async function forwardGeocodeWithOpenStreetMap(address: string): Promise<GeocodeResult | null> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("q", address);
+
+  const osmResponse = await fetch(url.toString(), {
+    headers: nominatimHeaders
+  });
+  if (!osmResponse.ok) {
+    throw new Error(`OpenStreetMap address geocoding failed with status ${osmResponse.status}.`);
+  }
+
+  const payload = (await osmResponse.json()) as Array<{
+    display_name?: string;
+    lat?: string;
+    lon?: string;
+    place_id?: string | number;
+  }>;
+  const firstResult = Array.isArray(payload)
+    ? payload.find((entry) => readQueryText(entry.display_name) && readFiniteNumber(entry.lat) !== null && readFiniteNumber(entry.lon) !== null)
+    : null;
+  if (!firstResult) {
+    return null;
+  }
+
+  return {
+    address: readQueryText(firstResult.display_name),
+    latitude: roundCoordinate(Number(firstResult.lat)),
+    longitude: roundCoordinate(Number(firstResult.lon)),
+    placeId: readQueryText(firstResult.place_id),
+    provider: "openstreetmap"
+  };
+}
+
+async function forwardGeocodeAddress(address: string): Promise<GeocodeResult> {
+  const normalizedAddress = readQueryText(address);
+  if (!normalizedAddress) {
+    throw new Error("Address is required for geocoding.");
+  }
+
+  const cacheKey = buildForwardGeocodeCacheKey(normalizedAddress);
+  const cached = geocodeCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.value;
+  }
+
+  const apiKey = readQueryText(process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_BROWSER_API_KEY);
+  const providers: Array<() => Promise<GeocodeResult | null>> = [];
+  if (apiKey) {
+    providers.push(() => forwardGeocodeWithGoogle(normalizedAddress, apiKey));
+  }
+  providers.push(() => forwardGeocodeWithOpenStreetMap(normalizedAddress));
+
+  let lastError: unknown = null;
+  for (const provider of providers) {
+    try {
+      const result = await provider();
+      if (!result) {
+        continue;
+      }
+      geocodeCache.set(cacheKey, {
+        value: result,
+        expiresAt: Date.now() + geocodeCacheTtlMs
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+  throw new Error("No address geocoding provider returned coordinates.");
 }
 
 type UserAddressRecord = {
@@ -977,6 +1203,7 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (_req: Request, res
 app.get("/api/config/client", (_req: Request, res: Response) => {
   res.json({
     apiBaseUrl: "http://localhost:5000",
+    googleMapsApiKey: process.env.GOOGLE_MAPS_BROWSER_API_KEY || process.env.GOOGLE_MAPS_API_KEY || "",
     firebaseConfig: {
       apiKey: process.env.FIREBASE_WEB_API_KEY || "",
       authDomain: process.env.FIREBASE_WEB_AUTH_DOMAIN || "",
@@ -1006,11 +1233,25 @@ app.post("/api/location/reverse-geocode", async (req: Request, res: Response) =>
     const result = await reverseGeocodeCoordinates(latitude, longitude);
     return res.json(result);
   } catch (error) {
-    const message = getErrorMessage(error);
-    return res.status(message.includes("GOOGLE_MAPS_API_KEY") ? 503 : 500).json({
+    return res.status(500).json({
       message: "Failed to reverse geocode the selected coordinates.",
-      error: message
+      error: getErrorMessage(error)
     });
+  }
+});
+
+app.post("/api/location/forward-geocode", async (req: Request, res: Response) => {
+  const address = readQueryText(isRecord(req.body) ? req.body.address ?? req.body.query : undefined);
+  try {
+    if (!address) {
+      return res.status(400).json({ message: "A valid address is required." });
+    }
+
+    const result = await forwardGeocodeAddress(address);
+    return res.json(result);
+  } catch (error) {
+    console.warn("Forward geocoding providers failed, using address-only fallback:", getErrorMessage(error));
+    return res.json(createForwardGeocodeFallback(address));
   }
 });
 
@@ -1944,7 +2185,8 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
     const packageId = readText(req.body.packageId);
     const recurringDays = serviceType === "package" ? readText(req.body.recurringDays) : "";
     const specialInstructions = readText(req.body.specialInstructions) || readText(req.body.notes);
-    const directAddress = readText(req.body.address) || readText(req.body.serviceAddress);
+    const requestedFormattedAddress = readText(req.body.formattedAddress) || readText(req.body.formatted_address);
+    const directAddress = readText(req.body.address) || requestedFormattedAddress || readText(req.body.serviceAddress);
     const rawServiceLatitude = req.body.latitude ?? req.body.serviceLatitude ?? req.body.service_latitude;
     const rawServiceLongitude = req.body.longitude ?? req.body.serviceLongitude ?? req.body.service_longitude;
     const rawServiceLocationAccuracy =
@@ -2017,10 +2259,12 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       serviceLocationAccuracy !== null ? Math.round(serviceLocationAccuracy) : null;
 
     let address = directAddress;
+    let formattedAddress = requestedFormattedAddress || directAddress;
     if (!address && userId) {
       const inMemoryUser = inMemoryUsers.get(userId);
       if (inMemoryUser) {
         address = address || readText(inMemoryUser.address);
+        formattedAddress = formattedAddress || address;
         userName = userName || readText(inMemoryUser.name);
         userEmail = userEmail || readText(inMemoryUser.email) || readText(inMemoryUser.mail);
         userPhone = userPhone || readText(inMemoryUser.mobile) || readText(inMemoryUser.number);
@@ -2032,6 +2276,7 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
           if (userDoc.exists) {
             const userData = userDoc.data() || {};
             address = address || readText(userData.address);
+            formattedAddress = formattedAddress || address;
             userName = userName || readText(userData.name);
             userEmail = userEmail || readText(userData.email) || readText(userData.mail);
             userPhone = userPhone || readText(userData.mobile) || readText(userData.number);
@@ -2046,8 +2291,26 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
 
       if (!address) {
         address = readText(inMemoryUser?.address);
+        formattedAddress = formattedAddress || address;
       }
     }
+
+    if (normalizedServiceLatitude !== null && normalizedServiceLongitude !== null && !formattedAddress) {
+      try {
+        const reverseGeocodedLocation = await reverseGeocodeCoordinates(
+          normalizedServiceLatitude,
+          normalizedServiceLongitude
+        );
+        formattedAddress = reverseGeocodedLocation.address || formattedAddress;
+        address = address || formattedAddress;
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to reverse geocode booking coordinates:", error);
+      }
+    }
+
+    address = address || formattedAddress;
+    formattedAddress = formattedAddress || address;
 
     const pricingSelection = {
       selectedPackage:
@@ -2123,6 +2386,8 @@ app.post("/api/bookings", async (req: Request, res: Response) => {
       booking_date: serviceDate,
       time_slot: preferredTimeSlot,
       address,
+      formattedAddress,
+      formatted_address: formattedAddress,
       ...(normalizedServiceLatitude !== null
         ? {
             serviceLatitude: normalizedServiceLatitude,
